@@ -189,9 +189,9 @@ export function ProductForm({ mode, initial }: Props) {
                 : "border-[var(--color-border)] bg-white hover:border-[var(--color-primary)]"
             }`}
           >
-            <div className="font-medium">Конфета</div>
+            <div className="font-medium">Часть набора</div>
             <div className={`text-xs ${form.type === "recipe" ? "text-white/80" : "text-[var(--color-muted)]"}`}>
-              Для состава наборов, не в каталоге
+              Конфета или компонент состава набора, не в каталоге
             </div>
           </button>
         </div>

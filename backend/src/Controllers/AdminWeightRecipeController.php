@@ -291,7 +291,7 @@ class AdminWeightRecipeController
 
             // 3) По транслиту названия (fallback — если файлы названы по имени)
             $notResolved = $pdo->query(
-                "SELECT id, name FROM products WHERE type = 'simple'"
+                "SELECT id, name FROM products WHERE type IN ('simple', 'recipe')"
             )->fetchAll();
 
             foreach ($notResolved as $p) {

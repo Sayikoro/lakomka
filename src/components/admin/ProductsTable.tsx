@@ -14,7 +14,7 @@ type Filter = "all" | "catalog" | "hidden" | "bundles" | "simple" | "recipe";
 const TYPE_LABEL: Record<string, string> = {
   simple: "Товар",
   bundle: "Набор",
-  recipe: "Конфета",
+  recipe: "Часть набора",
 };
 
 const TYPE_BADGE: Record<string, string> = {

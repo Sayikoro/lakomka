@@ -243,6 +243,29 @@ if ($bundles) {
     }
 }
 
+// Типы: товар, входящий составом в наборы (конфеты и пр.) — это
+// «часть набора» (recipe), а не самостоятельный товар (simple).
+// bundle не трогаем; товары без legacy_wc_id (созданные вручную) не трогаем.
+$pdo->exec("
+    UPDATE products SET type = 'recipe'
+    WHERE type = 'simple'
+      AND legacy_wc_id IS NOT NULL
+      AND id IN (SELECT DISTINCT component_id FROM bundle_items)
+");
+$recipeSynced = $pdo->query(
+    "SELECT COUNT(*) FROM products WHERE type = 'recipe' AND legacy_wc_id IS NOT NULL
+     AND id NOT IN (SELECT DISTINCT component_id FROM bundle_items)"
+)->fetchColumn();
+if ($recipeSynced > 0) {
+    // импортированный товар больше не входит ни в один набор — снова простой
+    $pdo->exec("
+        UPDATE products SET type = 'simple'
+        WHERE type = 'recipe'
+          AND legacy_wc_id IS NOT NULL
+          AND id NOT IN (SELECT DISTINCT component_id FROM bundle_items)
+    ");
+}
+
 $pdo->exec("COMMIT");
 
 echo "OK importirovano: {$imported}, propushcheno: {$skipped}, komponentov: {$components}\n";
