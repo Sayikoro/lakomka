@@ -22,36 +22,41 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <>
-      {/* Hero — скруглённый снизу, фоновая картинка, кастомные шрифты */}
+      {/* Hero — во всю высоту экрана, текст справа, затемнение, кнопка */}
       <section
-        className="relative overflow-hidden text-white"
+        className="relative flex min-h-[100svh] items-center overflow-hidden text-white"
         style={{
           borderRadius: "0 0 var(--radius-hero) var(--radius-hero)",
-          backgroundImage: "url('/hero-bg.png')",
+          backgroundImage: "url('/hero-bg.jpg')",
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundColor: "#0a0a0a",
         }}
       >
-        {/* затемнение поверх фото, чтобы белый текст читался */}
-        <div className="absolute inset-0 bg-black/40" aria-hidden />
-        <div className="relative mx-auto flex max-w-[1200px] flex-col items-center px-4 pb-16 pt-14 text-center">
-          <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white sm:text-[52px]">
-            новогодняя
-          </p>
-          <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white sm:text-[52px]">
-            коллекция
-          </p>
-          <p className="font-display mt-2 text-[52px] leading-none text-white">
-            2027
-          </p>
-          <Link
-            href="/catalog"
-            className="mt-10 inline-flex items-center justify-center rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-5 py-[20px] text-[14px] font-semibold uppercase leading-[13px] text-white transition hover:bg-[var(--color-primary-hover)]"
-            style={{ border: "2px solid transparent" }}
-          >
-            Каталог
-          </Link>
+        {/* затемнение поверх фото: сильнее справа, где текст */}
+        <div
+          className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/35 to-black/10"
+          aria-hidden
+        />
+        <div className="relative mx-auto w-full max-w-[1200px] px-4 py-20">
+          <div className="flex flex-col items-end text-right">
+            <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+              новогодняя
+            </p>
+            <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+              коллекция
+            </p>
+            <p className="font-display mt-3 text-[52px] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
+              2027
+            </p>
+            <Link
+              href="/catalog"
+              className="mt-10 inline-flex items-center justify-center rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-[20px] text-[14px] font-semibold uppercase leading-[13px] text-white transition hover:bg-[var(--color-primary-hover)]"
+              style={{ border: "2px solid transparent" }}
+            >
+              Каталог
+            </Link>
+          </div>
         </div>
       </section>
 
