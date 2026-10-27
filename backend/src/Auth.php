@@ -65,7 +65,12 @@ class Auth
      */
     public static function requireAuth(): array
     {
+        // Токен берём из httpOnly-cookie (основной путь).
+        // Fallback: заголовок Authorization: Bearer ... (для API-клиентов и тестов).
         $token = $_COOKIE['admin_token'] ?? '';
+        if ($token === '' && preg_match('/Bearer\s+(\S+)/i', $_SERVER['HTTP_AUTHORIZATION'] ?? '', $m)) {
+            $token = $m[1];
+        }
         if ($token === '') {
             http_response_code(401);
             echo json_encode(['error' => 'Unauthorized']);

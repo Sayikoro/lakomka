@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:push": "echo 'Проект использует PHP+SQLite, схема: backend/scripts/migrate.php — no-op'",
+    "backend:migrate": "php backend/scripts/migrate.php",
+    "backend:seed": "php backend/scripts/seed-admin.php && php backend/scripts/seed-categories.php && php backend/scripts/seed-settings.php"
   },
   "dependencies": {
     "@hookform/resolvers": "^6.0.0",

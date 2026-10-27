@@ -7,10 +7,16 @@ const api = axios.create({
   timeout: 15000,
 });
 
+// Авторизация — через httpOnly-cookie admin_token (ставится бэкендом при логине).
+// withCredentials нужен только при кросс-доменном API в локальной разработке.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("admin_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    const apiOrigin = process.env.NEXT_PUBLIC_API_URL?.startsWith("http")
+      ? new URL(process.env.NEXT_PUBLIC_API_URL).origin
+      : null;
+    if (apiOrigin && apiOrigin !== window.location.origin) {
+      config.withCredentials = true;
+    }
   }
   return config;
 });

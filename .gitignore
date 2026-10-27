@@ -43,3 +43,12 @@ next-env.d.ts
 !.env.example
 
 
+
+# backend: секреты, БД и рантайм-файлы
+backend/config.local.php
+backend/storage/
+backend/public/uploads-test/
+
+# next.js env
+.env.local
+.env*.local

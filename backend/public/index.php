@@ -17,10 +17,19 @@ set_error_handler(function ($errno, $errstr, $errfile, $errline) {
 
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: http://localhost:3000');
-header('Access-Control-Allow-Credentials: true');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+// CORS: отдаём разрешённые origin из конфига (или same-origin — заголовки не нужны).
+// При same-origin проксировании (прод, превью) браузер сам не требует CORS.
+$_corsConfig = require __DIR__ . '/../config.php';
+$_origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($_origin !== '' && in_array($_origin, $_corsConfig['cors_allowed_origins'] ?? [], true)) {
+    header('Access-Control-Allow-Origin: ' . $_origin);
+    header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization');
+    header('Vary: Origin');
+}
+unset($_corsConfig, $_origin);
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);

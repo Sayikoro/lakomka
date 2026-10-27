@@ -1,14 +1,41 @@
 <?php
+/**
+ * Конфигурация бэкенда.
+ *
+ * Секреты (jwt_secret, encryption_key, пароли) НЕ должны храниться здесь —
+ * этот файл коммитится в git. Положите их в backend/config.local.php
+ * (в .gitignore) — он автоматически перекроет значения ниже.
+ *
+ * Шаблон: config.example.php
+ * Генерация ключей: php -r "echo bin2hex(random_bytes(32));"
+ */
 
-return [
+$config = [
     'db_path' => __DIR__ . '/storage/database.sqlite',
-    'debug'   => true,
+    'debug'   => false,
     'admin_email' => 'admin@lakomka.local',
-    'jwt_secret' => 'd1c64a99756b4513285f1e574873355ea05ae6ed9b5412affe50da64328548d4',
+
+    // TTL JWT-токена: 7 дней
     'jwt_ttl' => 7 * 24 * 3600,
 
-    // Ключ шифрования PII заказов (64 hex-символа = 32 байта)
-    // Сгенерируй: php -r "echo bin2hex(random_bytes(32));"
-    // ⚠️ СОХРАНИ В МЕНЕДЖЕРЕ ПАРОЛЕЙ — без него заказы не расшифруются
-    'encryption_key' => '411c752c0e09573dc8fa4344e9c97b8c5b83980df58f784b0406c6954b2d56e3',
+    // Разрешённые origin для CORS (для локальной разработки).
+    // В проде фронт и API обычно за одним доменом — CORS не нужен.
+    'cors_allowed_origins' => [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ],
+
+    // ⚠️ Секреты ниже — заглушки. Переопределите в config.local.php:
+    'jwt_secret'     => '',   // ОБЯЗАТЕЛЬНО задать в config.local.php
+    'encryption_key' => '',   // ОБЯЗАТЕЛЬНО задать в config.local.php
 ];
+
+$localPath = __DIR__ . '/config.local.php';
+if (is_file($localPath)) {
+    $local = require $localPath;
+    if (is_array($local)) {
+        $config = array_merge($config, $local);
+    }
+}
+
+return $config;

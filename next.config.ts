@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+// Проксирование /api/* на PHP-бэкенд (сервер-сайд, CORS не нужен).
+// Целевой адрес настраивается через API_PROXY_TARGET (по умолчанию — локальный PHP).
+const API_PROXY_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -7,6 +11,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "www.lakomkakhv.ru", pathname: "/wp-content/uploads/**" },
       { protocol: "https", hostname: "placehold.co", pathname: "/**" },
     ],
+  },
+
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${API_PROXY_TARGET}/api/:path*`,
+      },
+    ];
   },
 
   async redirects() {
