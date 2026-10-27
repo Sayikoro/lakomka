@@ -34,8 +34,28 @@ export default async function HomePage() {
         slider={cfg.hero_slider_enabled}
       />
 
-      {/* Контент, заезжающий на hero: выше слой, скругление сверху, тень */}
-      <div className="relative z-10 rounded-t-[var(--radius-hero)] bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
+      {/* Контент, заезжающий на hero: выше слой, тень. Вырез «наружу»:
+          вогнутые сопряжения уходят к краям экрана вверх, картинка
+          по бокам не торчит, а плавно срезается вырезом */}
+      <div className="relative z-10 bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
+        <svg
+          aria-hidden
+          width="80"
+          height="80"
+          viewBox="0 0 80 80"
+          className="pointer-events-none absolute bottom-full left-0 block"
+        >
+          <path d="M0 0 A80 80 0 0 0 80 80 L0 80 Z" style={{ fill: "var(--color-bg-page)" }} />
+        </svg>
+        <svg
+          aria-hidden
+          width="80"
+          height="80"
+          viewBox="0 0 80 80"
+          className="pointer-events-none absolute bottom-full right-0 block"
+        >
+          <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
+        </svg>
         {/* Info cards — СКИДКА / ДОСТАВКА / ОПЛАТА */}
         <section className="mx-auto max-w-[1200px] px-4 pt-10">
           <InfoCards />

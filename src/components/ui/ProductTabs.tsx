@@ -54,12 +54,13 @@ export function ProductTabs({ product }: Props) {
   return (
     <>
       <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
-        <div className="flex flex-wrap gap-1 border-b border-[var(--color-border)] px-2">
+        {/* Табы: на телефоне мельче и строго в одну строку (без переноса) */}
+        <div className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)] px-2 [scrollbar-width:none] sm:flex-wrap sm:overflow-x-visible [&::-webkit-scrollbar]:hidden">
           {tabs.map((key) => {
             const isActive = active === key;
             return (
               <button key={key} type="button" onClick={() => setActive(key)}
-                className={`relative px-4 py-3 text-sm font-medium transition ${
+                className={`relative whitespace-nowrap px-3 py-2.5 text-[13px] font-medium transition sm:px-4 sm:py-3 sm:text-sm ${
                   isActive
                     ? "text-[var(--color-primary)]"
                     : "text-[var(--color-muted)] hover:text-[var(--color-heading)]"
@@ -134,11 +135,20 @@ export function ProductTabs({ product }: Props) {
           )}
 
           {active === "composition" && isBundle && (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-              {product.bundle_items!.map((item) => (
-                <CompositionCard key={item.id} item={item} onDetails={() => setSelected(item)} />
-              ))}
-            </div>
+            <>
+              {/* Телефон: список — фото, название, под ним производитель, кнопка «Подробнее» */}
+              <ul className="m-0 list-none space-y-2 p-0 sm:hidden">
+                {product.bundle_items!.map((item) => (
+                  <CompositionRow key={item.id} item={item} onDetails={() => setSelected(item)} />
+                ))}
+              </ul>
+              {/* ПК/планшет: карточная система */}
+              <div className="hidden grid-cols-3 gap-2 sm:grid sm:grid-cols-4 lg:grid-cols-6">
+                {product.bundle_items!.map((item) => (
+                  <CompositionCard key={item.id} item={item} onDetails={() => setSelected(item)} />
+                ))}
+              </div>
+            </>
           )}
         </div>
       </section>
@@ -207,15 +217,15 @@ function CompositionCard({ item, onDetails }: { item: BundleItem; onDetails: () 
           </span>
         )}
       </div>
-            <div className="flex flex-1 flex-col gap-1 p-2">
+      <div className="flex flex-1 flex-col gap-1 p-2">
+        <p className="m-0 line-clamp-2 text-xs font-medium leading-snug text-[var(--color-heading)]">
+          {c?.name ?? "—"}
+        </p>
         {c?.manufacturer && (
-          <p className="line-clamp-1 text-[10px] text-[var(--color-muted)]">
+          <p className="m-0 line-clamp-1 text-[10px] text-[var(--color-muted)]">
             {c.manufacturer}
           </p>
         )}
-        <p className="line-clamp-2 text-xs font-medium leading-snug text-[var(--color-heading)]">
-          {c?.name ?? "—"}
-        </p>
         <button type="button" onClick={onDetails}
           className="mt-auto inline-flex items-center gap-1 self-start rounded-[var(--radius-btn)] border border-[var(--color-border)] px-2 py-1 text-[11px] font-medium text-[var(--color-primary)] transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white">
           Подробнее
@@ -226,5 +236,49 @@ function CompositionCard({ item, onDetails }: { item: BundleItem; onDetails: () 
         </button>
       </div>
     </div>
+  );
+}
+
+/* Мобильный список состава: фото слева, справа название → производитель → «Подробнее» */
+function CompositionRow({ item, onDetails }: { item: BundleItem; onDetails: () => void }) {
+  const c = item.component;
+  const img = c?.images?.[0]?.url ?? null;
+
+  return (
+    <li className="flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-2">
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[14px] bg-[var(--color-bg-soft)]">
+        {img ? (
+          <Image src={img} alt={c?.name ?? ""} fill sizes="80px"
+            className="object-contain p-1.5" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-[10px] text-[var(--color-muted)]">
+            Нет фото
+          </div>
+        )}
+        {item.quantity > 1 && (
+          <span className="absolute right-1 top-1 rounded-full bg-[var(--color-primary)] px-1.5 py-0.5 text-[9px] font-semibold text-white">
+            × {item.quantity}
+          </span>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="m-0 line-clamp-2 text-[13px] font-medium leading-snug text-[var(--color-heading)]">
+          {c?.name ?? "—"}
+        </p>
+        {c?.manufacturer && (
+          <p className="m-0 line-clamp-1 text-[11px] text-[var(--color-muted)]">
+            {c.manufacturer}
+          </p>
+        )}
+        <button type="button" onClick={onDetails}
+          className="mt-1 inline-flex items-center gap-1 self-start rounded-[var(--radius-btn)] border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-primary)] transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white">
+          Подробнее
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </button>
+      </div>
+    </li>
   );
 }

@@ -82,9 +82,9 @@ export default async function ProductPage({ params }: PageProps) {
     <>
       <ProductJsonLd product={product} />
 
-      <div className="mx-auto max-w-[1200px] px-4 py-8">
+      <div className="mx-auto max-w-[1200px] px-4 py-5 sm:py-8">
         {/* Хлебные крошки */}
-        <nav className="mb-6 text-sm text-[var(--color-muted)]">
+        <nav className="mb-4 text-xs text-[var(--color-muted)] sm:mb-6 sm:text-sm">
           <Link href="/" className="hover:text-[var(--color-primary)]">
             Главная
           </Link>
@@ -97,11 +97,11 @@ export default async function ProductPage({ params }: PageProps) {
         </nav>
 
         {/* Верх: галерея + инфо */}
-        <div className="grid gap-10 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2 lg:gap-10">
           <ProductGallery media={product.media} productName={product.name} />
 
-          <div className="space-y-5">
-            <h1 className="text-[32px] font-medium leading-tight text-[var(--color-heading)]">
+          <div className="space-y-4 sm:space-y-5">
+            <h1 className="text-2xl font-medium leading-tight text-[var(--color-heading)] sm:text-[32px]">
               {product.name}
             </h1>
 
@@ -115,7 +115,7 @@ export default async function ProductPage({ params }: PageProps) {
             )}
 
             <div className="flex items-end gap-3">
-              <span className="text-[32px] font-semibold text-[var(--color-heading)]">
+              <span className="text-[26px] font-semibold text-[var(--color-heading)] sm:text-[32px]">
                 {formatPrice(product.price_kopecks)}
               </span>
               {hasDiscount && (
@@ -140,7 +140,7 @@ export default async function ProductPage({ params }: PageProps) {
         </div>
 
         {/* Низ: табы */}
-        <div className="mt-10">
+        <div className="mt-6 sm:mt-10">
           <ProductTabs product={product} />
         </div>
       </div>

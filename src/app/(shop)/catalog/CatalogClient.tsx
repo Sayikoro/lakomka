@@ -43,7 +43,7 @@ export function CatalogClient({ products, template = "classic" }: Props) {
   }, [products, packaging, priceRange, search]);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[200px_1fr]">
       <aside className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
         <div>
           <label className="mb-2 block text-sm font-medium text-[var(--color-heading)]">Поиск</label>
