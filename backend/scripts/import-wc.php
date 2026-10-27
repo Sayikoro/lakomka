@@ -33,6 +33,26 @@ function translit(string $s): string
     return $s !== '' ? $s : 'product';
 }
 
+/**
+ * WC кладёт в описание HTML (<p>, <br>, сущности). Фронт рендерит
+ * products.description как plain text с whitespace-pre-line —
+ * поэтому чистим теги и оставляем переносы строк.
+ */
+function cleanDescription(?string $html): ?string
+{
+    if ($html === null) return null;
+    $s = trim($html);
+    if ($s === '') return null;
+    $s = preg_replace('#<br\s*/?>#i', "\n", $s);
+    $s = preg_replace('#</p>\s*<p[^>]*>#i', "\n\n", $s);
+    $s = preg_replace('#</?(p|div|span|h[1-6]|ul|ol|li|strong|b|em|i|a|figure|img)[^>]*>#i', '', $s ?? '');
+    $s = html_entity_decode($s ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $s = preg_replace("/[ \t]+\n/", "\n", $s ?? '');
+    $s = preg_replace("/\n{3,}/", "\n\n", $s ?? '');
+    $s = trim($s ?? '');
+    return $s !== '' ? $s : null;
+}
+
 function mapCategorySlug(string $name): ?string
 {
     $map = [
@@ -129,17 +149,22 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
 
     $stock = (int)(Col($row, $col, ['Запасы', 'Stock']) ?? '0');
 
+    // Описание: полное «Описание», при отсутствии — «Краткое описание»
+    $description = cleanDescription(Col($row, $col, ['Описание', 'Description']))
+        ?? cleanDescription(Col($row, $col, ['Краткое описание', 'Short description']));
+
     $stmt = $pdo->prepare(<<<SQL
         INSERT INTO products
-            (legacy_wc_id, sku, slug, name, type, price_kopecks, old_price_kopecks,
+            (legacy_wc_id, sku, slug, name, description, type, price_kopecks, old_price_kopecks,
              category_id, show_in_catalog, is_published, stock_qty)
         VALUES
-            (:legacy_id, :sku, :slug, :name, :type, :price, :old_price,
+            (:legacy_id, :sku, :slug, :name, :description, :type, :price, :old_price,
              :category_id, :show_in_catalog, :is_published, :stock)
         ON CONFLICT(legacy_wc_id) DO UPDATE SET
             sku = excluded.sku,
             name = excluded.name,
             slug = excluded.slug,
+            description = COALESCE(NULLIF(excluded.description, ''), products.description),
             price_kopecks = excluded.price_kopecks,
             old_price_kopecks = excluded.old_price_kopecks,
             category_id = excluded.category_id,
@@ -153,6 +178,7 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
         ':sku' => $sku,
         ':slug' => $slug,
         ':name' => $name,
+        ':description' => $description,
         ':type' => $type === 'woosb' ? 'bundle' : 'simple',
         ':price' => $priceKopecks,
         ':old_price' => $oldPriceKopecks,
@@ -162,11 +188,15 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
         ':stock' => $stock,
     ]);
 
-    $productId = (int)$pdo->lastInsertId();
+    // ВАЖНО: lastInsertId() в SQLite — это rowid последней реальной INSERT
+    // на соединении (безотносительно таблицы). После upsert с веткой UPDATE
+    // он вернёт мусор (например, id картинки из product_images), поэтому id
+    // товара всегда разрешаем явным SELECT.
+    $idStmt = $pdo->prepare('SELECT id FROM products WHERE legacy_wc_id = ?');
+    $idStmt->execute([$legacyId]);
+    $productId = (int)$idStmt->fetchColumn();
     if ($productId === 0) {
-        $idStmt = $pdo->prepare('SELECT id FROM products WHERE legacy_wc_id = ?');
-        $idStmt->execute([$legacyId]);
-        $productId = (int)$idStmt->fetchColumn();
+        $productId = (int)$pdo->lastInsertId();
     }
 
     $imagesRaw = trim(Col($row, $col, ['Изображения', 'Images']) ?? '');
