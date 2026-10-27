@@ -16,6 +16,19 @@ class AdminSettingsController
         'smtp_user',
         'smtp_pass',
         'smtp_secure',
+        /* витрина: hero и карточка товара */
+        'hero_image',
+        'hero_slider_enabled',
+        'hero_slides',
+        'product_card_template',
+    ];
+
+    /** Ключи, доступные витрине без авторизации */
+    private const PUBLIC_KEYS = [
+        'hero_image',
+        'hero_slider_enabled',
+        'hero_slides',
+        'product_card_template',
     ];
 
     public static function show(PDO $pdo): void
@@ -41,6 +54,45 @@ class AdminSettingsController
         jsonResponse(['data' => $out]);
     }
 
+    /** GET /api/settings/public — витринные настройки без авторизации */
+    public static function publicShow(PDO $pdo): void
+    {
+        $rows = $pdo->query(
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template')"
+        )->fetchAll();
+        $map = [];
+        foreach ($rows as $r) {
+            $map[$r['key']] = $r['value'];
+        }
+
+        $slides = [];
+        $rawSlides = (string)($map['hero_slides'] ?? '');
+        if ($rawSlides !== '') {
+            $decoded = json_decode($rawSlides, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $s) {
+                    if (is_string($s) && $s !== '') {
+                        $slides[] = ['url' => $s];
+                    } elseif (is_array($s) && !empty($s['url']) && is_string($s['url'])) {
+                        $slides[] = ['url' => $s['url']];
+                    }
+                }
+            }
+        }
+
+        $template = $map['product_card_template'] ?? 'classic';
+        if (!in_array($template, ['classic', 'new'], true)) {
+            $template = 'classic';
+        }
+
+        jsonResponse(['data' => [
+            'hero_image'            => (string)($map['hero_image'] ?? ''),
+            'hero_slider_enabled'   => ($map['hero_slider_enabled'] ?? '0') === '1',
+            'hero_slides'           => $slides,
+            'product_card_template' => $template,
+        ]]);
+    }
+
     public static function update(PDO $pdo): void
     {
         Auth::requireAuth();
@@ -61,6 +113,26 @@ class AdminSettingsController
         if (isset($data['admin_email']) && $data['admin_email'] !== ''
             && !filter_var($data['admin_email'], FILTER_VALIDATE_EMAIL)) {
             jsonResponse(['error' => 'Некорректный admin_email'], 422);
+        }
+        if (isset($data['product_card_template'])
+            && !in_array($data['product_card_template'], ['classic', 'new'], true)) {
+            jsonResponse(['error' => 'product_card_template: classic | new'], 422);
+        }
+        if (isset($data['hero_slider_enabled'])
+            && !in_array((string)$data['hero_slider_enabled'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'hero_slider_enabled: 0 | 1'], 422);
+        }
+        if (isset($data['hero_slides']) && (string)$data['hero_slides'] !== '') {
+            $decoded = json_decode((string)$data['hero_slides'], true);
+            if (!is_array($decoded)) {
+                jsonResponse(['error' => 'hero_slides: ожидается JSON-массив'], 422);
+            }
+            foreach ($decoded as $s) {
+                $url = is_string($s) ? $s : (is_array($s) ? ($s['url'] ?? null) : null);
+                if (!is_string($url) || $url === '') {
+                    jsonResponse(['error' => 'hero_slides: у каждого слайда нужен url'], 422);
+                }
+            }
         }
 
         $upd = $pdo->prepare(

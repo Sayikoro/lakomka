@@ -158,6 +158,12 @@ $stmt->execute([$m[1]]);
         jsonResponse(['data' => $rows]);
     }
 
+    /* Витринные настройки (hero, шаблон карточки) — публично, без авторизации */
+    if ($path === '/api/settings/public' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminSettingsController.php';
+        AdminSettingsController::publicShow($pdo);
+    }
+
     if ($path === '/api/orders' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/OrderController.php';
         OrderController::create($pdo);
@@ -204,6 +210,11 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/upload/chunk' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';
         AdminUploadController::chunk();
+    }
+    /* Загрузка картинки для hero главной страницы */
+    if ($path === '/api/admin/uploads/hero' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';
+        AdminUploadController::saveHeroImage();
     }
 
     /* ========== ADMIN: WEIGHT RECIPES ========== */

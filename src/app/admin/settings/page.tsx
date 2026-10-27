@@ -13,6 +13,11 @@ export interface AdminSettings {
   smtp_pass: string;
   smtp_pass_set: boolean;
   smtp_secure: string;
+  /* витрина */
+  hero_image: string;
+  hero_slider_enabled: string;
+  hero_slides: string;
+  product_card_template: string;
 }
 
 async function getSettings(): Promise<AdminSettings | null> {
@@ -27,8 +32,16 @@ async function getSettings(): Promise<AdminSettings | null> {
       cache: "no-store",
     });
     if (!res.ok) return null;
-    const json = (await res.json()) as { data: AdminSettings };
-    return json.data;
+    const json = (await res.json()) as { data: Partial<AdminSettings> };
+    const data = json.data ?? {};
+    return {
+      ...data,
+      // Дефолты для новых ключей, если бэкенд их ещё не вернул
+      hero_image: data.hero_image ?? "",
+      hero_slider_enabled: data.hero_slider_enabled ?? "0",
+      hero_slides: data.hero_slides ?? "",
+      product_card_template: data.product_card_template ?? "classic",
+    } as AdminSettings;
   } catch {
     return null;
   }

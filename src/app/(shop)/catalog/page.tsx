@@ -1,4 +1,5 @@
 import { getProducts } from "@/lib/products";
+import { getPublicSettings } from "@/lib/settings";
 import { CatalogClient } from "./CatalogClient";
 import type { Metadata } from "next";
 
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CatalogPage() {
-  const products = await getProducts();
+  const [products, cfg] = await Promise.all([getProducts(), getPublicSettings()]);
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-10">
@@ -38,7 +39,7 @@ export default async function CatalogPage() {
           </p>
         </div>
       ) : (
-        <CatalogClient products={products} />
+        <CatalogClient products={products} template={cfg.product_card_template} />
       )}
     </div>
   );

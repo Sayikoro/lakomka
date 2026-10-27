@@ -2,11 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { ProductCard } from "@/components/ui/ProductCard";
+import { ProductCardNew } from "@/components/ui/ProductCardNew";
 import { PACKAGING_LABELS } from "@/lib/constants";
 import type { Product } from "@/lib/types";
 
 interface Props {
   products: Product[];
+  /** Шаблон карточки: classic (светлая) | new (тёмная со свайпом) — задаётся в админке */
+  template?: "classic" | "new";
 }
 
 const PRICE_RANGES = [
@@ -17,7 +20,7 @@ const PRICE_RANGES = [
   { key: "gt3000", label: "от 3 000 ₽", min: 300000, max: Infinity },
 ] as const;
 
-export function CatalogClient({ products }: Props) {
+export function CatalogClient({ products, template = "classic" }: Props) {
   const [packaging, setPackaging] = useState<string>("all");
   const [priceRange, setPriceRange] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -102,9 +105,13 @@ export function CatalogClient({ products }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-            {filtered.map((p) => (
-              <ProductCard key={p.id} product={p} />
-            ))}
+            {filtered.map((p) =>
+              template === "new" ? (
+                <ProductCardNew key={p.id} product={p} />
+              ) : (
+                <ProductCard key={p.id} product={p} />
+              )
+            )}
           </div>
         )}
       </section>
