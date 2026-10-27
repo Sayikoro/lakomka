@@ -1,4 +1,4 @@
-import { getProducts } from "@/lib/products";
+import { getCategories, getProducts } from "@/lib/products";
 import { getPublicSettings } from "@/lib/settings";
 import { CatalogClient } from "./CatalogClient";
 import type { Metadata } from "next";
@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Каталог подарков",
   description:
-    "Полный каталог новогодних подарков и наборов конфет. Фильтры по упаковке и цене. Доставка по Хабаровску.",
+    "Полный каталог новогодних подарков и наборов конфет. Фильтры по типу упаковки, весу и цене. Доставка по Хабаровску.",
   alternates: {
     canonical: "/catalog",
   },
@@ -18,12 +18,16 @@ export const metadata: Metadata = {
 };
 
 export default async function CatalogPage() {
-  const [products, cfg] = await Promise.all([getProducts(), getPublicSettings()]);
+  const [products, categories, cfg] = await Promise.all([
+    getProducts(),
+    getCategories(),
+    getPublicSettings(),
+  ]);
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 py-10">
+    <div className="mx-auto max-w-[1360px] px-4 py-10">
       <h1 className="mb-6 text-[40px] font-medium text-[var(--color-heading)]">
-        Каталог
+        Подарки
       </h1>
 
       {products.length === 0 ? (
@@ -39,7 +43,7 @@ export default async function CatalogPage() {
           </p>
         </div>
       ) : (
-        <CatalogClient products={products} template={cfg.product_card_template} />
+        <CatalogClient products={products} categories={categories} template={cfg.product_card_template} />
       )}
     </div>
   );

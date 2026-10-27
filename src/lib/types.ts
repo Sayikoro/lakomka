@@ -31,6 +31,7 @@ export interface Product {
   description?: string | null;
   manufacturer?: string | null;
   type: ProductType;
+  category_id?: number | null;
   price_kopecks: number;
   old_price_kopecks: number | null;
   packaging_material: string | null;

@@ -38,6 +38,12 @@ export default async function AdminLayout({
             >
               Рецепты
             </Link>
+            <Link
+              href="/admin/pdf"
+              className="text-[var(--color-body)] hover:text-[var(--color-primary)]"
+            >
+              PDF
+            </Link>
             {user?.role === "super_admin" && (
               <Link
                 href="/admin/users"

@@ -40,19 +40,15 @@ export default async function HomePage() {
       <div className="relative z-10 bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
         <svg
           aria-hidden
-          width="80"
-          height="80"
           viewBox="0 0 80 80"
-          className="pointer-events-none absolute bottom-full left-0 block"
+          className="pointer-events-none absolute bottom-full left-0 block h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 lg:h-20 lg:w-20"
         >
           <path d="M0 0 A80 80 0 0 0 80 80 L0 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
         <svg
           aria-hidden
-          width="80"
-          height="80"
           viewBox="0 0 80 80"
-          className="pointer-events-none absolute bottom-full right-0 block"
+          className="pointer-events-none absolute bottom-full right-0 block h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 lg:h-20 lg:w-20"
         >
           <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
@@ -66,10 +62,8 @@ export default async function HomePage() {
           <CategoryGrid />
         </section>
 
-        {/* Process */}
-        <section className="mx-auto max-w-[1200px] px-4 py-6">
-          <ProcessSteps />
-        </section>
+        {/* Process — full-bleed: фон-картинка от края до края, таймлайн внутри */}
+        <ProcessSteps />
 
         {/* Brands — full-bleed */}
         <BrandLogos />

@@ -182,6 +182,12 @@ class AdminSettingsController
             ];
             $mailer->sendOrderToCustomer($order, $items, $to);
 
+            // Mailer проглатывает SMTP-ошибки (заказы не должны падать из-за почты),
+            // поэтому для теста смотрим lastError и честно сообщаем об отправке
+            if ($mailer->lastError !== '') {
+                jsonResponse(['error' => 'Письмо НЕ отправлено: ' . $mailer->lastError], 500);
+            }
+
             jsonResponse(['data' => ['ok' => true, 'message' => 'Письмо отправлено (или записано в log)']]);
         } catch (Throwable $e) {
             jsonResponse(['error' => $e->getMessage()], 500);

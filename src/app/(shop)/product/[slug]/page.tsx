@@ -13,6 +13,29 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
+/** Вес в человекочитаемом виде: 520 → «520 г», 1500 → «1,5 кг» */
+function formatWeightLine(g: number | null | undefined): string | null {
+  if (!g || g <= 0) return null;
+  if (g >= 1000) {
+    const kg = g / 1000;
+    const s = kg % 1 === 0 ? kg.toFixed(0) : kg.toFixed(2).replace(/\.?0+$/, "").replace(".", ",");
+    return `${s} кг`;
+  }
+  return `${g} г`;
+}
+
+/** Габариты: «20 × 15 × 10 см»; null если все размеры пустые */
+function formatDimsLine(
+  l: number | null | undefined,
+  w: number | null | undefined,
+  h: number | null | undefined,
+): string | null {
+  if (!l && !w && !h) return null;
+  const fmt = (n: number | null | undefined) =>
+    n ? (Number.isInteger(n) ? String(n) : n.toFixed(1).replace(".0", "").replace(".", ",")) : "—";
+  return `${fmt(l)} × ${fmt(w)} × ${fmt(h)} см`;
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const product = await getProductBySlug(slug);
@@ -126,6 +149,39 @@ export default async function ProductPage({ params }: PageProps) {
             </div>
 
             <AddToCart product={product} />
+
+            {(formatWeightLine(product.weight_g) || formatDimsLine(product.length_cm, product.width_cm, product.height_cm)) && (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-[var(--color-body)]">
+                {formatWeightLine(product.weight_g) && (
+                  <span className="inline-flex items-center gap-2">
+                    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--color-muted)]">
+                      <path d="M8.5 8.5a3.5 3.5 0 0 1 7 0" />
+                      <rect x="4.5" y="8.5" width="15" height="11.5" rx="2.5" />
+                    </svg>
+                    <span>
+                      Вес:{" "}
+                      <span className="font-medium text-[var(--color-heading)]">
+                        {formatWeightLine(product.weight_g)}
+                      </span>
+                    </span>
+                  </span>
+                )}
+                {formatDimsLine(product.length_cm, product.width_cm, product.height_cm) && (
+                  <span className="inline-flex items-center gap-2">
+                    <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--color-muted)]">
+                      <rect x="2.5" y="9" width="19" height="6" rx="1.5" />
+                      <path d="M7 9v3M12 9v2.5M17 9v3" />
+                    </svg>
+                    <span>
+                      Габариты:{" "}
+                      <span className="font-medium text-[var(--color-heading)]">
+                        {formatDimsLine(product.length_cm, product.width_cm, product.height_cm)}
+                      </span>
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] p-5 text-sm text-[var(--color-body)]">
               <h2 className="mb-2 font-semibold text-[var(--color-heading)]">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface Props {
   open: boolean;
@@ -23,14 +24,16 @@ export function Modal({ open, onClose, title, children }: Props) {
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+  // Портал в body: попап не должен попадать в stacking-контексты секций
+  // (z-10 обёртка контента, isolate и т.п.) — иначе соседние блоки лягут поверх
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-full max-w-lg rounded-t-2xl bg-white p-6 shadow-xl sm:rounded-[var(--radius-card)]"
+        className="relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 className="text-xl font-semibold text-[var(--color-heading)]">{title}</h2>
@@ -46,6 +49,7 @@ export function Modal({ open, onClose, title, children }: Props) {
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

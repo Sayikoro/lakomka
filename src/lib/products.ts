@@ -29,6 +29,7 @@ interface ApiProduct {
   description: string | null;
   manufacturer: string | null;
   type: "simple" | "bundle";
+  category_id?: number | null;
   price_kopecks: number;
   old_price_kopecks: number | null;
   packaging_material: string | null;
@@ -82,6 +83,7 @@ function normalize(p: ApiProduct): Product {
       description: b.component_description,
       manufacturer: b.component_manufacturer,
       type: "simple" as const,
+      category_id: null,
       price_kopecks: 0,
       old_price_kopecks: null,
       packaging_material: null,
@@ -103,6 +105,7 @@ function normalize(p: ApiProduct): Product {
     description: p.description,
     manufacturer: p.manufacturer,
     type: p.type,
+    category_id: p.category_id ?? null,
     price_kopecks: p.price_kopecks,
     old_price_kopecks: p.old_price_kopecks,
     packaging_material: p.packaging_material,

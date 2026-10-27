@@ -119,12 +119,6 @@ export function ProductTabs({ product }: Props) {
                   <dd className="text-[var(--color-heading)]">{dims}</dd>
                 </>
               )}
-              {product.sku && (
-                <>
-                  <dt className="text-[var(--color-muted)]">Артикул</dt>
-                  <dd className="text-[var(--color-heading)]">{product.sku}</dd>
-                </>
-              )}
               {isBundle && (
                 <>
                   <dt className="text-[var(--color-muted)]">Позиций в наборе</dt>

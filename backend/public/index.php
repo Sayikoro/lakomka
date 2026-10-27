@@ -206,6 +206,20 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminUsersController.php';
         AdminUsersController::resetPassword($pdo, (int)$m[1]);
     }
+    /* ========== PDF: КАТАЛОГИ И СЕРТИФИКАТ ========== */
+    if ($path === '/api/pdfs' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/PdfController.php';
+        PdfController::list();
+    }
+    if ($path === '/api/admin/pdfs/chunk' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/PdfController.php';
+        PdfController::uploadChunk();
+    }
+    if (preg_match('#^/api/admin/pdfs/([a-z0-9_]+)$#', $path, $m) && $method === 'DELETE') {
+        require_once __DIR__ . '/../src/Controllers/PdfController.php';
+        PdfController::remove($m[1]);
+    }
+
     /* ========== ADMIN: UPLOAD (chunked) ========== */
     if ($path === '/api/admin/upload/chunk' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';

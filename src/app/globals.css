@@ -57,6 +57,13 @@
   --radius-hero: 80px;
 }
 
+html {
+  /* Резерв под полосу прокрутки: когда попап блокирует body (overflow:hidden),
+     скроллбар не «пропадает» со сдвигом всего макета — gutter зарезервирован.
+     На планшетах/телефонах с оверлей-скроллбарами ни на что не влияет */
+  scrollbar-gutter: stable;
+}
+
 html, body {
   background: var(--color-bg-page);
   color: var(--color-body);
@@ -81,5 +88,186 @@ h1, h2, h3, h4, h5, h6 {
   }
   a:hover {
     color: var(--color-primary-hover);
+  }
+}
+/* Двойной ползунок диапазона (фильтры каталога: вес, цена).
+   Важно для Safari/WebKit: без явного ::-webkit-slider-runnable-track
+   браузер рисует системный трек и ломает позицию кастомного thumb. */
+.dual-range {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 24px;
+  width: 100%;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+.dual-range::-webkit-slider-runnable-track {
+  height: 24px;
+  background: transparent;
+  border: none;
+}
+.dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px; /* центрируем thumb в треке 24px: (24 - 18) / 2 */
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  transition: transform 0.15s ease;
+}
+.dual-range::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.dual-range::-moz-range-track {
+  height: 24px;
+  background: transparent;
+  border: none;
+}
+.dual-range::-moz-range-thumb {
+  pointer-events: auto;
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+}
+.dual-range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   PDF-флипбук (просмотр каталогов «как книга»)
+   ============================================================ */
+.leafbook-scene {
+  perspective: 2400px;
+  cursor: pointer;
+}
+.leafbook-base {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 10px 34px -12px rgb(0 0 0 / 0.45);
+}
+.leafbook-base.lb-left { left: 0; width: 50%; border-radius: 6px 0 0 6px; }
+.leafbook-base.lb-right { right: 0; width: 50%; border-radius: 0 6px 6px 0; }
+.leafbook-base.lb-single { left: 0; width: 100%; border-radius: 6px; }
+.leafbook-base img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #fff;
+}
+/* тень у корешка */
+.leafbook-spine {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.leafbook-spine.lb-right-edge { background: linear-gradient(to right, transparent 94%, rgb(0 0 0 / 0.14)); }
+.leafbook-spine.lb-left-edge { background: linear-gradient(to left, transparent 94%, rgb(0 0 0 / 0.14)); }
+.leafbook-spine.lb-both { background: linear-gradient(to right, transparent 8%, rgb(0 0 0 / 0.10) 50%, transparent 92%); }
+
+/* лист, который переворачивается */
+/* ⚠ ВАЖНО: здесь НЕ должно быть filter (даже drop-shadow) — любой filter
+   по спецификации сплющивает preserve-3d, и изнанка листа показывает
+   зеркальный лицевой слой вместо оборота. Тень — на гранях ниже. */
+.leafbook-sheet {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  will-change: transform;
+  z-index: 30;
+}
+.leafbook-sheet.lb-fwd {
+  right: 0;
+  width: 50%;
+  transform-origin: left center;
+  animation: leafbook-fwd 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+.leafbook-sheet.lb-back {
+  left: 0;
+  width: 50%;
+  transform-origin: right center;
+  animation: leafbook-back 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+.leafbook-sheet.lb-single-fwd {
+  left: 0;
+  width: 100%;
+  transform-origin: left center;
+  animation: leafbook-fwd 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+.leafbook-sheet.lb-single-back {
+  left: 0;
+  width: 100%;
+  transform-origin: right center;
+  animation: leafbook-back 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+.leafbook-face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  background: #fff;
+  box-shadow: 0 14px 26px rgb(0 0 0 / 0.3);
+}
+.leafbook-face.lb-verso { transform: rotateY(180deg); }
+.leafbook-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #fff;
+}
+@keyframes leafbook-fwd {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(-180deg); }
+}
+@keyframes leafbook-back {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(180deg); }
+}
+/* Открытие/закрытие книги: сцена двойной ширины сдвигается так, чтобы
+   обложка в начале/конце стояла ровно на месте закрытой книги (по центру) */
+.leafbook-scene.lb-opening {
+  animation: leafbook-scene-open 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+.leafbook-scene.lb-closing {
+  animation: leafbook-scene-close 0.72s cubic-bezier(0.56, 0.08, 0.32, 0.96) forwards;
+}
+@keyframes leafbook-scene-open {
+  from { transform: translateX(calc(var(--lb-page) * -0.5)); }
+  to { transform: translateX(0); }
+}
+@keyframes leafbook-scene-close {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(var(--lb-page) * -0.5)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .leafbook-sheet.lb-fwd,
+  .leafbook-sheet.lb-back,
+  .leafbook-sheet.lb-single-fwd,
+  .leafbook-sheet.lb-single-back,
+  .leafbook-scene.lb-opening,
+  .leafbook-scene.lb-closing {
+    animation-duration: 0.01s;
   }
 }

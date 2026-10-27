@@ -12,6 +12,9 @@ class Mailer
     private array $settings;
     private string $driver;
 
+    /** Ошибка последней попытки отправки SMTP (для честного отчёта в админке) */
+    public string $lastError = '';
+
     public function __construct()
     {
         $pdo = Database::get();
@@ -125,7 +128,10 @@ class Mailer
 
             $mail->send();
         } catch (MailException $e) {
-            error_log('[mail] failed to ' . $toEmail . ': ' . $mail->ErrorInfo);
+            // Заказы не должны падать из-за почты: ошибку запоминаем и пишем в лог сервера,
+            // а testEmail из админки покажет её пользователю
+            $this->lastError = $mail->ErrorInfo;
+            error_log('[mail] failed to ' . $toEmail . ': ' . $this->lastError);
         }
     }
 

@@ -149,6 +149,19 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
 
     $stock = (int)(Col($row, $col, ['Запасы', 'Stock']) ?? '0');
 
+    // Вес (г) и габариты (см) из выгрузки WC
+    $numOrNull = static function (?string $v): ?float {
+        if ($v === null) return null;
+        $v = str_replace([' ', ','], ['', '.'], trim($v));
+        if ($v === '' || !is_numeric($v)) return null;
+        $f = (float)$v;
+        return $f > 0 ? $f : null;
+    };
+    $weightG = $numOrNull(Col($row, $col, ['Вес (г)', 'Weight (g)']));
+    $lenCm   = $numOrNull(Col($row, $col, ['Длина (см)', 'Length (cm)']));
+    $widCm   = $numOrNull(Col($row, $col, ['Ширина (см)', 'Width (cm)']));
+    $heiCm   = $numOrNull(Col($row, $col, ['Высота (см)', 'Height (cm)']));
+
     // Описание: полное «Описание», при отсутствии — «Краткое описание»
     $description = cleanDescription(Col($row, $col, ['Описание', 'Description']))
         ?? cleanDescription(Col($row, $col, ['Краткое описание', 'Short description']));
@@ -156,10 +169,12 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
     $stmt = $pdo->prepare(<<<SQL
         INSERT INTO products
             (legacy_wc_id, sku, slug, name, description, type, price_kopecks, old_price_kopecks,
-             category_id, show_in_catalog, is_published, stock_qty)
+             category_id, show_in_catalog, is_published, stock_qty,
+             weight_g, length_cm, width_cm, height_cm)
         VALUES
             (:legacy_id, :sku, :slug, :name, :description, :type, :price, :old_price,
-             :category_id, :show_in_catalog, :is_published, :stock)
+             :category_id, :show_in_catalog, :is_published, :stock,
+             :weight_g, :length_cm, :width_cm, :height_cm)
         ON CONFLICT(legacy_wc_id) DO UPDATE SET
             sku = excluded.sku,
             name = excluded.name,
@@ -170,7 +185,11 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
             category_id = excluded.category_id,
             show_in_catalog = excluded.show_in_catalog,
             is_published = excluded.is_published,
-            stock_qty = excluded.stock_qty
+            stock_qty = excluded.stock_qty,
+            weight_g = excluded.weight_g,
+            length_cm = excluded.length_cm,
+            width_cm = excluded.width_cm,
+            height_cm = excluded.height_cm
     SQL);
 
     $stmt->execute([
@@ -186,6 +205,10 @@ while (($row = fgetcsv($handle, 0, ',', '"', '')) !== false) {
         ':show_in_catalog' => $showInCatalog,
         ':is_published' => $isPublished,
         ':stock' => $stock,
+        ':weight_g' => $weightG !== null ? (int)round($weightG) : null,
+        ':length_cm' => $lenCm,
+        ':width_cm' => $widCm,
+        ':height_cm' => $heiCm,
     ]);
 
     // ВАЖНО: lastInsertId() в SQLite — это rowid последней реальной INSERT
