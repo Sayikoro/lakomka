@@ -147,7 +147,7 @@ class AdminProductsImportExportController
             flush();
         };
 
-        $exportsDir = __DIR__ . '/../../../storage/exports';
+        $exportsDir = __DIR__ . '/../../../public/exports'; // внутри public/ — ZIP потом отдаётся статикой (без прокси-таймаутов)
         if (!is_dir($exportsDir) && !@mkdir($exportsDir, 0755, true)) {
             $send(['error' => 'Не удалось создать папку для экспорта']);
             exit;
@@ -203,6 +203,22 @@ class AdminProductsImportExportController
                  ORDER BY media_type DESC, sort_order, id"
             );
 
+            /* Локальные копии картинок из импорта: public/uploads/products/{slug}/
+               Если копия есть на диске — берём её (мгновенно), а НЕ качаем с lakomkakhv.ru
+               (~7 с на файл × сотни файлов = часы тишины в стриме → прокси рвёт соединение с 502). */
+            $productsRoot = __DIR__ . '/../../../public/uploads/products';
+            $localImagesFor = function (array $prod) use ($productsRoot): array {
+                $dir = $productsRoot . '/' . (preg_replace('/[^a-z0-9\-]/', '', strtolower((string)$prod['slug'])) ?: 'p' . $prod['id']);
+                if (!is_dir($dir)) return [];
+                $found = glob($dir . '/*.*') ?: [];
+                usort($found, static function ($a, $b) {
+                    $na = (int)preg_replace('/\D/', '', basename($a));
+                    $nb = (int)preg_replace('/\D/', '', basename($b));
+                    return $na <=> $nb;
+                });
+                return $found;
+            };
+
             $headers = [
                 'ID', 'НАЗВАНИЕ', 'ТИП', 'SLUG', 'SKU',
                 'ЦЕНА', 'СТАРАЯ_ЦЕНА', 'ОСТАТОК',
@@ -227,6 +243,7 @@ class AdminProductsImportExportController
             foreach ($products as $idx => $p) {
                 $imgStmt->execute([$p['id']]);
                 $media = $imgStmt->fetchAll();
+                $localImages = $localImagesFor($p);
 
                 $imageNames = [];
                 $videoNames = [];
@@ -248,6 +265,7 @@ class AdminProductsImportExportController
                             $ext = strtolower(pathinfo($srcPath, PATHINFO_EXTENSION)) ?: 'mp4';
                             $zipName = $p['id'] . '-v' . $videoCounter . '.' . $ext;
                             $zip->addFile($srcPath, 'videos/' . $zipName);
+                            $zip->setCompressionName('videos/' . $zipName, ZipArchive::CM_STORE); // mp4 уже сжат, STORE — в разы быстрее
                             $videoNames[] = $zipName;
                             $videoCounter++;
                             $stats['videos_packed']++;
@@ -268,12 +286,33 @@ class AdminProductsImportExportController
                         if ($ext === 'jpeg') $ext = 'jpg';
                         $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
                         $zip->addFile($srcPath, 'images/' . $zipName);
+                        $zip->setCompressionName('images/' . $zipName, ZipArchive::CM_STORE); // jpg/png не сжимаются повторно — скорость
                         $imageNames[] = $zipName;
                         $imageCounter++;
                         $stats['images_packed']++;
                         $counter++;
                     } elseif (str_starts_with($url, 'http')) {
-                        $ctx = stream_context_create(['http' => ['timeout' => 10]]);
+                        // 1) Локальная копия из импорта — если есть, сеть не трогаем
+                        $localFile = $localImages[$imageCounter] ?? null;
+                        if ($localFile !== null && is_file($localFile)) {
+                            $ext = strtolower(pathinfo($localFile, PATHINFO_EXTENSION)) ?: 'jpg';
+                            if ($ext === 'jpeg') $ext = 'jpg';
+                            $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
+                            $zip->addFile($localFile, 'images/' . $zipName);
+                            $zip->setCompressionName('images/' . $zipName, ZipArchive::CM_STORE);
+                            $imageNames[] = $zipName;
+                            $imageCounter++;
+                            $stats['images_packed']++;
+                            $counter++;
+                            continue;
+                        }
+                        // 2) Локальной нет — качаем с внешнего хоста, но быстро (4 с) и с keepalive-строкой в стриме,
+                        //    чтобы прокси не убил соединение за тишину
+                        $send([
+                            'progress' => (int)round(($counter / max(1, $totalItems)) * 90),
+                            'stage' => "Качаем внешнюю картинку: {$p['name']}",
+                        ]);
+                        $ctx = stream_context_create(['http' => ['timeout' => 4]]);
                         $blob = @file_get_contents($url, false, $ctx);
                         if ($blob === false) { $stats['images_skipped']++; $counter++; continue; }
                         $urlPath = parse_url($url, PHP_URL_PATH) ?? '';
@@ -305,7 +344,7 @@ class AdminProductsImportExportController
                 ];
                 $csv .= implode(';', array_map([self::class, 'csvEscape'], $row)) . "\n";
 
-                if ($idx % 10 === 0 || $idx === $totalProducts - 1) {
+                if ($idx % 5 === 0 || $idx === $totalProducts - 1) {
                     $pct = (int)round(($counter / max(1, $totalItems)) * 90);
                     $send([
                         'progress' => $pct,
@@ -318,6 +357,8 @@ class AdminProductsImportExportController
 
             $send(['progress' => 92, 'stage' => 'Упаковка CSV…']);
             $zip->addFromString('products.csv', $csv);
+
+            $send(['progress' => 93, 'stage' => 'Собираем ZIP…']); // keepalive: close() может занять несколько секунд тишины
             $zip->close();
 
             $send(['progress' => 95, 'stage' => 'Перемещение…']);
@@ -335,6 +376,7 @@ class AdminProductsImportExportController
                 'progress' => 100,
                 'done' => true,
                 'file' => 'exports/' . $filename,
+                'public_url' => '/exports/' . $filename, // статическая ссылка — скачивается напрямую, без fetch/blob
                 'size' => $size,
                 'stats' => $stats,
             ]);
@@ -355,7 +397,7 @@ class AdminProductsImportExportController
             jsonResponse(['error' => 'Некорректное имя файла'], 400);
         }
 
-        $path = __DIR__ . '/../../../storage/exports/' . $fileName;
+        $path = __DIR__ . '/../../../public/exports/' . $fileName;
         if (!is_file($path)) {
             jsonResponse(['error' => 'Файл не найден (возможно истёк срок хранения)'], 404);
         }

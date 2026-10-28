@@ -52,3 +52,6 @@ backend/public/uploads-test/
 # next.js env
 .env.local
 .env*.local
+
+# Экспортные ZIP-архивы товаров (сотни МБ) — в git не кладём
+/public/exports/

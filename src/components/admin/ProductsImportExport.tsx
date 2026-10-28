@@ -70,6 +70,7 @@ export function ProductsImportExport() {
       const decoder = new TextDecoder();
       let buffer = "";
       let finalFile: string | null = null;
+      let finalPublicUrl: string | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -89,6 +90,7 @@ export function ProductsImportExport() {
           if (typeof msg.progress === "number") setExportPct(msg.progress);
           if (msg.stage) setExportStage(msg.stage);
           if (msg.done && msg.file) finalFile = msg.file;
+          if (msg.done && msg.public_url) finalPublicUrl = msg.public_url;
         }
       }
 
@@ -96,20 +98,33 @@ export function ProductsImportExport() {
 
       setExportStage("Скачивание…");
       const fileName = finalFile.replace(/^exports\//, "");
-      const dlRes = await fetch(
-        `${apiUrl}/admin/products/export-zip-download/${encodeURIComponent(fileName)}`,
-        { credentials: "include" }
-      );
-      if (!dlRes.ok) { setError("Не удалось скачать ZIP"); return; }
-      const blob = await dlRes.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      if (finalPublicUrl) {
+        // Быстрый путь: ZIP лежит в public/exports и отдаётся статикой — обычный <a download>
+        // без fetch/blob (большие архивы через прокси + blob в памяти ломались с 502)
+        const a = document.createElement("a");
+        a.href = finalPublicUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        // Fallback: старый путь через авторизованный fetch
+        const dlRes = await fetch(
+          `${apiUrl}/admin/products/export-zip-download/${encodeURIComponent(fileName)}`,
+          { credentials: "include" }
+        );
+        if (!dlRes.ok) { setError("Не удалось скачать ZIP"); return; }
+        const blob = await dlRes.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
       setExportPct(100);
       setExportStage("Готово");
     } catch (e) {
