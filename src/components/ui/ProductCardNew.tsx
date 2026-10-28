@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import { useCart } from "@/store/cart";
 import type { Product, ProductMedia } from "@/lib/types";
 
 /* ============================================================
@@ -27,6 +28,18 @@ function isLocalVideo(url: string): boolean {
 }
 
 export function ProductCardNew({ product, className = "" }: Props) {
+  const add = useCart((s) => s.add);
+  const [added, setAdded] = useState(false);
+
+  const href = `/product/${product.slug}`;
+
+  const quickAdd = (e: React.MouseEvent) => {
+    e.stopPropagation(); // не открывать карточку товара
+    add(product, 1);
+    setAdded(true);
+    window.setTimeout(() => setAdded(false), 1400);
+  };
+
   const media: ProductMedia[] = useMemo(
     () => [...product.media].sort((a, b) => a.sort_order - b.sort_order),
     [product.media]
@@ -70,7 +83,6 @@ export function ProductCardNew({ product, className = "" }: Props) {
     [count]
   );
 
-  const href = `/product/${product.slug}`;
 
   return (
     <div className={`flex max-w-[calc(100vw-2rem)] ${className}`}>
@@ -240,21 +252,25 @@ export function ProductCardNew({ product, className = "" }: Props) {
           </h2>
         </div>
 
-        {/* ── Цена слева, кнопка справа ── */}
-        <div className="mt-auto flex items-center justify-between gap-2.5 px-2.5 pb-2.5 pt-1">
-          <p className="m-0 text-[1.2rem] font-light leading-tight tracking-[-0.24px] text-[#4b4f58]">
+        {/* ── Цена слева, справа две круглые кнопки одного размера:
+                «Перейти» (стрелка, как раньше) и «в корзину» ── */}
+        <div className="mt-auto flex items-center gap-1 px-2 pb-2.5 pt-1 sm:gap-2.5 sm:px-2.5">
+          <p className="m-0 text-[1rem] font-light leading-tight tracking-[-0.24px] text-[#4b4f58] sm:text-[1.2rem]">
             {formatPrice(product.price_kopecks)}
             {hasDiscount && (
-              <span className="ml-2 text-sm text-[#9a9a99] line-through">
+              <span className="block text-[13px] leading-tight text-[#9a9a99] line-through sm:ml-2 sm:inline sm:text-sm">
                 {formatPrice(product.old_price_kopecks!)}
               </span>
             )}
           </p>
 
+          {/* Перейти в карточку товара — та же круглая кнопка со стрелкой, что была раньше */}
           <Link
             href={href}
+            onClick={(e) => e.stopPropagation()}
             aria-label={`Открыть «${product.name}»`}
-            className="group/btn relative grid aspect-square h-full max-h-[44px] shrink-0 translate-x-0.5 place-items-end overflow-hidden rounded-full bg-[var(--color-primary)] text-white no-underline outline-none transition-[background] duration-150 ease-out hover:bg-[var(--color-primary-hover)]"
+            title="Перейти"
+            className="group/btn relative ml-auto grid aspect-square h-full max-h-[36px] shrink-0 place-items-end overflow-hidden rounded-full bg-[var(--color-primary)] text-white no-underline outline-none transition-[background] duration-150 ease-out hover:bg-[var(--color-primary-hover)] sm:max-h-[44px]"
           >
             <span className="grid h-full w-[200%] grid-cols-2 place-items-center transition-transform duration-150 ease-out group-hover/btn:translate-x-1/2">
               <svg
@@ -274,8 +290,33 @@ export function ProductCardNew({ product, className = "" }: Props) {
                 <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-            <span className="sr-only">{`Открыть «${product.name}»`}</span>
+            <span className="sr-only">Перейти</span>
           </Link>
+
+          <button
+            type="button"
+            onClick={quickAdd}
+            aria-label={`Добавить «${product.name}» в корзину`}
+            title="Добавить в корзину"
+            className={`relative grid aspect-square h-full max-h-[36px] shrink-0 place-items-center rounded-full text-white outline-none transition-all duration-150 ease-out active:scale-90 sm:max-h-[44px] ${
+              added
+                ? "bg-[#2e9e5b]"
+                : "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]"
+            }`}
+          >
+            {added ? (
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M4.5 12.5l5 5L20 7" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
+              </svg>
+            )}
+            <span className="sr-only">Добавить в корзину</span>
+          </button>
         </div>
       </article>
     </div>

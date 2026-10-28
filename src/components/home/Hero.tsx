@@ -74,33 +74,37 @@ export function Hero({ image, slides, slider }: HeroProps) {
         </div>
       ))}
 
-      {/* Затемнение: сильнее справа, где текст */}
+      {/* Затемнение: ровное + винтетки сверху и снизу (текст теперь по центру) */}
       <div
-        className="absolute inset-0 bg-gradient-to-l from-black/60 via-black/35 to-black/10"
+        className="absolute inset-0 bg-black/20"
+        aria-hidden
+      />
+      <div
+        className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/45"
         aria-hidden
       />
 
-      {/* Текст справа */}
-      <div className="relative mx-auto flex h-full w-full max-w-[1200px] items-center px-4 py-20">
-        <div className="flex flex-col items-end text-right">
-          <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
-            новогодняя
-          </p>
-          <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
-            коллекция
-          </p>
-          <p className="font-display mt-3 text-[52px] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
-            2027
-          </p>
-          <Link
-            href="/catalog"
-            className="mt-10 inline-flex items-center justify-center rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-[20px] text-[14px] font-semibold uppercase leading-[13px] text-white transition hover:bg-[var(--color-primary-hover)]"
-            style={{ border: "2px solid transparent" }}
-          >
-            Каталог
-          </Link>
-        </div>
+      {/* Текст сверху по центру (отступ сверху ~15–18vh) */}
+      <div className="relative mx-auto flex h-full w-full max-w-[1200px] flex-col items-center px-4 pt-[15vh] text-center supports-[height:1svh]:pt-[16svh]">
+        <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+          новогодняя
+        </p>
+        <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+          коллекция
+        </p>
+        <p className="font-display mt-3 text-[52px] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
+          2027
+        </p>
       </div>
+
+      {/* Кнопка внизу по центру (над точками слайдера) */}
+      <Link
+        href="/catalog"
+        className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-[20px] text-[14px] font-semibold uppercase leading-[13px] text-white transition hover:bg-[var(--color-primary-hover)] sm:bottom-20"
+        style={{ border: "2px solid transparent" }}
+      >
+        Заказать подарки
+      </Link>
 
       {/* Точки слайдера */}
       {list.length > 1 && (
