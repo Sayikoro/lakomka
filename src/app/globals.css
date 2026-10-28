@@ -1,16 +1,18 @@
 @import "tailwindcss";
 
 /* ============ Кастомные шрифты hero ============ */
+/* Самохостинг: раньше грузились с lakomkakhv.ru, но без CORS-заголовков браузер
+   блокировал кросс-доменный @font-face — шрифты «терялись». */
 @font-face {
   font-family: "BulbasaurSP";
-  src: url("https://lakomkakhv.ru/wp-content/uploads/2026/08/BulbasaurSP.otf") format("opentype");
+  src: url("/fonts/BulbasaurSP.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: "SNAP";
-  src: url("https://lakomkakhv.ru/wp-content/uploads/2026/08/SNAP.ttf") format("truetype");
+  src: url("/fonts/SNAP.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -270,4 +272,28 @@ h1, h2, h3, h4, h5, h6 {
   .leafbook-scene.lb-closing {
     animation-duration: 0.01s;
   }
+}
+
+/* ============================================================
+   Прелоадер картинок: скелетон с «бегущей» полосой блика,
+   виден пока картинка не загрузилась (SmartImg / SmartImage)
+   ============================================================ */
+.img-skeleton {
+  background-color: var(--color-bg-soft, #f5f5f4);
+  background-image: linear-gradient(
+    100deg,
+    rgba(0, 0, 0, 0.03) 38%,
+    rgba(0, 0, 0, 0.07) 50%,
+    rgba(0, 0, 0, 0.03) 62%
+  );
+  background-size: 220% 100%;
+  background-position: 130% 0;
+  animation: img-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes img-shimmer {
+  from { background-position: 130% 0; }
+  to   { background-position: -130% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .img-skeleton { animation: none; }
 }

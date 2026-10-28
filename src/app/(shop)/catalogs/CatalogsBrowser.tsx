@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { PdfViewerModal } from "@/components/pdf/PdfViewerModal";
+import { SmartImg } from "@/components/ui/SmartImg";
 import type { PdfDocInfo } from "@/components/pdf/PdfButtons";
 
 interface Item {
@@ -33,15 +34,25 @@ export function CatalogsBrowser({ items }: { items: Item[] }) {
             className="flex flex-col rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.25)]"
           >
             <div className="flex items-start gap-4">
-              {/* Миниатюра-обложка */}
-              <div className="flex h-20 w-16 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-to-b from-[#fdeef1] to-[#f9dfe5] text-[var(--color-primary)] shadow-inner">
-                <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                  <path d="M14 2v6h6" />
-                  <path d="M9 13h6M9 17h4" />
-                </svg>
-                <span className="mt-0.5 text-[9px] font-bold tracking-wider">PDF</span>
-              </div>
+              {/* Квадратик-миниатюра: обложка из первой страницы PDF
+                  (загружается в админке), без неё — иконка PDF */}
+              {item.doc?.cover ? (
+                <SmartImg
+                  src={item.doc.cover}
+                  alt={`Обложка — ${item.title}`}
+                  wrapperClassName="h-20 w-16 shrink-0 rounded-lg border border-[var(--color-border)] shadow-inner"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-20 w-16 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-to-b from-[#fdeef1] to-[#f9dfe5] text-[var(--color-primary)] shadow-inner">
+                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M9 13h6M9 17h4" />
+                  </svg>
+                  <span className="mt-0.5 text-[9px] font-bold tracking-wider">PDF</span>
+                </div>
+              )}
               <div className="min-w-0">
                 <h2 className="text-[17px] font-semibold text-[var(--color-heading)]">
                   {item.title}

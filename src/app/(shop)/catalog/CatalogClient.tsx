@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductCardNew } from "@/components/ui/ProductCardNew";
+import { SmartImg } from "@/components/ui/SmartImg";
+import { useT } from "@/components/texts/TextsProvider";
 import type { Category } from "@/lib/products";
 import { mockCategories } from "@/lib/mock-data";
 import type { Product } from "@/lib/types";
@@ -14,12 +16,42 @@ interface Props {
   template?: "classic" | "new";
 }
 
-/** Миниатюры категорий (те же картинки, что на главной) */
+/** Фолбэк-миниатюры для категорий без товаров */
 const CATEGORY_ICONS: Record<string, string> = Object.fromEntries(
   mockCategories.map((c) => [c.slug, c.imageUrl])
 );
 
 type SortKey = "default" | "name-asc" | "name-desc" | "price-asc" | "price-desc";
+
+/** Товаров на одной странице каталога */
+const PAGE_SIZE = 20;
+
+/** Список кнопок пагинации: 1 … 4 5 6 … 19 (с «…» при большом числе страниц) */
+function buildPageList(current: number, total: number): (number | "dots")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const wanted = new Set<number>([1, total, current]);
+  if (current > 1) wanted.add(current - 1);
+  if (current < total) wanted.add(current + 1);
+  if (current <= 3) {
+    wanted.add(2);
+    wanted.add(3);
+    wanted.add(4);
+  }
+  if (current >= total - 2) {
+    wanted.add(total - 1);
+    wanted.add(total - 2);
+    wanted.add(total - 3);
+  }
+  const nums = Array.from(wanted).sort((a, b) => a - b);
+  const out: (number | "dots")[] = [];
+  let prev = 0;
+  for (const n of nums) {
+    if (n - prev > 1) out.push("dots");
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "default",   label: "По умолчанию" },
@@ -102,12 +134,15 @@ function DualSlider({
 }
 
 export function CatalogClient({ products, categories, template = "classic" }: Props) {
+  const t = useT();
   const [category, setCategory] = useState<string>("all"); // slug категории | "all"
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]); // индексы ступеней, пересчитываются от данных
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]); // kopecks, пересчитываются от данных
   const [search, setSearch] = useState("");
   const [boundsReady, setBoundsReady] = useState(false);
   const [sort, setSort] = useState<SortKey>("default");
+  const [page, setPage] = useState(1);
+  const gridTopRef = useRef<HTMLDivElement | null>(null);
 
   // Ступени веса из каталога (по возрастанию)
   const weightSteps = useMemo(() => {
@@ -149,6 +184,35 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     products.forEach((p) => p.category_id && present.add(p.category_id));
     return categories.filter((c) => present.has(c.id));
   }, [products, categories]);
+
+  /* Миниатюры-кнопки фильтров: пул первых картинок товаров категории,
+     как на главной. Рандом выбирается только на клиенте после монтирования
+     (иначе SSR и гидратация дают разные src → рассинхрон). До монтирования
+     показывается скелетон. */
+  const [pickedIcons, setPickedIcons] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    const poolByCategory = new Map<number, string[]>();
+    for (const p of products) {
+      if (p.category_id == null) continue;
+      const img = p.images[0]?.url;
+      if (!img) continue;
+      const pool = poolByCategory.get(p.category_id);
+      if (pool) pool.push(img);
+      else poolByCategory.set(p.category_id, [img]);
+    }
+    const map = new Map<string, string>();
+    for (const c of categories) {
+      const pool = poolByCategory.get(c.id);
+      map.set(
+        c.slug,
+        pool && pool.length > 0
+          ? pool[Math.floor(Math.random() * pool.length)]
+          : CATEGORY_ICONS[c.slug] ?? mockCategories[0].imageUrl
+      );
+    }
+    setPickedIcons(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // один раз на монтаж — каждая загрузка каталога даёт новый набор
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -196,8 +260,28 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     return arr;
   }, [filtered, sort]);
 
+  // Пагинация: всего страниц + срез текущей страницы.
+  // safePage прижимает страницу к допустимому диапазону, если после
+  // смены фильтров страниц стало меньше — без лишних setState.
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = useMemo(
+    () => sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [sorted, safePage]
+  );
+
+  const goToPage = (p: number) => {
+    if (p < 1 || p > totalPages || p === safePage) return;
+    setPage(p);
+    // Плавная прокрутка к началу списка после смены страницы
+    requestAnimationFrame(() =>
+      gridTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  };
+
   const changeCategory = (slug: string) => {
     setCategory(slug);
+    setPage(1); // смена категории — к первой странице
     // Синхронизируем ?category= в адресе (ссылки с главной: /catalog?category=vip)
     const url = new URL(window.location.href);
     if (slug === "all") url.searchParams.delete("category");
@@ -210,28 +294,37 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     setWeightIdx([0, Math.max(weightSteps.length - 1, 0)]);
     setPriceRange([priceBounds.min, priceBounds.max]);
     setSearch("");
+    setPage(1);
     const url = new URL(window.location.href);
     url.searchParams.delete("category");
     window.history.replaceState(null, "", url);
   };
 
+  const pagesLabel = t("catalog_pages", {
+    page: safePage,
+    pages: totalPages,
+  });
+
   return (
     <div className="grid gap-6 xl:grid-cols-[240px_1fr]">
       <aside className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
         <div>
-          <label className="mb-2 block text-sm font-medium text-[var(--color-heading)]">Поиск</label>
+          <label className="mb-2 block text-sm font-medium text-[var(--color-heading)]">{t("catalog_search_label")}</label>
           <input
             type="search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Название подарка"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1); // новый поиск — к первой странице
+            }}
+            placeholder={t("catalog_search_placeholder")}
             className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm placeholder:text-xs focus:border-[var(--color-primary)] focus:outline-none"
           />
         </div>
 
         {categoryOptions.length > 0 && (
           <div>
-            <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Категория</div>
+            <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">{t("catalog_category_label")}</div>
             {/* Бенто-плитки: 2 кол. на телефоне, 4 кол. на планшете (фильтры сверху),
                 снова 2 кол. в узком сайдбаре на xl+ */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
@@ -250,7 +343,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                   <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" />
                   <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" />
                 </svg>
-                Все
+                {t("catalog_all")}
               </button>
               {categoryOptions.map((c) => (
                 <button
@@ -263,13 +356,19 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                       : "border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
                   }`}
                 >
-                  {CATEGORY_ICONS[c.slug] && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={CATEGORY_ICONS[c.slug]}
+                  {pickedIcons.get(c.slug) ? (
+                    <SmartImg
+                      src={pickedIcons.get(c.slug)!}
                       alt=""
-                      className="h-9 w-9 rounded-xl object-cover"
                       loading="lazy"
+                      wrapperClassName="h-9 w-9 rounded-xl"
+                      skeletonClassName="rounded-xl"
+                      className="h-9 w-9 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className="img-skeleton block h-9 w-9 rounded-xl"
                     />
                   )}
                   {c.name}
@@ -283,13 +382,16 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-1">
           {weightSteps.length > 1 && boundsReady && (
             <div>
-              <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Вес</div>
+              <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">{t("catalog_weight_label")}</div>
               <DualSlider
                 min={0}
                 max={weightSteps.length - 1}
                 step={1}
                 value={weightIdx}
-                onChange={setWeightIdx}
+                onChange={(v) => {
+                  setWeightIdx(v);
+                  setPage(1); // новый фильтр — к первой странице
+                }}
                 format={(i) => weightLabel(weightSteps[i] ?? 0)}
                 ariaLabel="Вес"
               />
@@ -298,13 +400,16 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
 
           {priceBounds.max > 0 && boundsReady && (
             <div>
-              <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Цена</div>
+              <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">{t("catalog_price_label")}</div>
               <DualSlider
                 min={priceBounds.min}
                 max={priceBounds.max}
                 step={10000}
                 value={priceRange}
-                onChange={setPriceRange}
+                onChange={(v) => {
+                  setPriceRange(v);
+                  setPage(1); // новый фильтр — к первой странице
+                }}
                 format={priceLabel}
                 ariaLabel="Цена"
               />
@@ -317,16 +422,19 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
             onClick={resetFilters}
             className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-muted)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
           >
-            Сбросить фильтры
+            {t("catalog_reset")}
           </button>
         )}
       </aside>
 
       <section>
-        {/* Тулбар: счётчик + сортировка над сеткой */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* Тулбар: счётчик страниц + сортировка над сеткой */}
+        <div
+          ref={gridTopRef}
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 scroll-mt-28"
+        >
           <div className="text-sm text-[var(--color-muted)]">
-            Найдено: {filtered.length} из {products.length}
+            {pagesLabel}
           </div>
           <div className="ml-auto flex items-center gap-3">
             {hasFilters && (
@@ -334,14 +442,17 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                 onClick={resetFilters}
                 className="text-sm text-[var(--color-primary)] underline-offset-2 hover:underline xl:hidden"
               >
-                Сбросить
+                {t("catalog_reset")}
               </button>
             )}
             <label className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-              <span className="hidden sm:inline">Сортировка:</span>
+              <span className="hidden sm:inline">{t("catalog_sort_label")}</span>
               <select
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
+                onChange={(e) => {
+                  setSort(e.target.value as SortKey);
+                  setPage(1); // новая сортировка — к первой странице
+                }}
                 aria-label="Сортировка"
                 className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-sm text-[var(--color-heading)] focus:border-[var(--color-primary)] focus:outline-none"
               >
@@ -356,11 +467,11 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
         </div>
         {sorted.length === 0 ? (
           <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] p-12 text-center text-[var(--color-muted)]">
-            Ничего не нашлось. Попробуйте изменить фильтры.
+            {t("catalog_empty_result")}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-            {sorted.map((p) =>
+            {pageItems.map((p) =>
               template === "new" ? (
                 <ProductCardNew key={p.id} product={p} />
               ) : (
@@ -368,6 +479,63 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
               )
             )}
           </div>
+        )}
+
+        {/* Пагинация: снизу по центру */}
+        {totalPages > 1 && (
+          <nav
+            aria-label="Пагинация"
+            className="mt-8 flex flex-wrap items-center justify-center gap-1 sm:gap-1.5"
+          >
+            <button
+              type="button"
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage <= 1}
+              aria-label="Предыдущая страница"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border)] text-[var(--color-heading)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40 sm:h-10 sm:w-10"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            {buildPageList(safePage, totalPages).map((item, i) =>
+              item === "dots" ? (
+                <span
+                  key={`dots-${i}`}
+                  className="px-1 text-sm text-[var(--color-muted)]"
+                  aria-hidden
+                >
+                  …
+                </span>
+              ) : (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => goToPage(item)}
+                  aria-current={item === safePage ? "page" : undefined}
+                  aria-label={`Страница ${item}`}
+                  className={`h-9 min-w-9 rounded-lg border px-2 text-sm font-medium transition-colors sm:h-10 sm:min-w-10 ${
+                    item === safePage
+                      ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                      : "border-[var(--color-border)] bg-white text-[var(--color-heading)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                  }`}
+                >
+                  {item}
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage >= totalPages}
+              aria-label="Следующая страница"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border)] text-[var(--color-heading)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40 sm:h-10 sm:w-10"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </nav>
         )}
       </section>
     </div>

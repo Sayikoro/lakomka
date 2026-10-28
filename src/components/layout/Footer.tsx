@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { CopyrightYear } from "./CopyrightYear";
 import { IconMax, IconMail, IconWhatsapp } from "./contact-icons";
 import { PdfOpenButton, ViewCatalogsButton } from "@/components/pdf/PdfButtons";
+import { tFrom } from "@/lib/page-texts";
 
 /* Ссылки-каналы — те же, что в попапе «Связаться с нами» (ContactDrawer) */
 const CHANNELS = [
@@ -25,21 +25,24 @@ const CHANNELS = [
 const linkCls =
   "transition-colors hover:text-[var(--color-primary)] underline-offset-4 hover:underline";
 
-export function Footer() {
+export function Footer({ texts = {} }: { texts?: Record<string, string> }) {
+  const t = (key: string, vars?: Record<string, string | number>) =>
+    tFrom(texts, key, vars);
+
   return (
     <footer className="mt-8 border-t border-[var(--color-border)] bg-[var(--color-bg-soft)] md:mt-0">
       <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-6 px-4 py-6 sm:px-6 md:grid-cols-3 md:gap-8 md:py-10">
         {/* Левая колонка — реквизиты компании (на телефоне — по центру) */}
         <div className="text-center text-[13px] leading-relaxed text-[var(--color-muted)] md:text-left">
           <p className="text-[15px] font-semibold text-[var(--color-heading)]">
-            ООО Компания «Лакомка», 2015 – <CopyrightYear />
+            {t("global_footer_company", { year: new Date().getFullYear() })}
           </p>
-          <p className="mt-3">ИНН 2724199105</p>
-          <p>ОГРН 1152724000978</p>
+          <p className="mt-3">{t("global_footer_inn")}</p>
+          <p>{t("global_footer_ogrn")}</p>
           <p className="mt-4">
-            Юридический адрес:
+            {t("global_footer_address_label")}
             <br />
-            680031, Хабаровский край, город Хабаровск, ул. Карла Маркса, д. 186б
+            {t("global_footer_address")}
           </p>
         </div>
 
@@ -64,12 +67,12 @@ export function Footer() {
           <div className="space-y-1 font-semibold text-[var(--color-heading)]">
             <p>
               <a href="tel:+74212789621" className={linkCls}>
-                +7 (4212) 78 96 21
+                {t("global_footer_phone1")}
               </a>
             </p>
             <p>
               <a href="tel:+79141582464" className={linkCls}>
-                +7 914 158 24 64
+                {t("global_footer_phone2")}
               </a>
             </p>
           </div>
@@ -77,13 +80,13 @@ export function Footer() {
           <div className="space-y-1 text-[13px] text-[var(--color-muted)]">
             {/* Сертификат соответствия — PDF-вьювер (файл загружается в админке, раздел «PDF») */}
             <p>
-              <PdfOpenButton alias="certificate" fallbackTitle="Сертификат соответствия" className={linkCls}>
-                Сертификат соответствия
+              <PdfOpenButton alias="certificate" fallbackTitle={t("global_footer_certificate")} className={linkCls}>
+                {t("global_footer_certificate")}
               </PdfOpenButton>
             </p>
             <p>
               <Link href="/privacy" className={linkCls}>
-                Политика конфиденциальности
+                {t("global_footer_privacy")}
               </Link>
             </p>
           </div>
@@ -94,17 +97,17 @@ export function Footer() {
           <p>
             {/* Попап с двумя печатными каталогами в PDF-вьювере с перелистыванием */}
             <ViewCatalogsButton className="text-center font-semibold text-[var(--color-heading)] underline-offset-4 hover:text-[var(--color-primary)] hover:underline md:text-right">
-              Посмотреть каталоги
+              {t("global_footer_view_catalogs")}
             </ViewCatalogsButton>
           </p>
           <p>
             <Link href="/catalogs" className={linkCls}>
-              Скачать каталоги
+              {t("global_footer_download_catalogs")}
             </Link>
           </p>
           <p className="mt-auto pt-5 text-[13px] text-[var(--color-muted)]">
-            Сделано{" "}
-            <span className="font-semibold text-[var(--color-heading)]">ShabanOFF Design</span>
+            {t("global_footer_credits_prefix")}{" "}
+            <span className="font-semibold text-[var(--color-heading)]">{t("global_footer_credits_name")}</span>
           </p>
         </div>
       </div>

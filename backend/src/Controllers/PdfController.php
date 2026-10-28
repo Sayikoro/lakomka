@@ -10,6 +10,13 @@ require_once __DIR__ . '/../Auth.php';
  *  catalog_1   — Каталог №1 (флипбук «Посмотреть каталоги»)
  *  catalog_2   — Каталог №2
  *  certificate — Сертификат соответствия
+ *
+ * Дополнительно у каждого документа есть:
+ *  — описание (хранится в settings под ключом pdf_description_{alias}),
+ *    редактируется в админке → PDF;
+ *  — обложка public/uploads/pdfs/{alias}.jpg — картинка первой страницы,
+ *    генерируется браузером (pdf.js) при загрузке PDF, показывается
+ *    в «квадратике» на странице «Скачать каталоги».
  */
 class PdfController
 {
@@ -22,6 +29,7 @@ class PdfController
 
     private const MAX_PDF_BYTES = 200 * 1024 * 1024; // 200 MB
     private const MAX_CHUNK_B64 = 8 * 1024 * 1024;   // чанк base64 ≤ 8 MB
+    private const MAX_COVER_BYTES = 6 * 1024 * 1024; // обложка ≤ 6 MB
 
     public static function dir(): string
     {
@@ -30,28 +38,119 @@ class PdfController
 
     /* ============================================================
        GET /api/pdfs — публичный список: какие документы загружены
+       (с описаниями из настроек и путями обложек)
        ============================================================ */
-    public static function list(): void
+    public static function list(PDO $pdo): void
     {
+        $desc = self::descriptions($pdo);
         $out = [];
         foreach (self::ALIASES as $alias => $title) {
-            $out[$alias] = self::info($alias, $title);
+            $out[$alias] = self::info($alias, $title, $desc[$alias] ?? '');
         }
         jsonResponse(['data' => $out]);
     }
 
+    /** Описания документов из settings (pdf_description_{alias}) */
+    public static function descriptions(PDO $pdo): array
+    {
+        $rows = $pdo->query(
+            "SELECT key, value FROM settings WHERE key LIKE 'pdf_description%'"
+        )->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $alias = substr((string)$r['key'], strlen('pdf_description_'));
+            $out[$alias] = (string)$r['value'];
+        }
+        return $out;
+    }
+
     /** Информация по одному документу или null */
-    public static function info(string $alias, string $title): ?array
+    public static function info(string $alias, string $title, string $description = ''): ?array
     {
         $file = self::dir() . '/' . $alias . '.pdf';
         if (!is_file($file)) return null;
+        $cover = self::dir() . '/' . $alias . '.jpg';
         return [
             'alias'      => $alias,
             'title'      => $title,
             'url'        => '/uploads/pdfs/' . $alias . '.pdf',
             'size'       => filesize($file),
             'updated_at' => date('c', (int)filemtime($file)),
+            'description' => $description,
+            'cover'      => is_file($cover) ? '/uploads/pdfs/' . $alias . '.jpg' : null,
         ];
+    }
+
+    /* ============================================================
+       POST /api/admin/pdfs/{alias}/meta — сохранить описание
+       JSON: { description: string }
+       ============================================================ */
+    public static function saveMeta(PDO $pdo, string $alias): void
+    {
+        Auth::requireEditor();
+
+        if (!isset(self::ALIASES[$alias])) {
+            jsonResponse(['error' => 'Неизвестный алиас: ' . $alias], 422);
+        }
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data) || !array_key_exists('description', $data)) {
+            jsonResponse(['error' => 'Нужно поле description'], 422);
+        }
+        $description = trim((string)$data['description']);
+        if (mb_strlen($description) > 2000) {
+            jsonResponse(['error' => 'Описание слишком длинное (максимум 2000 символов)'], 422);
+        }
+
+        $upd = $pdo->prepare(
+            'INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+        );
+        $upd->execute(['pdf_description_' . $alias, $description]);
+
+        jsonResponse(['data' => ['ok' => true, 'alias' => $alias, 'description' => $description]]);
+    }
+
+    /* ============================================================
+       POST /api/admin/pdfs/{alias}/cover — обложка (multipart, JPEG)
+       Картинка первой страницы PDF (генерируется pdf.js в браузере)
+       или своя обложка. Сохраняется в public/uploads/pdfs/{alias}.jpg
+       ============================================================ */
+    public static function uploadCover(string $alias): void
+    {
+        Auth::requireEditor();
+
+        if (!isset(self::ALIASES[$alias])) {
+            jsonResponse(['error' => 'Неизвестный алиас: ' . $alias], 422);
+        }
+        if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'] ?? '')) {
+            jsonResponse(['error' => 'Файл не передан'], 422);
+        }
+        $f = $_FILES['file'];
+        if (($f['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+            jsonResponse(['error' => 'Ошибка загрузки файла'], 422);
+        }
+        if ($f['size'] > self::MAX_COVER_BYTES) {
+            jsonResponse(['error' => 'Обложка больше 6 МБ'], 422);
+        }
+        // Клиент всегда присылает JPEG (конвертация на canvas.toBlob)
+        $mime = mime_content_type($f['tmp_name']);
+        if ($mime !== 'image/jpeg') {
+            jsonResponse(['error' => 'Ожидается JPEG-картинка'], 422);
+        }
+
+        $destDir = self::dir();
+        if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+        $dest = $destDir . '/' . $alias . '.jpg';
+        if (!move_uploaded_file($f['tmp_name'], $dest)) {
+            jsonResponse(['error' => 'Не удалось сохранить обложку'], 500);
+        }
+        @chmod($dest, 0644);
+
+        jsonResponse(['data' => [
+            'ok' => true,
+            'alias' => $alias,
+            'cover' => '/uploads/pdfs/' . $alias . '.jpg',
+        ]]);
     }
 
     /* ============================================================
@@ -176,7 +275,7 @@ class PdfController
     }
 
     /* ============================================================
-       DELETE /api/admin/pdfs/{alias} — убрать документ
+       DELETE /api/admin/pdfs/{alias} — убрать документ (+ обложку)
        ============================================================ */
     public static function remove(string $alias): void
     {
@@ -189,6 +288,8 @@ class PdfController
         if (is_file($file) && !@unlink($file)) {
             jsonResponse(['error' => 'Не удалось удалить файл'], 500);
         }
+        $cover = self::dir() . '/' . $alias . '.jpg';
+        if (is_file($cover)) @unlink($cover);
         jsonResponse(['data' => ['ok' => true, 'alias' => $alias]]);
     }
 

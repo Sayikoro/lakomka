@@ -40,6 +40,7 @@ export function SettingsForm({ initial }: Props) {
     return [];
   });
   const [uploading, setUploading] = useState(false);
+  const [uploadingFlake, setUploadingFlake] = useState(false);
 
   function setField<K extends keyof AdminSettings>(key: K, value: AdminSettings[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -95,6 +96,32 @@ export function SettingsForm({ initial }: Props) {
     }
   }
 
+  async function uploadSnowflakeSvg(file: File): Promise<string | null> {
+    setError(null);
+    setUploadingFlake(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const fd = new FormData();
+      fd.append("file", file); // SVG не сжимаем — отправляем как есть
+      const res = await fetch(`${apiUrl}/admin/uploads/snowflake`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось загрузить снежинку");
+        return null;
+      }
+      return json.data.url as string;
+    } catch {
+      setError("Ошибка сети при загрузке снежинки");
+      return null;
+    } finally {
+      setUploadingFlake(false);
+    }
+  }
+
   function moveSlide(i: number, dir: -1 | 1) {
     setSlides((s) => {
       const j = i + dir;
@@ -131,6 +158,13 @@ export function SettingsForm({ initial }: Props) {
           hero_slider_enabled: form.hero_slider_enabled,
           hero_slides: JSON.stringify(slides.filter((s) => s.url)),
           product_card_template: form.product_card_template || "classic",
+          snow_enabled: form.snow_enabled,
+          snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
+          snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),
+          snow_speed: String(Math.max(0.1, Math.min(20, parseFloat(form.snow_speed || "0.5") || 0.5))),
+          snow_size: String(Math.max(4, Math.min(120, parseInt(form.snow_size || "31", 10) || 31))),
+          snow_color: /^#[0-9a-fA-F]{6}$/.test(form.snow_color || "") ? form.snow_color : "",
+          snow_flake: form.snow_flake.trim(),
         }),
       });
       const json = await res.json();
@@ -460,6 +494,175 @@ export function SettingsForm({ initial }: Props) {
             Новая карточка показывает всё медиа товара: фото и видео листаются свайпом, видео проигрывается прямо в карточке.
           </p>
         </div>
+      </div>
+
+      {/* ── Витрина: снегопад ── */}
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+        <h2 className="text-lg font-semibold text-[var(--color-heading)]">
+          Снегопад
+        </h2>
+
+        <label className="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={form.snow_enabled === "1"}
+            onChange={(e) =>
+              setField("snow_enabled", e.target.checked ? "1" : "0")
+            }
+            className="h-4 w-4 accent-[var(--color-primary)]"
+          />
+          <span className="text-sm font-medium text-[var(--color-heading)]">
+            Падающий снег в Hero-блоке на главной
+          </span>
+        </label>
+        <p className="-mt-4 text-xs text-[var(--color-muted)]">
+          Снежинки падают только внутри главного экрана (Hero) — как на оригинальном сайте. У каждой снежинки случайная прозрачность (0.35–0.9) и размер — снег падает будто на разных слоях.
+        </p>
+
+        {form.snow_enabled === "1" && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={label}>
+                  Плотность (компьютеры) — {Math.max(0, Math.min(500, parseInt(form.snow_count || "0", 10) || 0))} снежинок
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={300}
+                  step={10}
+                  value={parseInt(form.snow_count || "0", 10) || 0}
+                  onChange={(e) => setField("snow_count", e.target.value)}
+                  className="w-full accent-[var(--color-primary)]"
+                />
+                <p className="mt-1 text-xs text-[var(--color-muted)]">Экран ≥ 768px. В оригинале — 110. Максимум — 500.</p>
+              </div>
+              <div>
+                <label className={label}>
+                  Плотность (телефоны) — {Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "0", 10) || 0))} снежинок
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={300}
+                  step={10}
+                  value={parseInt(form.snow_count_mobile || "0", 10) || 0}
+                  onChange={(e) => setField("snow_count_mobile", e.target.value)}
+                  className="w-full accent-[var(--color-primary)]"
+                />
+                <p className="mt-1 text-xs text-[var(--color-muted)]">Экран уже 768px — задаётся отдельно, у телефонов экран меньше. По умолчанию 60.</p>
+              </div>
+              <div>
+                <label className={label}>
+                  Скорость — {(parseFloat(form.snow_speed || "0") || 0).toFixed(1)}
+                </label>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={8}
+                  step={0.1}
+                  value={parseFloat(form.snow_speed || "0") || 0.5}
+                  onChange={(e) => setField("snow_speed", e.target.value)}
+                  className="w-full accent-[var(--color-primary)]"
+                />
+                <p className="mt-1 text-xs text-[var(--color-muted)]">В оригинале — 0.5. Больше = быстрее падают.</p>
+              </div>
+              <div>
+                <label className={label}>
+                  Размер — {Math.max(4, Math.min(120, parseInt(form.snow_size || "0", 10) || 31))} px
+                </label>
+                <input
+                  type="range"
+                  min={6}
+                  max={80}
+                  step={1}
+                  value={parseInt(form.snow_size || "0", 10) || 31}
+                  onChange={(e) => setField("snow_size", e.target.value)}
+                  className="w-full accent-[var(--color-primary)]"
+                />
+                <p className="mt-1 text-xs text-[var(--color-muted)]">
+                  Базовый размер; фактический у каждой снежинки — 40–160% от него. В оригинале — 31.
+                </p>
+              </div>
+              <div>
+                <label className={label}>Цвет снежинок</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(form.snow_color || "") ? form.snow_color : "#f5f5f5"}
+                    onChange={(e) => setField("snow_color", e.target.value.toUpperCase())}
+                    className="h-9 w-12 cursor-pointer rounded-md border border-[var(--color-border)] bg-white p-1"
+                    aria-label="Цвет снежинок"
+                  />
+                  <input
+                    type="text"
+                    value={form.snow_color}
+                    onChange={(e) => setField("snow_color", e.target.value)}
+                    className={input}
+                    placeholder="#f5f5f5"
+                  />
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-muted)]">
+                  В оригинале — #f5f5f5. На светлом фоне виднее тёмные/цветные оттенки (например #9ecff7).
+                </p>
+              </div>
+            </div>
+
+            {/* Своя SVG-снежинка */}
+            <div>
+              <label className={label}>Снежинка</label>
+              <div className="flex items-start gap-4">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#3a4a5a]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={form.snow_flake.trim() || "/uploads/snowflake/snowflake.svg"}
+                    alt="Текущая снежинка"
+                    className="h-full w-full object-contain p-1"
+                  />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex cursor-pointer items-center rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-1.5 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)] hover:text-white">
+                      {uploadingFlake ? "Загружаем…" : "Загрузить свою SVG"}
+                      <input
+                        type="file"
+                        accept="image/svg+xml,.svg"
+                        className="hidden"
+                        disabled={uploadingFlake}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          const url = await uploadSnowflakeSvg(file);
+                          if (url) setField("snow_flake", url);
+                        }}
+                      />
+                    </label>
+                    {form.snow_flake.trim() !== "" && (
+                      <button
+                        type="button"
+                        onClick={() => setField("snow_flake", "")}
+                        className="rounded-[var(--radius-btn)] border-2 border-[var(--color-border)] px-4 py-1.5 text-sm font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                      >
+                        Вернуть стандартную
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={form.snow_flake}
+                    onChange={(e) => setField("snow_flake", e.target.value)}
+                    className={input}
+                    placeholder="/uploads/snowflake/… или https://…"
+                  />
+                  <p className="text-xs text-[var(--color-muted)]">
+                    Пусто = встроенная снежинка (как в оригинале). Свою можно загрузить SVG-файлом (до 1 МБ) или указать ссылку.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
         {error && (

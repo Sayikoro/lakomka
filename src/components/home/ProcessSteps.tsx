@@ -1,15 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ContactDrawer } from "./ContactDrawer";
+import { useT } from "@/components/texts/TextsProvider";
+import { SmartImage } from "@/components/ui/SmartImg";
 
-// Локальные копии белых SVG (красятся в цвет кнопок через CSS mask в StepIcon)
-const STEPS = [
-  { n: 1, icon: "/uploads/ico-step1.svg", title: "Выберите подарки",  t2: ["Выберите", "подарки"],  text: "Добавьте наборы в корзину и оформите заказ на сайте." },
-  { n: 2, icon: "/uploads/ico-step2.svg", title: "Менеджер свяжется", t2: ["Менеджер", "свяжется"], text: "В рабочее время подтвердим состав, согласуем оплату и доставку." },
-  { n: 3, icon: "/uploads/ico-step3.svg", title: "Получите заказ",    t2: ["Получите", "заказ"],    text: "Доставим в согласованное время по Хабаровску или отправим ТК." },
-];
+/* Локальные копии белых SVG (красятся в цвет кнопок через CSS mask в StepIcon).
+   Заголовки и тексты шагов — из реестра «Текст на страницах» (useT). */
+const STEP_ICONS = ["/uploads/ico-step1.svg", "/uploads/ico-step2.svg", "/uploads/ico-step3.svg"];
+
+interface Step {
+  n: number;
+  icon: string;
+  title: string;
+  t2: [string, string];
+  text: string;
+}
+
+/** Заголовок шага в 2 строки для планшета: первое слово / остальное */
+function splitTwo(title: string): [string, string] {
+  const i = title.indexOf(" ");
+  if (i <= 0) return [title, ""];
+  return [title.slice(0, i), title.slice(i + 1)];
+}
 
 /** Амплитуда параллакса, px. Фон имеет запас ±80px, чтобы не обнажались края */
 const PARALLAX_AMP = 64;
@@ -30,7 +43,7 @@ function StepIcon({ src, className }: { src: string; className?: string }) {
 }
 
 /** Круглый узел таймлайна: белый круг с покрашенной иконкой + бейдж-номер */
-function StepNode({ step, size }: { step: (typeof STEPS)[number]; size: "md" | "sm" }) {
+function StepNode({ step, size }: { step: Step; size: "md" | "sm" }) {
   const box = size === "md" ? "h-24 w-24" : "h-16 w-16";
   const icon = size === "md" ? "h-12 w-12" : "h-8 w-8";
   const badge = size === "md" ? "h-7 w-7 text-[13px]" : "h-6 w-6 text-[11px]";
@@ -52,6 +65,16 @@ export function ProcessSteps() {
   const secRef = useRef<HTMLElement | null>(null);
   const bgRef = useRef<HTMLDivElement | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
+  const t = useT();
+
+  const steps = useMemo<Step[]>(
+    () => [
+      { n: 1, icon: STEP_ICONS[0], title: t("home_step1_title"), t2: splitTwo(t("home_step1_title")), text: t("home_step1_text") },
+      { n: 2, icon: STEP_ICONS[1], title: t("home_step2_title"), t2: splitTwo(t("home_step2_title")), text: t("home_step2_text") },
+      { n: 3, icon: STEP_ICONS[2], title: t("home_step3_title"), t2: splitTwo(t("home_step3_title")), text: t("home_step3_text") },
+    ],
+    [t]
+  );
 
   // Параллакс фона: фон сдвигается по мере прокрутки секции через экран.
   // background-attachment: fixed не работает в iOS Safari, поэтому rAF + transform.
@@ -93,12 +116,13 @@ export function ProcessSteps() {
         aria-hidden
         className="absolute inset-x-0 -top-20 -bottom-20 will-change-transform"
       >
-        <Image
+        <SmartImage
           src="/uploads/process-bg.png"
           alt=""
           fill
           sizes="100vw"
           className="object-cover"
+          skeletonClassName="bg-[#22314a]"
         />
       </div>
 
@@ -111,7 +135,7 @@ export function ProcessSteps() {
       <div className="relative mx-auto max-w-[1200px] px-4 py-14 sm:px-6 sm:py-16">
         <h2 className="mb-12 text-center text-[24px] font-medium text-white!">
           <span className="inline-block max-w-[92%] rounded-full bg-black/40 px-7 py-2.5 text-center text-[17px] leading-snug uppercase tracking-wide [text-shadow:0_1px_6px_rgba(0,0,0,0.7)] backdrop-blur-[3px] sm:text-[21px] lg:text-[22px]">
-            Процесс оформления и обработки заказа
+            {t("home_process_heading")}
           </span>
         </h2>
 
@@ -123,7 +147,7 @@ export function ProcessSteps() {
             className="absolute left-[10%] right-[10%] top-12 h-[3px] -translate-y-1/2 rounded-full bg-white/50"
           />
           <div className="relative grid grid-cols-4 items-start gap-4">
-            {STEPS.map((s) => (
+            {steps.map((s) => (
               <div key={s.n} className="flex flex-col items-center text-center">
                 <StepNode step={s} size="md" />
                 <h3 className="mt-5 text-[18px] font-semibold text-white! [text-shadow:0_2px_6px_rgba(0,0,0,0.95),0_0_20px_rgba(0,0,0,0.6)]">
@@ -142,9 +166,9 @@ export function ProcessSteps() {
                 onClick={() => setContactOpen(true)}
                 className="mt-[23px] cursor-pointer rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-7 py-[16px] text-[14px] font-semibold uppercase tracking-wide text-white shadow-[0_10px_26px_-10px_rgba(0,0,0,0.65)] transition hover:bg-[var(--color-primary-hover)]"
               >
-                Связаться с нами
+                {t("global_contact_button")}
               </button>
-              <p className="mt-3 text-[13px] text-white/75">Ответим в рабочее время</p>
+              <p className="mt-3 text-[13px] text-white/75">{t("global_contact_reply")}</p>
             </div>
           </div>
         </div>
@@ -159,7 +183,7 @@ export function ProcessSteps() {
               className="absolute left-[16.666%] right-[16.666%] top-12 h-[3px] -translate-y-1/2 rounded-full bg-white/50"
             />
             <div className="relative grid grid-cols-3 items-start">
-              {STEPS.map((s) => (
+              {steps.map((s) => (
                 <div key={s.n} className="flex flex-col items-center">
                   <StepNode step={s} size="md" />
                   {/* Текстовый блок центрирован под узлом, внутри — выравнивание по левому краю */}
@@ -183,9 +207,9 @@ export function ProcessSteps() {
                 onClick={() => setContactOpen(true)}
                 className="cursor-pointer rounded-full bg-[var(--color-primary)] px-10 py-[16px] text-[14px] font-bold uppercase tracking-[0.06em] text-white shadow-[0_14px_32px_-10px_rgba(0,0,0,0.75)] transition hover:bg-[var(--color-primary-hover)] active:scale-95"
               >
-                Связаться с нами
+                {t("global_contact_button")}
               </button>
-              <p className="mt-3 text-[13px] text-white/75">Ответим в рабочее время</p>
+              <p className="mt-3 text-[13px] text-white/75">{t("global_contact_reply")}</p>
             </div>
           </div>
         </div>
@@ -197,7 +221,7 @@ export function ProcessSteps() {
             className="absolute bottom-[36px] left-[31px] top-[31px] w-[3px] -translate-x-1/2 rounded-full bg-white/50"
           />
           <div className="relative space-y-8">
-            {STEPS.map((s) => (
+            {steps.map((s) => (
               <div key={s.n} className="flex items-start gap-4">
                 <StepNode step={s} size="sm" />
                 <div className="pt-1">
@@ -219,10 +243,10 @@ export function ProcessSteps() {
                   type="button"
                   onClick={() => setContactOpen(true)}
                   className="cursor-pointer rounded-full bg-[var(--color-primary)] px-8 py-[15px] text-[13px] font-bold uppercase tracking-[0.06em] text-white shadow-[0_14px_30px_-10px_rgba(0,0,0,0.75)] transition hover:bg-[var(--color-primary-hover)] active:scale-95"
-                >
-                  Связаться с нами
-                </button>
-                <p className="mt-2 text-[12px] text-white/75">Ответим в рабочее время</p>
+              >
+                {t("global_contact_button")}
+              </button>
+                <p className="mt-2 text-[12px] text-white/75">{t("global_contact_reply")}</p>
               </div>
             </div>
           </div>

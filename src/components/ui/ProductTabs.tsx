@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
 import { PACKAGING_LABELS } from "@/lib/constants";
+import { useT } from "@/components/texts/TextsProvider";
 import type { Product, BundleItem } from "@/lib/types";
 
 interface Props {
@@ -12,10 +13,11 @@ interface Props {
 
 type TabKey = "description" | "details" | "composition";
 
-const TAB_LABELS: Record<TabKey, string> = {
-  description: "Описание",
-  details: "Детали",
-  composition: "Состав подарка",
+/* Ключи реестра текстов для подписей табов (текст берётся через useT) */
+const TAB_TEXT_KEYS: Record<TabKey, string> = {
+  description: "product_tab_description",
+  details: "product_tab_details",
+  composition: "product_tabs_composition",
 };
 
 function formatWeight(g: number | null | undefined): string | null {
@@ -39,6 +41,7 @@ function formatDimensions(
 }
 
 export function ProductTabs({ product }: Props) {
+  const t = useT();
   const isBundle = product.type === "bundle" && (product.bundle_items?.length ?? 0) > 0;
 
   const tabs: TabKey[] = ["description", "details"];
@@ -65,7 +68,7 @@ export function ProductTabs({ product }: Props) {
                     ? "text-[var(--color-primary)]"
                     : "text-[var(--color-muted)] hover:text-[var(--color-heading)]"
                 }`}>
-                {TAB_LABELS[key]}
+                {t(TAB_TEXT_KEYS[key])}
                 {isActive && (
                   <span className="absolute inset-x-3 -bottom-px h-0.5 bg-[var(--color-primary)]" />
                 )}

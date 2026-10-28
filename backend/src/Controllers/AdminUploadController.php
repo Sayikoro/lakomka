@@ -71,4 +71,50 @@ class AdminUploadController
 
         jsonResponse(['data' => ['url' => '/uploads/hero/' . $filename]]);
     }
+
+    /* ============================================================
+       ЗАГРУЗКА SVG-СНЕЖИНКИ (снегопад на витрине)
+       POST /api/admin/uploads/snowflake   multipart: field `file`
+       Файлы складываются в public/uploads/snowflake
+       ============================================================ */
+    public static function saveSnowflakeSvg(): void
+    {
+        Auth::requireAuth();
+
+        $dir = __DIR__ . '/../../../public/uploads/snowflake';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            jsonResponse(['error' => 'Файл не загружен'], 422);
+        }
+        $file = $_FILES['file'];
+        if ($file['size'] > 1024 * 1024) {
+            jsonResponse(['error' => 'SVG больше 1 MB'], 422);
+        }
+        $name = (string)$file['name'];
+        $mime = mime_content_type($file['tmp_name']);
+        $content = (string)file_get_contents($file['tmp_name']);
+        $isSvg = str_ends_with(strtolower($name), '.svg')
+            || $mime === 'image/svg+xml'
+            || $mime === 'text/plain'
+            || $mime === 'text/xml';
+        if (!$isSvg || stripos($content, '<svg') === false) {
+            jsonResponse(['error' => 'Нужен файл SVG со снежинкой (<svg>…)'], 422);
+        }
+
+        /* Лёгкая санитизация: вырезаем script и обработчики событий */
+        $content = preg_replace('#<script[\s\S]*?</script>#i', '', $content) ?? $content;
+        $content = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $content) ?? $content;
+
+        $filename = 'flake-' . time() . '-' . bin2hex(random_bytes(4)) . '.svg';
+        $dest = $dir . '/' . $filename;
+
+        if (!@file_put_contents($dest, $content)) {
+            jsonResponse(['error' => 'Не удалось сохранить файл'], 500);
+        }
+
+        jsonResponse(['data' => ['url' => '/uploads/snowflake/' . $filename]]);
+    }
 }

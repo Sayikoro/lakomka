@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useCart } from "@/store/cart";
 import { ContactDrawer } from "@/components/home/ContactDrawer";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { useT } from "@/components/texts/TextsProvider";
 
 export function Header() {
   const lines = useCart((s) => s.lines);
   const totalQty = lines.reduce((sum, l) => sum + l.qty, 0);
+  const t = useT();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -83,16 +85,16 @@ export function Header() {
     >
       <div className="mx-auto flex h-[70px] max-w-[1200px] items-center justify-between px-4">
         <Link href="/" className="text-xl font-semibold text-[var(--color-heading)]">
-          Лакомка
+          {t("global_brand")}
         </Link>
 
         {/* ПК — инлайн-навигация */}
         <nav className="hidden items-center gap-6 lg:flex">
           <Link href="/catalog" className={navLinkCls}>
-            Подарки
+            {t("global_nav_gifts")}
           </Link>
           <Link href="/catalogs" className={navLinkCls}>
-            Скачать каталоги
+            {t("global_nav_catalogs")}
           </Link>
           {cartButton}
         </nav>
@@ -139,7 +141,7 @@ export function Header() {
         {/* Верх шторки — в высоту шапки, крестик справа */}
         <div className="flex h-[70px] shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4">
           <span className="text-[13px] font-bold uppercase tracking-[0.06em] text-[var(--color-heading)]">
-            Меню
+            {t("global_menu_title")}
           </span>
           <button
             type="button"
@@ -159,14 +161,14 @@ export function Header() {
             onClick={() => setMenuOpen(false)}
             className="border-b border-[var(--color-border)] py-4 text-[16px] text-[var(--color-body)]"
           >
-            Подарки
+            {t("global_nav_gifts")}
           </Link>
           <Link
             href="/catalogs"
             onClick={() => setMenuOpen(false)}
             className="border-b border-[var(--color-border)] py-4 text-[16px] text-[var(--color-body)]"
           >
-            Скачать каталоги
+            {t("global_nav_catalogs")}
           </Link>
         </nav>
 
@@ -180,7 +182,7 @@ export function Header() {
             }}
             className="w-full cursor-pointer rounded-full bg-[var(--color-primary)] px-4 py-[14px] text-[12px] font-bold uppercase tracking-[0.06em] text-white shadow-[0_14px_30px_-10px_rgba(0,0,0,0.75)] transition hover:bg-[var(--color-primary-hover)] active:scale-95 sm:text-[13px]"
           >
-            Связаться с нами
+            {t("global_contact_button")}
           </button>
         </div>
       </aside>

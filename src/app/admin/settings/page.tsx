@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { SettingsForm } from "@/components/admin/SettingsForm";
+import { SettingsTabs } from "@/components/admin/SettingsTabs";
 
 export interface AdminSettings {
   admin_email: string;
@@ -18,6 +19,14 @@ export interface AdminSettings {
   hero_slider_enabled: string;
   hero_slides: string;
   product_card_template: string;
+  /* снегопад */
+  snow_enabled: string;
+  snow_count: string;
+  snow_count_mobile: string;
+  snow_speed: string;
+  snow_size: string;
+  snow_color: string;
+  snow_flake: string;
 }
 
 async function getSettings(): Promise<AdminSettings | null> {
@@ -41,6 +50,13 @@ async function getSettings(): Promise<AdminSettings | null> {
       hero_slider_enabled: data.hero_slider_enabled ?? "0",
       hero_slides: data.hero_slides ?? "",
       product_card_template: data.product_card_template ?? "classic",
+      snow_enabled: data.snow_enabled ?? "0",
+      snow_count: data.snow_count ?? "110",
+      snow_count_mobile: data.snow_count_mobile ?? "60",
+      snow_speed: data.snow_speed ?? "0.5",
+      snow_size: data.snow_size ?? "31",
+      snow_color: data.snow_color ?? "#f5f5f5",
+      snow_flake: data.snow_flake ?? "",
     } as AdminSettings;
   } catch {
     return null;
@@ -61,7 +77,7 @@ export default async function AdminSettingsPage() {
           Не удалось загрузить настройки. Проверь, что PHP-сервер работает.
         </div>
       ) : (
-        <SettingsForm initial={settings} />
+        <SettingsTabs settings={settings} />
       )}
     </div>
   );

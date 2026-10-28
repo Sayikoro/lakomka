@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { useT } from "@/components/texts/TextsProvider";
 
 const schema = z
   .object({
@@ -31,17 +32,23 @@ const schema = z
 
 type FormData = z.infer<typeof schema>;
 
-const DELIVERY_OPTIONS: { value: FormData["delivery_method"]; label: string }[] = [
-  { value: "pickup", label: "Самовывоз" },
-  { value: "city", label: "По Хабаровску" },
-  { value: "region", label: "За городом" },
-  { value: "tk", label: "Транспортной компанией" },
-];
+/* Подписи способов доставки — из реестра текстов, собираются в компоненте */
+const DELIVERY_VALUES: FormData["delivery_method"][] = ["pickup", "city", "region", "tk"];
 
 export default function CheckoutPage() {
   const router = useRouter();
   const lines = useCart((s) => s.lines);
   const clear = useCart((s) => s.clear);
+  const t = useT();
+
+  const deliveryOptions = useMemo(
+    () =>
+      DELIVERY_VALUES.map((value) => ({
+        value,
+        label: t(`checkout_dlv_${value}`),
+      })),
+    [t]
+  );
 
   const [mounted, setMounted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -81,16 +88,16 @@ export default function CheckoutPage() {
     return (
       <div className="mx-auto max-w-[1200px] px-4 py-20 text-center">
         <h1 className="mb-4 text-[32px] font-medium text-[var(--color-heading)]">
-          Корзина пуста
+          {t("checkout_empty_h1")}
         </h1>
         <p className="mb-8 text-[var(--color-muted)]">
-          Добавьте товары, чтобы оформить заказ.
+          {t("checkout_empty_text")}
         </p>
         <Link
           href="/catalog"
           className="inline-flex rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-3 font-medium text-white hover:bg-[var(--color-primary-hover)]"
         >
-          Перейти в каталог
+          {t("checkout_empty_btn")}
         </Link>
       </div>
     );
@@ -139,7 +146,7 @@ export default function CheckoutPage() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-10">
       <h1 className="mb-8 text-[32px] font-medium text-[var(--color-heading)]">
-        Оформление заказа
+        {t("checkout_h1")}
       </h1>
 
       <form
@@ -148,7 +155,7 @@ export default function CheckoutPage() {
       >
         <div className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
           <div>
-            <label className={labelClass}>Имя *</label>
+            <label className={labelClass}>{t("checkout_name_label")}</label>
             <input {...register("customer_name")} className={inputClass} />
             {errors.customer_name && (
               <p className={errClass}>{errors.customer_name.message}</p>
@@ -156,11 +163,11 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <label className={labelClass}>Телефон *</label>
+            <label className={labelClass}>{t("checkout_phone_label")}</label>
             <input
               {...register("customer_phone")}
               className={inputClass}
-              placeholder="+7 (999) 000-00-00"
+              placeholder={t("checkout_phone_placeholder")}
               type="tel"
             />
             {errors.customer_phone && (
@@ -169,11 +176,11 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <label className={labelClass}>Email</label>
+            <label className={labelClass}>{t("checkout_email_label")}</label>
             <input
               {...register("customer_email")}
               className={inputClass}
-              placeholder="для отправки копии заказа"
+              placeholder={t("checkout_email_placeholder")}
               type="email"
             />
             {errors.customer_email && (
@@ -182,9 +189,9 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <label className={labelClass}>Способ доставки *</label>
+            <label className={labelClass}>{t("checkout_delivery_label")}</label>
             <div className="mt-2 space-y-1.5">
-              {DELIVERY_OPTIONS.map((opt) => (
+              {deliveryOptions.map((opt) => (
                 <label
                   key={opt.value}
                   className="flex cursor-pointer items-center gap-2 text-sm"
@@ -203,7 +210,7 @@ export default function CheckoutPage() {
 
           {method !== "pickup" && (
             <div>
-              <label className={labelClass}>Адрес *</label>
+              <label className={labelClass}>{t("checkout_address_label")}</label>
               <input
                 {...register("address")}
                 className={inputClass}
@@ -218,12 +225,12 @@ export default function CheckoutPage() {
           )}
 
           <div>
-            <label className={labelClass}>Комментарий</label>
+            <label className={labelClass}>{t("checkout_comment_label")}</label>
             <textarea
               {...register("comment")}
               className={inputClass}
               rows={3}
-              placeholder="Например: позвонить за час"
+              placeholder={t("checkout_comment_placeholder")}
             />
           </div>
         </div>
@@ -264,7 +271,7 @@ export default function CheckoutPage() {
               disabled={submitting}
               className="w-full rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
             >
-              {submitting ? "Отправляем…" : "Оформить заказ"}
+              {submitting ? t("checkout_submitting") : t("checkout_submit")}
             </button>
             <p className="mt-3 text-xs text-[var(--color-muted)]">
               Нажимая кнопку, вы соглашаетесь с условиями обработки персональных данных.

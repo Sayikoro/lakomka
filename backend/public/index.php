@@ -209,15 +209,33 @@ $stmt->execute([$m[1]]);
     /* ========== PDF: КАТАЛОГИ И СЕРТИФИКАТ ========== */
     if ($path === '/api/pdfs' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/PdfController.php';
-        PdfController::list();
+        PdfController::list($pdo);
     }
     if ($path === '/api/admin/pdfs/chunk' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/PdfController.php';
         PdfController::uploadChunk();
     }
+    if (preg_match('#^/api/admin/pdfs/([a-z0-9_]+)/meta$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/PdfController.php';
+        PdfController::saveMeta($pdo, $m[1]);
+    }
+    if (preg_match('#^/api/admin/pdfs/([a-z0-9_]+)/cover$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/PdfController.php';
+        PdfController::uploadCover($m[1]);
+    }
     if (preg_match('#^/api/admin/pdfs/([a-z0-9_]+)$#', $path, $m) && $method === 'DELETE') {
         require_once __DIR__ . '/../src/Controllers/PdfController.php';
         PdfController::remove($m[1]);
+    }
+
+    /* ========== ТЕКСТЫ СТРАНИЦ (Настройки → Текст на страницах) ========== */
+    if ($path === '/api/admin/page-texts' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/PageTextsController.php';
+        PageTextsController::show($pdo);
+    }
+    if ($path === '/api/admin/page-texts' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/PageTextsController.php';
+        PageTextsController::update($pdo);
     }
 
     /* ========== ADMIN: UPLOAD (chunked) ========== */
@@ -229,6 +247,12 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/uploads/hero' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';
         AdminUploadController::saveHeroImage();
+    }
+
+    /* Загрузка SVG-снежинки для снегопада */
+    if ($path === '/api/admin/uploads/snowflake' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';
+        AdminUploadController::saveSnowflakeSvg();
     }
 
     /* ========== ADMIN: WEIGHT RECIPES ========== */
@@ -301,13 +325,25 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';
         AdminProductsImportExportController::importZip($pdo);
     }
-    if ($path === '/api/admin/products/export-zip-stream' && $method === 'GET') {
+    if ($path === '/api/admin/products/export-zip' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';
-        AdminProductsImportExportController::exportZipStream($pdo);
+        AdminProductsImportExportController::exportZip($pdo);
     }
     if (preg_match('#^/api/admin/products/export-zip-download/([a-z0-9\-]+\.zip)$#i', $path, $m) && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';
         AdminProductsImportExportController::exportZipDownload($m[1]);
+    }
+    if ($path === '/api/admin/files' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::list();
+    }
+    if ($path === '/api/admin/files/delete' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::delete();
+    }
+    if ($path === '/api/admin/files/download' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::download();
     }
     if ($path === '/api/admin/products' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';

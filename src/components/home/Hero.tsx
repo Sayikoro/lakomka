@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { Snowfall } from "./Snowfall";
+import { useT } from "@/components/texts/TextsProvider";
+import type { SnowSettings } from "@/lib/settings";
+import { SmartImage } from "@/components/ui/SmartImg";
 
 interface HeroProps {
   /** Основная картинка (используется, когда слайдер выключен или слайдов нет) */
@@ -11,11 +14,14 @@ interface HeroProps {
   slides: string[];
   /** Слайдер включён в настройках */
   slider: boolean;
+  /** Снегопад в Hero-блоке (настройки из админки) */
+  snow?: SnowSettings;
 }
 
 const AUTOPLAY_MS = 5000;
 
-export function Hero({ image, slides, slider }: HeroProps) {
+export function Hero({ image, slides, slider, snow }: HeroProps) {
+  const t = useT();
   const list = (slider && slides.length > 1 ? slides : [image]).filter(Boolean);
   const [active, setActive] = useState(0);
   const touchX = useRef<number | null>(null);
@@ -63,13 +69,14 @@ export function Hero({ image, slides, slider }: HeroProps) {
           style={{ opacity: i === active ? 1 : 0 }}
           aria-hidden={i !== active}
         >
-          <Image
+          <SmartImage
             src={src}
             alt=""
             fill
             priority={i === 0}
             sizes="100vw"
             className="object-cover"
+            skeletonClassName="bg-[#1d2430]"
           />
         </div>
       ))}
@@ -84,16 +91,16 @@ export function Hero({ image, slides, slider }: HeroProps) {
         aria-hidden
       />
 
-      {/* Текст сверху по центру (отступ сверху ~15–18vh) */}
-      <div className="relative mx-auto flex h-full w-full max-w-[1200px] flex-col items-center px-4 pt-[15vh] text-center supports-[height:1svh]:pt-[16svh]">
+      {/* Текст сверху по центру (отступ 10vh — чтобы нижний край не залезал на овечку) */}
+      <div className="relative mx-auto flex h-full w-full max-w-[1200px] flex-col items-center px-4 pt-[10vh] text-center supports-[height:1svh]:pt-[10svh]">
         <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
-          новогодняя
+          {t("home_hero_line1")}
         </p>
         <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
-          коллекция
+          {t("home_hero_line2")}
         </p>
         <p className="font-display mt-3 text-[52px] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
-          2027
+          {t("home_hero_line3")}
         </p>
       </div>
 
@@ -103,7 +110,7 @@ export function Hero({ image, slides, slider }: HeroProps) {
         className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-[20px] text-[14px] font-semibold uppercase leading-[13px] text-white transition hover:bg-[var(--color-primary-hover)] sm:bottom-20"
         style={{ border: "2px solid transparent" }}
       >
-        Заказать подарки
+        {t("home_hero_button")}
       </Link>
 
       {/* Точки слайдера */}
@@ -127,6 +134,19 @@ export function Hero({ image, slides, slider }: HeroProps) {
             />
           ))}
         </div>
+      )}
+
+      {/* Снегопад — только внутри Hero-блока (canvas обрезается overflow-hidden).
+          Идёт последним: рисуется поверх текста, но под кнопкой и точками (z-10). */}
+      {snow?.enabled && (
+        <Snowfall
+          count={snow.count}
+          countMobile={snow.count_mobile}
+          speed={snow.speed}
+          size={snow.size}
+          color={snow.color}
+          flake={snow.flake}
+        />
       )}
     </section>
   );

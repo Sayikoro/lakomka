@@ -21,6 +21,14 @@ class AdminSettingsController
         'hero_slider_enabled',
         'hero_slides',
         'product_card_template',
+        /* витрина: снегопад */
+        'snow_enabled',
+        'snow_count',
+        'snow_count_mobile',
+        'snow_speed',
+        'snow_size',
+        'snow_color',
+        'snow_flake',
     ];
 
     /** Ключи, доступные витрине без авторизации */
@@ -29,7 +37,48 @@ class AdminSettingsController
         'hero_slider_enabled',
         'hero_slides',
         'product_card_template',
+        'snow_enabled',
+        'snow_count',
+        'snow_count_mobile',
+        'snow_speed',
+        'snow_size',
+        'snow_color',
+        'snow_flake',
     ];
+
+    /** Снегопад: значения по умолчанию (как в оригинальном particle-fall: 110 / 0.5 / 31 / #f5f5f5).
+        Для телефонов — своя плотность (экран меньше), по умолчанию 60. */
+    private const SNOW_DEFAULTS = [
+        'enabled' => false,
+        'count'   => 110,
+        'count_mobile' => 60,
+        'speed'   => 0.5,
+        'size'    => 31,
+        'color'   => '#f5f5f5',
+        'flake'   => '',
+    ];
+
+    /** Собрать конфиг снегопада из сырых значений settings + клампы */
+    private static function snowConfig(array $map): array
+    {
+        $count = (int)($map['snow_count'] ?? self::SNOW_DEFAULTS['count']);
+        $countMobile = (int)($map['snow_count_mobile'] ?? self::SNOW_DEFAULTS['count_mobile']);
+        $speed = (float)($map['snow_speed'] ?? self::SNOW_DEFAULTS['speed']);
+        $size  = (int)($map['snow_size'] ?? self::SNOW_DEFAULTS['size']);
+        $color = trim((string)($map['snow_color'] ?? self::SNOW_DEFAULTS['color']));
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+            $color = self::SNOW_DEFAULTS['color'];
+        }
+        return [
+            'enabled' => ($map['snow_enabled'] ?? '0') === '1',
+            'count'   => max(0, min(500, $count)),
+            'count_mobile' => max(0, min(500, $countMobile)),
+            'speed'   => max(0.1, min(20, $speed)),
+            'size'    => max(4, min(120, $size)),
+            'color'   => $color,
+            'flake'   => (string)($map['snow_flake'] ?? ''),
+        ];
+    }
 
     public static function show(PDO $pdo): void
     {
@@ -46,6 +95,16 @@ class AdminSettingsController
             if ($k === 'smtp_pass') {
                 $out[$k] = ($map[$k] ?? '') !== '' ? '••••••••' : '';
                 $out['smtp_pass_set'] = ($map[$k] ?? '') !== '';
+            } elseif ($k === 'snow_count' && ($map[$k] ?? '') === '') {
+                $out[$k] = (string)self::SNOW_DEFAULTS['count'];
+            } elseif ($k === 'snow_count_mobile' && ($map[$k] ?? '') === '') {
+                $out[$k] = (string)self::SNOW_DEFAULTS['count_mobile'];
+            } elseif ($k === 'snow_speed' && ($map[$k] ?? '') === '') {
+                $out[$k] = (string)self::SNOW_DEFAULTS['speed'];
+            } elseif ($k === 'snow_size' && ($map[$k] ?? '') === '') {
+                $out[$k] = (string)self::SNOW_DEFAULTS['size'];
+            } elseif ($k === 'snow_color' && ($map[$k] ?? '') === '') {
+                $out[$k] = (string)self::SNOW_DEFAULTS['color'];
             } else {
                 $out[$k] = $map[$k] ?? '';
             }
@@ -58,7 +117,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template')"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -85,11 +144,21 @@ class AdminSettingsController
             $template = 'classic';
         }
 
+        /* Тексты страниц: ключи text_* отдаются без префикса */
+        $texts = [];
+        foreach ($map as $k => $v) {
+            if (str_starts_with($k, 'text_')) {
+                $texts[substr($k, strlen('text_'))] = (string)$v;
+            }
+        }
+
         jsonResponse(['data' => [
             'hero_image'            => (string)($map['hero_image'] ?? ''),
             'hero_slider_enabled'   => ($map['hero_slider_enabled'] ?? '0') === '1',
             'hero_slides'           => $slides,
             'product_card_template' => $template,
+            'snow'                  => self::snowConfig($map),
+            'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
     }
 
@@ -122,6 +191,35 @@ class AdminSettingsController
             && !in_array((string)$data['hero_slider_enabled'], ['0', '1'], true)) {
             jsonResponse(['error' => 'hero_slider_enabled: 0 | 1'], 422);
         }
+        /* Снегопад */
+        if (isset($data['snow_enabled'])
+            && !in_array((string)$data['snow_enabled'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'snow_enabled: 0 | 1'], 422);
+        }
+        if (isset($data['snow_count']) && !preg_match('/^\d+$/', (string)$data['snow_count'])) {
+            jsonResponse(['error' => 'snow_count: целое число 0–500'], 422);
+        }
+        if (isset($data['snow_count_mobile']) && !preg_match('/^\d+$/', (string)$data['snow_count_mobile'])) {
+            jsonResponse(['error' => 'snow_count_mobile: целое число 0–500'], 422);
+        }
+        if (isset($data['snow_speed'])
+            && !(is_numeric($data['snow_speed']) && (float)$data['snow_speed'] >= 0.1 && (float)$data['snow_speed'] <= 20)) {
+            jsonResponse(['error' => 'snow_speed: число 0.1–20'], 422);
+        }
+        if (isset($data['snow_size']) && !preg_match('/^\d+$/', (string)$data['snow_size'])) {
+            jsonResponse(['error' => 'snow_size: целое число 4–120'], 422);
+        }
+        if (isset($data['snow_color'])
+            && (string)$data['snow_color'] !== ''
+            && !preg_match('/^#[0-9a-fA-F]{6}$/', (string)$data['snow_color'])) {
+            jsonResponse(['error' => 'snow_color: hex вида #rrggbb или пусто'], 422);
+        }
+        if (isset($data['snow_flake'])) {
+            $flake = trim((string)$data['snow_flake']);
+            if ($flake !== '' && !preg_match('#^(https?://|/)#i', $flake)) {
+                jsonResponse(['error' => 'snow_flake: локальный путь (/…) или URL'], 422);
+            }
+        }
         if (isset($data['hero_slides']) && (string)$data['hero_slides'] !== '') {
             $decoded = json_decode((string)$data['hero_slides'], true);
             if (!is_array($decoded)) {
@@ -145,8 +243,13 @@ class AdminSettingsController
 
             // Пустой пароль — не перезаписываем (значит не меняли)
             if ($k === 'smtp_pass' && $data[$k] === '') continue;
+            // Пустая снежинка = сброс на стандартную — сохраняем как есть (пусто)
 
-            $upd->execute([$k, (string)$data[$k]]);
+            $value = (string)$data[$k];
+            if ($k === 'snow_flake') {
+                $value = trim($value);
+            }
+            $upd->execute([$k, $value]);
         }
 
         jsonResponse(['data' => ['ok' => true]]);

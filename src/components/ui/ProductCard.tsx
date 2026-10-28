@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { SmartImage } from "@/components/ui/SmartImg";
 import type { Product } from "@/lib/types";
 
 interface Props {
@@ -50,7 +50,7 @@ export function ProductCard({ product }: Props) {
         className="relative block aspect-square overflow-hidden bg-white"
       >
         {cover ? (
-          <Image
+          <SmartImage
             src={cover.url}
             alt={cover.alt || product.name}
             fill

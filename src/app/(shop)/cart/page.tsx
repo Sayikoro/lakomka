@@ -2,15 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { useT } from "@/components/texts/TextsProvider";
+import { SmartImage } from "@/components/ui/SmartImg";
 
 export default function CartPage() {
   const lines = useCart((s) => s.lines);
   const setQty = useCart((s) => s.setQty);
   const remove = useCart((s) => s.remove);
   const clear = useCart((s) => s.clear);
+  const t = useT();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -32,16 +34,16 @@ export default function CartPage() {
     return (
       <div className="mx-auto max-w-[1200px] px-4 py-20 text-center">
         <h1 className="mb-4 text-[32px] font-medium text-[var(--color-heading)]">
-          Корзина пуста
+          {t("cart_empty_h1")}
         </h1>
         <p className="mb-8 text-[var(--color-muted)]">
-          Добавьте подарки из каталога, чтобы оформить заказ.
+          {t("cart_empty_text")}
         </p>
         <Link
           href="/catalog"
           className="inline-flex items-center justify-center rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-3 font-medium text-white transition hover:bg-[var(--color-primary-hover)]"
         >
-          Перейти в каталог
+          {t("cart_empty_btn")}
         </Link>
       </div>
     );
@@ -50,7 +52,7 @@ export default function CartPage() {
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-10">
       <h1 className="mb-8 text-[32px] font-medium text-[var(--color-heading)]">
-        Корзина
+        {t("cart_h1")}
       </h1>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
@@ -68,7 +70,7 @@ export default function CartPage() {
                   className="relative h-24 w-24 shrink-0 overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-bg-soft)]"
                 >
                   {cover ? (
-                    <Image
+                    <SmartImage
                       src={cover.url}
                       alt={cover.alt || line.product.name}
                       fill
@@ -87,7 +89,7 @@ export default function CartPage() {
                       {line.product.name}
                     </Link>
                     <p className="mt-1 text-sm text-[var(--color-muted)]">
-                      {formatPrice(line.product.price_kopecks)} за шт.
+                      {formatPrice(line.product.price_kopecks)} {t("cart_per_item")}
                     </p>
                   </div>
 
@@ -136,14 +138,14 @@ export default function CartPage() {
             onClick={clear}
             className="text-sm text-[var(--color-muted)] hover:text-red-500"
           >
-            Очистить корзину
+            {t("cart_clear")}
           </button>
         </div>
 
         <aside className="lg:sticky lg:top-4 lg:self-start">
           <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-6">
             <h2 className="mb-4 text-lg font-semibold text-[var(--color-heading)]">
-              Итого
+              {t("cart_total_label")}
             </h2>
             <div className="mb-2 flex justify-between text-sm text-[var(--color-body)]">
               <span>Товаров</span>
@@ -161,7 +163,7 @@ export default function CartPage() {
               href="/checkout"
               className="block rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-6 py-3 text-center font-medium text-white transition hover:bg-[var(--color-primary-hover)]"
             >
-              Оформить заказ
+              {t("cart_checkout_btn")}
             </Link>
             <Link
               href="/catalog"

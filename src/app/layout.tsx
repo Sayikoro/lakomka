@@ -7,6 +7,8 @@ import { SITE } from "@/lib/site";
 import { OrganizationJsonLd } from "@/components/seo/OrganizationJsonLd";
 import { RoutePreloader } from "@/components/ui/RoutePreloader";
 import { CookieBanner } from "@/components/ui/CookieBanner";
+import { getPublicSettings } from "@/lib/settings";
+import { TextsProvider } from "@/components/texts/TextsProvider";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -61,20 +63,26 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  /* Тексты страниц («Текст на страницах») — один fetch на запрос
+     (React cache дедуплицирует с вызовами в страницах) */
+  const cfg = await getPublicSettings();
+
   return (
     <html lang="ru" className={poppins.variable}>
       <body className="flex min-h-screen flex-col">
-        <RoutePreloader />
-        <OrganizationJsonLd />
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
-        <CookieBanner />
+        <TextsProvider texts={cfg.texts}>
+          <RoutePreloader />
+          <OrganizationJsonLd />
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer texts={cfg.texts} />
+          <CookieBanner />
+        </TextsProvider>
       </body>
     </html>
   );

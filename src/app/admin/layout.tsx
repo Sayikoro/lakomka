@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoutButton } from "@/components/admin/LogoutButton";
+import { DownloadsProvider } from "@/components/admin/downloads/Downloads";
 import { getCurrentUser } from "@/lib/auth";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -44,6 +45,12 @@ export default async function AdminLayout({
             >
               PDF
             </Link>
+            <Link
+              href="/admin/files"
+              className="text-[var(--color-body)] hover:text-[var(--color-primary)]"
+            >
+              Файлы
+            </Link>
             {user?.role === "super_admin" && (
               <Link
                 href="/admin/users"
@@ -74,7 +81,9 @@ export default async function AdminLayout({
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-[1400px] px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-6 py-8">
+        <DownloadsProvider>{children}</DownloadsProvider>
+      </main>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import { useCart } from "@/store/cart";
+import { SmartImg } from "@/components/ui/SmartImg";
 import type { Product, ProductMedia } from "@/lib/types";
 
 /* ============================================================
@@ -153,13 +154,13 @@ export function ProductCardNew({ product, className = "" }: Props) {
                 }}
               >
                 {m.type === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <SmartImg
                     src={m.url}
                     alt={i === active ? product.name : ""}
                     draggable={false}
-                    className="h-full w-full select-none rounded-[20px] bg-white object-contain p-[10px]"
                     loading={i === 0 ? "eager" : "lazy"}
+                    skeletonClassName="rounded-[20px] bg-white"
+                    className="h-full w-full select-none rounded-[20px] bg-white object-contain p-[10px]"
                   />
                 ) : isLocalVideo(m.url) ? (
                   <video
@@ -181,13 +182,13 @@ export function ProductCardNew({ product, className = "" }: Props) {
                   /* Внешнее видео (YouTube/VK/Rutube) — постер с кнопкой, внутри карточки товара */
                   <div className="relative h-full w-full select-none rounded-[20px] bg-[var(--color-bg-soft)]">
                     {posterUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <SmartImg
                         src={posterUrl}
                         alt=""
                         draggable={false}
-                        className="h-full w-full object-cover opacity-90"
                         loading="lazy"
+                        skeletonClassName="rounded-[20px]"
+                        className="h-full w-full object-cover opacity-90"
                       />
                     )}
                     <span className="absolute inset-0 flex items-center justify-center">
@@ -236,8 +237,9 @@ export function ProductCardNew({ product, className = "" }: Props) {
           )}
         </div>
 
-        {/* ── Название сразу после картинки ── */}
-        <div className="px-2.5 pt-2">
+        {/* ── Название после картинки; при слайдах — отступ под точки карусели
+            (они абсолютные, 6..20px ниже картинки и «срезали» верхушки ё/ц) ── */}
+        <div className={count > 1 ? "px-2.5 pt-5" : "px-2.5 pt-3"}>
           <h2
             className="m-0 leading-[1.1] tracking-[-0.16px]"
             /* инлайном — глобальное правило h1..h6 в globals.css перебивает утилиты Tailwind 4 */
@@ -298,22 +300,31 @@ export function ProductCardNew({ product, className = "" }: Props) {
             onClick={quickAdd}
             aria-label={`Добавить «${product.name}» в корзину`}
             title="Добавить в корзину"
-            className={`relative grid aspect-square h-full max-h-[36px] shrink-0 place-items-center rounded-full text-white outline-none transition-all duration-150 ease-out active:scale-90 sm:max-h-[44px] ${
+            className={`group/cart relative grid aspect-square h-full max-h-[36px] shrink-0 place-items-end overflow-hidden rounded-full text-white outline-none transition-all duration-150 ease-out active:scale-90 sm:max-h-[44px] ${
               added
                 ? "bg-[#2e9e5b]"
                 : "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]"
             }`}
           >
             {added ? (
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 place-self-center" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M4.5 12.5l5 5L20 7" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
-                <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
-                <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
-              </svg>
+              /* Корзинка «проезжает» через кнопку при наведении — как стрелка у «Перейти»:
+                 лента 200% ширины сдвинута влево (place-items-end), на hover уезжает вправо */
+              <span className="grid h-full w-[200%] grid-cols-2 place-items-center transition-transform duration-150 ease-out group-hover/cart:translate-x-1/2">
+                <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
+                </svg>
+                <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
+                </svg>
+              </span>
             )}
             <span className="sr-only">Добавить в корзину</span>
           </button>

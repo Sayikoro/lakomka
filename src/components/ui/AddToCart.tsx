@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useCart } from "@/store/cart";
+import { useT } from "@/components/texts/TextsProvider";
 import type { Product } from "@/lib/types";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 
 export function AddToCart({ product }: Props) {
   const add = useCart((s) => s.add);
+  const t = useT();
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
 
@@ -46,7 +48,7 @@ export function AddToCart({ product }: Props) {
         onClick={handleAdd}
         className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition hover:bg-[var(--color-primary-hover)] active:scale-95"
       >
-        {added ? "Добавлено ✓" : "В корзину"}
+        {added ? t("product_added") : t("product_add")}
       </button>
     </div>
   );

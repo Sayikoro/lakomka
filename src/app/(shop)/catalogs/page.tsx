@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CatalogsBrowser } from "./CatalogsBrowser";
+import { getPublicSettings } from "@/lib/settings";
+import { tFrom } from "@/lib/page-texts";
 import type { PdfDocInfo } from "@/components/pdf/PdfButtons";
 
 export const metadata: Metadata = {
@@ -29,28 +31,33 @@ async function getDocs(): Promise<DocsMap> {
 }
 
 export default async function CatalogsPage() {
-  const docs = await getDocs();
+  const [docs, cfg] = await Promise.all([getDocs(), getPublicSettings()]);
 
+  /* Описание карточки: из админки (раздел «PDF») → иначе дефолт из
+     реестра «Текст на страницах» */
   const items = [
     {
       alias: "catalog_1",
       title: docs.catalog_1?.title ?? "Каталог №1",
       description:
-        "Печатный каталог сладких подарков — полистайте как книгу или скачайте PDF, чтобы распечатать и отправить коллегам.",
+        docs.catalog_1?.description ||
+        tFrom(cfg.texts, "catalogs_card1_desc"),
       doc: docs.catalog_1 ?? null,
     },
     {
       alias: "catalog_2",
       title: docs.catalog_2?.title ?? "Каталог №2",
       description:
-        "Второй печатный каталог с ассортиментом подарков — с эффектом перелистывания страниц и возможностью скачивания.",
+        docs.catalog_2?.description ||
+        tFrom(cfg.texts, "catalogs_card2_desc"),
       doc: docs.catalog_2 ?? null,
     },
     {
       alias: "certificate",
       title: docs.certificate?.title ?? "Сертификат соответствия",
       description:
-        "Декларация/сертификат соответствия продукции требованиям ТР ТС — открывается в том же вьювере, доступен для скачивания.",
+        docs.certificate?.description ||
+        tFrom(cfg.texts, "catalogs_cert_desc"),
       doc: docs.certificate ?? null,
     },
   ];
@@ -66,12 +73,10 @@ export default async function CatalogsPage() {
       </nav>
 
       <h1 className="text-[30px] font-medium uppercase tracking-wide text-[var(--color-heading)]">
-        Скачать каталоги
+        {tFrom(cfg.texts, "catalogs_h1")}
       </h1>
       <p className="mb-8 mt-3 max-w-[720px] text-[15px] leading-relaxed text-[var(--color-muted)]">
-        Наши печатные каталоги в электронном виде. Нажмите «Смотреть», чтобы
-        полистать страницы прямо на сайте — как настоящую книгу, — или скачайте
-        PDF-файл. Там же доступен сертификат соответствия продукции.
+        {tFrom(cfg.texts, "catalogs_intro")}
       </p>
 
       <CatalogsBrowser items={items} />

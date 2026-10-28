@@ -121,36 +121,23 @@ class AdminProductsImportExportController
     }
 
     /* ============================================================
-       ЭКСПОРТ со стримингом
+       ЭКСПОРТ — как у файловых свалок: один POST целиком готовит архив
+       и в ответе отдаёт готовую статическую ссылку. Браузер НЕ участвует
+       в подготовке (никаких NDJSON-стримов, которые рвал прокси с 502):
+       сначала файл собирается на сервере, потом просто скачивается GET-ом.
        ============================================================ */
-    public static function exportZipStream(PDO $pdo): void
+    public static function exportZip(PDO $pdo): void
     {
         Auth::requireEditor();
         set_time_limit(0);
-        ini_set('zlib.output_compression', '0');
-        ini_set('output_buffering', '0');
-        while (ob_get_level() > 0) ob_end_clean();
-
-        header_remove('Content-Type');
-        header('Content-Type: application/x-ndjson; charset=utf-8');
-        header('Cache-Control: no-store');
-        header('X-Accel-Buffering: no');
 
         if (!class_exists('ZipArchive')) {
-            echo json_encode(['error' => 'Расширение zip не установлено']), "\n";
-            flush();
-            exit;
+            jsonResponse(['error' => 'Расширение zip не установлено'], 500);
         }
 
-        $send = function (array $msg): void {
-            echo json_encode($msg, JSON_UNESCAPED_UNICODE), "\n";
-            flush();
-        };
-
-        $exportsDir = __DIR__ . '/../../../public/exports'; // внутри public/ — ZIP потом отдаётся статикой (без прокси-таймаутов)
+        $exportsDir = __DIR__ . '/../../../public/exports'; // внутри public/ — ZIP отдаётся статикой
         if (!is_dir($exportsDir) && !@mkdir($exportsDir, 0755, true)) {
-            $send(['error' => 'Не удалось создать папку для экспорта']);
-            exit;
+            jsonResponse(['error' => 'Не удалось создать папку для экспорта'], 500);
         }
         foreach (glob($exportsDir . '/*.zip') as $old) {
             if (is_file($old) && filemtime($old) < time() - 7200) @unlink($old);
@@ -161,15 +148,13 @@ class AdminProductsImportExportController
         $finalPath = $exportsDir . '/' . $filename;
         $tmpPath = tempnam(sys_get_temp_dir(), 'lakomka-exp-');
         if ($tmpPath === false) {
-            $send(['error' => 'Не удалось создать temp']);
-            exit;
+            jsonResponse(['error' => 'Не удалось создать temp'], 500);
         }
 
         $zip = new ZipArchive();
         if ($zip->open($tmpPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
             @unlink($tmpPath);
-            $send(['error' => 'Не удалось открыть ZIP']);
-            exit;
+            jsonResponse(['error' => 'Не удалось открыть ZIP'], 500);
         }
 
         try {
@@ -189,13 +174,6 @@ class AdminProductsImportExportController
             )->fetchColumn();
             $totalItems = $totalProducts + $totalImages + $totalVideos;
 
-            $send([
-                'progress' => 0,
-                'current' => 0,
-                'total' => $totalItems,
-                'stage' => "Подготовка ($totalProducts товаров, $totalImages картинок, $totalVideos видео)",
-            ]);
-
             $imgStmt = $pdo->prepare(
                 "SELECT id, url, alt, media_type, sort_order
                  FROM product_images
@@ -203,9 +181,8 @@ class AdminProductsImportExportController
                  ORDER BY media_type DESC, sort_order, id"
             );
 
-            /* Локальные копии картинок из импорта: public/uploads/products/{slug}/
-               Если копия есть на диске — берём её (мгновенно), а НЕ качаем с lakomkakhv.ru
-               (~7 с на файл × сотни файлов = часы тишины в стриме → прокси рвёт соединение с 502). */
+            /* Локальные копии картинок из импорта: public/uploads/products/{slug}/.
+               Если копия есть на диске — берём её мгновенно, сеть не трогаем. */
             $productsRoot = __DIR__ . '/../../../public/uploads/products';
             $localImagesFor = function (array $prod) use ($productsRoot): array {
                 $dir = $productsRoot . '/' . (preg_replace('/[^a-z0-9\-]/', '', strtolower((string)$prod['slug'])) ?: 'p' . $prod['id']);
@@ -258,6 +235,10 @@ class AdminProductsImportExportController
                             // локальное — упаковать файл в videos/
                             $srcPath = __DIR__ . '/../../../public' . $url;
                             if (!is_file($srcPath)) {
+                                // Файл пропал — всё равно перечисляем ссылку в CSV,
+                                // чтобы экспорт учитывал все медиа товара
+                                $videoNames[] = $url;
+                                $videoCounter++;
                                 $stats['videos_skipped']++;
                                 $counter++;
                                 continue;
@@ -306,15 +287,19 @@ class AdminProductsImportExportController
                             $counter++;
                             continue;
                         }
-                        // 2) Локальной нет — качаем с внешнего хоста, но быстро (4 с) и с keepalive-строкой в стриме,
-                        //    чтобы прокси не убил соединение за тишину
-                        $send([
-                            'progress' => (int)round(($counter / max(1, $totalItems)) * 90),
-                            'stage' => "Качаем внешнюю картинку: {$p['name']}",
-                        ]);
+                        // 2) Локальной нет — качаем с внешнего хоста (timeout 4 с); при неудаче
+                        //    картинка всё равно попадает в CSV своим URL (см. ниже)
                         $ctx = stream_context_create(['http' => ['timeout' => 4]]);
                         $blob = @file_get_contents($url, false, $ctx);
-                        if ($blob === false) { $stats['images_skipped']++; $counter++; continue; }
+                        if ($blob === false) {
+                            // Ни локальной копии, ни сети — всё равно перечисляем картинку в CSV (её URL),
+                            // чтобы экспорт учитывал ВСЕ доп. картинки товара
+                            $imageNames[] = $url;
+                            $imageCounter++;
+                            $stats['images_skipped']++;
+                            $counter++;
+                            continue;
+                        }
                         $urlPath = parse_url($url, PHP_URL_PATH) ?? '';
                         $ext = strtolower(pathinfo($urlPath, PATHINFO_EXTENSION)) ?: 'jpg';
                         if ($ext === 'jpeg') $ext = 'jpg';
@@ -343,49 +328,32 @@ class AdminProductsImportExportController
                     $p['show_in_catalog'], $p['is_published'], $p['legacy_slug'] ?? '',
                 ];
                 $csv .= implode(';', array_map([self::class, 'csvEscape'], $row)) . "\n";
-
-                if ($idx % 5 === 0 || $idx === $totalProducts - 1) {
-                    $pct = (int)round(($counter / max(1, $totalItems)) * 90);
-                    $send([
-                        'progress' => $pct,
-                        'current' => $counter,
-                        'total' => $totalItems,
-                        'stage' => "Товары: " . ($idx + 1) . "/$totalProducts",
-                    ]);
-                }
             }
 
-            $send(['progress' => 92, 'stage' => 'Упаковка CSV…']);
             $zip->addFromString('products.csv', $csv);
-
-            $send(['progress' => 93, 'stage' => 'Собираем ZIP…']); // keepalive: close() может занять несколько секунд тишины
             $zip->close();
 
-            $send(['progress' => 95, 'stage' => 'Перемещение…']);
             if (!@rename($tmpPath, $finalPath)) {
                 if (!@copy($tmpPath, $finalPath)) {
                     @unlink($tmpPath);
-                    $send(['error' => 'Не удалось сохранить ZIP']);
-                    exit;
+                    jsonResponse(['error' => 'Не удалось сохранить ZIP'], 500);
                 }
                 @unlink($tmpPath);
             }
 
-            $size = filesize($finalPath);
-            $send([
-                'progress' => 100,
-                'done' => true,
-                'file' => 'exports/' . $filename,
-                'public_url' => '/exports/' . $filename, // статическая ссылка — скачивается напрямую, без fetch/blob
-                'size' => $size,
-                'stats' => $stats,
+            jsonResponse([
+                'data' => [
+                    'file' => 'exports/' . $filename,
+                    'public_url' => '/exports/' . $filename, // готовая статическая ссылка — браузер просто скачивает файл
+                    'size' => filesize($finalPath),
+                    'stats' => $stats,
+                ],
             ]);
         } catch (Throwable $e) {
             @$zip->close();
             @unlink($tmpPath);
-            $send(['error' => $e->getMessage()]);
+            jsonResponse(['error' => $e->getMessage()], 500);
         }
-        exit;
     }
 
     public static function exportZipDownload(string $fileName): void
@@ -423,6 +391,7 @@ class AdminProductsImportExportController
             'images_copied' => 0,
             'videos_copied' => 0,
             'videos_external' => 0,
+            'images_external' => 0,
             'images_missing' => [],
             'videos_missing' => [],
             'errors' => [],
@@ -531,7 +500,10 @@ class AdminProductsImportExportController
                         }
                     }
 
-                    // Медиа: чистим и вставляем заново
+                    // Медиа: чистим и вставляем заново.
+                    // Порядок канонический, как в экспорте (media_type DESC, sort_order):
+                    // сначала видео (sort 0..v-1), потом картинки (sort v..v+i-1) —
+                    // так round-trip экспорт→импорт не меняет порядок на сайте.
                     $clearMedia->execute([$productId]);
                     $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($slug)) ?: "p$productId";
                     $dir = __DIR__ . '/../../../public/uploads/products/' . $safeSlug;
@@ -545,30 +517,7 @@ class AdminProductsImportExportController
                     foreach (glob($dir . '/ext-*.*') as $old) @unlink($old);
                     foreach (glob($dir . '/video-*.*') as $old) @unlink($old);
 
-                    // Картинки
-                    $imgSort = 0;
-                    foreach ($r['image_files'] as $fileName) {
-                        $key = strtolower(basename($fileName));
-                        if (!isset($imageFiles[$key])) {
-                            $stats['images_missing'][] = $fileName;
-                            continue;
-                        }
-                        $src = $imageFiles[$key];
-                        $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION));
-                        if ($ext === 'jpeg') $ext = 'jpg';
-                        if (!in_array($ext, self::COVER_EXT, true)) continue;
-
-                        $destName = $imgSort . '.' . $ext;
-                        $dest = $dir . '/' . $destName;
-                        if (!@copy($src, $dest)) continue;
-
-                        $relUrl = '/uploads/products/' . $safeSlug . '/' . $destName;
-                        $insertMedia->execute([$productId, $relUrl, $r['name'], 'image', $imgSort]);
-                        $imgSort++;
-                        $stats['images_copied']++;
-                    }
-
-                    // Видео
+                    // Видео (через запятую: URL или имена файлов из ZIP)
                     $vidSort = 0;
                     foreach ($r['video_items'] as $item) {
                         if (str_starts_with($item, 'http://') || str_starts_with($item, 'https://')) {
@@ -596,6 +545,36 @@ class AdminProductsImportExportController
                             $vidSort++;
                             $stats['videos_copied']++;
                         }
+                    }
+
+                    // Картинки (через запятую: имена файлов из ZIP или полные URL)
+                    $imgSort = $vidSort; // продолжаем сортировку после видео
+                    foreach ($r['image_files'] as $fileName) {
+                        if (preg_match('#^https?://#i', $fileName)) {
+                            // внешний URL — регистрируем как есть
+                            $insertMedia->execute([$productId, $fileName, $r['name'], 'image', $imgSort]);
+                            $imgSort++;
+                            $stats['images_external']++;
+                            continue;
+                        }
+                        $key = strtolower(basename($fileName));
+                        if (!isset($imageFiles[$key])) {
+                            $stats['images_missing'][] = $fileName;
+                            continue;
+                        }
+                        $src = $imageFiles[$key];
+                        $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION));
+                        if ($ext === 'jpeg') $ext = 'jpg';
+                        if (!in_array($ext, self::COVER_EXT, true)) continue;
+
+                        $destName = $imgSort . '.' . $ext;
+                        $dest = $dir . '/' . $destName;
+                        if (!@copy($src, $dest)) continue;
+
+                        $relUrl = '/uploads/products/' . $safeSlug . '/' . $destName;
+                        $insertMedia->execute([$productId, $relUrl, $r['name'], 'image', $imgSort]);
+                        $imgSort++;
+                        $stats['images_copied']++;
                     }
                 } catch (Throwable $e) {
                     $stats['errors'][] = "Строка {$r['_row_number']}: " . $e->getMessage();

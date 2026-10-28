@@ -1,12 +1,17 @@
-import Image from "next/image";
+"use client";
+
 import { mockBrands } from "@/lib/mock-data";
+import { useT } from "@/components/texts/TextsProvider";
+import { SmartImage } from "@/components/ui/SmartImg";
 
 export function BrandLogos() {
+  const t = useT();
+
   return (
     <section className="mt-12 bg-[var(--color-bg-soft)] px-6 py-14">
       <div className="mx-auto max-w-[1360px]">
         <h2 className="mb-8 text-center text-[22px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-          В наших подарках конфеты от фабрик
+          {t("home_brands_heading")}
         </h2>
         {/* Логотипы PNG уже с прозрачностью — без белой подложки.
             Телефон 4 в ряд, планшет 6 (18 = 3 полных ряда), ПК 12;
@@ -19,7 +24,7 @@ export function BrandLogos() {
               title={b.name}
               className="relative aspect-square w-[calc((100%_-_32px)*0.7/3)] sm:w-[calc((100%_-_64px)*0.7/5)] lg:w-[calc((100%_-_128px)*0.7/9)]"
             >
-              <Image
+              <SmartImage
                 src={b.logoUrl}
                 alt={b.name}
                 fill

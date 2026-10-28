@@ -122,13 +122,18 @@ class ProductCsvParser
             $idRaw = $get($cId);
             $id = ctype_digit($idRaw) ? (int)$idRaw : null;
 
-            // Картинки
+            // Картинки (через запятую: имена файлов из ZIP или полные URL)
             $imgRaw = $get($cImages);
             $imgFiles = [];
             if ($imgRaw !== '') {
                 foreach (explode(',', $imgRaw) as $f) {
                     $f = trim($f);
-                    if ($f !== '') $imgFiles[] = basename($f);
+                    if ($f === '') continue;
+                    if (str_starts_with($f, 'http://') || str_starts_with($f, 'https://')) {
+                        $imgFiles[] = $f; // URL — оставляем целиком
+                    } else {
+                        $imgFiles[] = basename($f);
+                    }
                 }
             }
 

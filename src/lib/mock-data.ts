@@ -100,11 +100,11 @@ const gifts: Product[] = [
   },
   {
     id: 9, sku: "gift-vip", slug: "nabor-vip",
-    name: "Набор «VIP»", type: "bundle",
+    name: "Набор «ВИП»", type: "bundle",
     price_kopecks: 385000, old_price_kopecks: null,
     packaging_material: "textile", show_in_catalog: 1,
     media: [],
-    images: [{ id: 205, url: wpu("KA_015.png"), alt: "Набор VIP", sort_order: 0 }],
+    images: [{ id: 205, url: wpu("KA_015.png"), alt: "Набор ВИП", sort_order: 0 }],
     bundle_items: [
       { id: 309, product_id: 9, component_id: 1, quantity: 8, component: candies[0] },
       { id: 310, product_id: 9, component_id: 2, quantity: 6, component: candies[1] },
@@ -207,7 +207,7 @@ export interface Category {
 
 export const mockCategories: Category[] = [
   { slug: "nabory",    name: "Наборы",      imageUrl: wpu("N_002_1000x1000.png") },
-  { slug: "vip",       name: "VIP подарки", imageUrl: wpu("KA_008.png") },
+  { slug: "vip",       name: "ВИП подарки", imageUrl: wpu("KA_008.png") },
   { slug: "zhest",     name: "Жесть",       imageUrl: wpu("LA_085.png") },
   { slug: "igrushki",  name: "Игрушки",     imageUrl: wpu("KA_015.png") },
   { slug: "karton",    name: "Картон",      imageUrl: wpu("LA_035.png") },

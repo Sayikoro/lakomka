@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SITE } from "@/lib/site";
+import { getPublicSettings } from "@/lib/settings";
+import { tFrom } from "@/lib/page-texts";
 
 export const metadata: Metadata = {
   title: "Политика конфиденциальности",
@@ -10,7 +12,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
 };
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const cfg = await getPublicSettings();
   return (
     <div className="mx-auto max-w-[900px] px-4 py-10">
       <nav className="mb-6 text-sm text-[var(--color-muted)]">
@@ -18,15 +21,15 @@ export default function PrivacyPage() {
           Главная
         </Link>
         <span className="mx-2">/</span>
-        <span className="text-[var(--color-heading)]">Политика конфиденциальности</span>
+        <span className="text-[var(--color-heading)]">{tFrom(cfg.texts, "privacy_breadcrumb")}</span>
       </nav>
 
       <article className="rounded-[var(--radius-card)] bg-white p-8 prose-sm">
         <h1 className="mb-2 text-[32px] font-medium text-[var(--color-heading)]">
-          Политика конфиденциальности
+          {tFrom(cfg.texts, "privacy_h1")}
         </h1>
         <p className="mb-8 text-sm text-[var(--color-muted)]">
-          Действует с 1 января 2026 года
+          {tFrom(cfg.texts, "privacy_since")}
         </p>
 
         <div className="space-y-6 text-sm leading-relaxed text-[var(--color-body)]">

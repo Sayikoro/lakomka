@@ -15,6 +15,10 @@ export interface PdfDocInfo {
   url: string;
   size: number;
   updated_at: string;
+  /** Описание из админки (раздел «PDF»); может отсутствовать */
+  description?: string;
+  /** Обложка — картинка первой страницы (/uploads/pdfs/{alias}.jpg) */
+  cover?: string;
 }
 
 export type PdfDocsMap = Record<string, PdfDocInfo | null>;
