@@ -410,7 +410,7 @@ export function CatalogClient({ products, categories, template = "classic", cand
         {candyFilters.length > 0 && (
           <div>
             <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Состав</div>
-            <div className="space-y-1.5">
+            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
               {candyFilters.map((f) => (
                 <label
                   key={f.id}
