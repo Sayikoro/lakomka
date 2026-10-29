@@ -58,13 +58,14 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
     total_entries: number;
     missing: string[];
     weights: number[];
+    rows_processed?: number;
     images?: { copied: number; missing_files: string[] };
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [coverFor, setCoverFor] = useState<WeightRecipeRow | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   async function load(weight: number) {
     setSelected(weight);

@@ -28,6 +28,59 @@ function isLocalVideo(url: string): boolean {
   return url.startsWith("/uploads/") || /\.(mp4|webm)(\?|$)/i.test(url);
 }
 
+/** Локальное видео-слайд с прелоадером: спиннер, пока кадры не готовы к показу */
+function SlideVideo({
+  url,
+  registerRef,
+  className,
+}: {
+  url: string;
+  registerRef: (el: HTMLVideoElement | null) => void;
+  className: string;
+}) {
+  const [ready, setReady] = useState(false);
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  /* Видео из кеша может быть готово до монтирования — проверяем readyState в ref-колбэке */
+  const attachVideo = (el: HTMLVideoElement | null) => {
+    ref.current = el;
+    registerRef(el);
+    if (el && el.readyState >= 3) setReady(true);
+  };
+
+  /* Страховка: зависшая загрузка не должна оставлять спиннер навсегда */
+  useEffect(() => {
+    if (ready) return;
+    const t = window.setTimeout(() => setReady(true), 8000);
+    return () => window.clearTimeout(t);
+  }, [ready, url]);
+
+  return (
+    <span className="relative block h-full w-full">
+      <video
+        ref={attachVideo}
+        src={url}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        onLoadedData={() => setReady(true)}
+        onCanPlay={() => setReady(true)}
+        onError={() => setReady(true)}
+        className={className}
+      />
+      {!ready && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+        >
+          <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-white/35 border-t-white/90" />
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ProductCardNew({ product, className = "" }: Props) {
   const add = useCart((s) => s.add);
   const [added, setAdded] = useState(false);
@@ -163,18 +216,11 @@ export function ProductCardNew({ product, className = "" }: Props) {
                     className="h-full w-full select-none rounded-[20px] bg-white object-contain p-[10px]"
                   />
                 ) : isLocalVideo(m.url) ? (
-                  <video
-                    ref={(el) => {
+                  <SlideVideo
+                    url={m.url}
+                    registerRef={(el) => {
                       if (el) videoRefs.current.set(i, el);
                       else videoRefs.current.delete(i);
-                    }}
-                    src={m.url}
-                    muted
-                    loop
-                    playsInline
-                    preload="metadata"
-                    onError={(e) => {
-                      (e.currentTarget.style.visibility = "hidden");
                     }}
                     className="h-full w-full select-none rounded-[20px] bg-black object-cover"
                   />

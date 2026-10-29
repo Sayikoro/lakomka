@@ -1,4 +1,4 @@
-import type { Product, BundleItem, ProductImage, ProductMedia } from "./types";
+import type { Product, BundleItem, ProductImage, ProductMedia, CandyFilter } from "./types";
 
 const API_URL = process.env.PHP_API_URL ?? "http://localhost:8000/api";
 
@@ -40,6 +40,7 @@ interface ApiProduct {
   recipe_weight_g?: number | null;
   show_in_catalog: number;
   video_url?: string | null;
+  component_ids?: number[];
   images?: ApiImage[];
   media?: ApiMedia[];
   bundle_items?: ApiBundleItem[];
@@ -118,6 +119,7 @@ function normalize(p: ApiProduct): Product {
     media,
     images,
     bundle_items: p.type === "bundle" ? bundle_items : undefined,
+    component_ids: p.component_ids ?? [],
   };
 }
 
@@ -162,6 +164,17 @@ export interface Category {
   slug: string;
   name: string;
   sort_order: number;
+}
+
+/** Task 50: кастомные наборы конфет с галочкой «Учитывать как фильтр» — фильтр «Состав» каталога */
+export async function getCandyFilters(): Promise<CandyFilter[]> {
+  try {
+    const res = await fetch(`${API_URL}/candy-filters`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data: CandyFilter[] };
+    return (json.data ?? []).filter((s) => s.product_ids.length > 0);
+  } catch { return [];
+  }
 }
 
 export async function getCategories(): Promise<Category[]> {

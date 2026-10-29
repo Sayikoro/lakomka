@@ -2,7 +2,10 @@
 
 class ChunkedUpload
 {
-    private const MAX_TOTAL = 200 * 1024 * 1024; // 200 MB
+    /* Task 56: было 200 MB — блоб-экспорт старого каталога (335 МБ) не проходил
+       («Превышен лимит 200 MB» в админке). Клиент (chunked-upload.ts) ограничен
+       1000 чанков × 512 КБ = 500 МБ — серверный лимит держим с запасом над ним. */
+    private const MAX_TOTAL = 512 * 1024 * 1024; // 512 MB
     private const MAX_AGE_HOURS = 24;
 
     private static function root(): string
@@ -79,7 +82,9 @@ if (!is_dir($dir)) mkdir($dir, 0755, true);
             $currentTotal += filesize($f);
         }
         if ($currentTotal + strlen($bytes) > self::MAX_TOTAL) {
-            throw new RuntimeException('Превышен лимит 200 MB');
+            throw new RuntimeException(
+                'Превышен лимит ' . (int) (self::MAX_TOTAL / 1024 / 1024) . ' MB'
+            );
         }
 
         // Пишем чанк

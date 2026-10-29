@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useCart } from "@/store/cart";
 import { ContactDrawer } from "@/components/home/ContactDrawer";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { SmartImg } from "@/components/ui/SmartImg";
 import { useT } from "@/components/texts/TextsProvider";
 
 export function Header() {
@@ -12,8 +13,12 @@ export function Header() {
   const totalQty = lines.reduce((sum, l) => sum + l.qty, 0);
   const t = useT();
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  /* mounted-паттерн без setState в effect (useSyncExternalStore: на сервере false, после гидратации true) */
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
@@ -84,8 +89,19 @@ export function Header() {
       }`}
     >
       <div className="mx-auto flex h-[70px] max-w-[1200px] items-center justify-between px-4">
-        <Link href="/" className="text-xl font-semibold text-[var(--color-heading)]">
-          {t("global_brand")}
+        <Link
+          href="/"
+          className="flex shrink-0 items-center"
+          aria-label="Лакомка — на главную"
+        >
+          {/* Логотип вместо текстового названия (загружается из админки-независимого файла) */}
+          <SmartImg
+            src="/uploads/brand/logo-lakomka.webp"
+            alt="Лакомка — новогодние подарки"
+            width={445}
+            height={160}
+            className="h-9 w-auto sm:h-11 md:h-[56px] lg:h-11"
+          />
         </Link>
 
         {/* ПК — инлайн-навигация */}

@@ -43,7 +43,7 @@ export function MediaUploader({ productId, initial }: Props) {
   const imgInputRef = useRef<HTMLInputElement>(null);
   const vidInputRef = useRef<HTMLInputElement>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   function flashSaved() {
     setSaved(true);

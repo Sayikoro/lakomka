@@ -24,7 +24,7 @@ export function PasswordModal({ user, onClose }: Props) {
   const [generated, setGenerated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   async function submitChange() {
     setError(null);

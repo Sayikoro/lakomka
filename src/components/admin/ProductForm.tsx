@@ -94,7 +94,7 @@ export function ProductForm({ mode, initial }: Props) {
     setError(null);
     setSaving(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const url = mode === "create"
         ? `${apiUrl}/admin/products`
         : `${apiUrl}/admin/products/${form.id}`;

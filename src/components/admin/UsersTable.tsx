@@ -41,7 +41,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
   const [passwordFor, setPasswordFor] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   async function changeRole(u: AdminUser, newRole: string) {
     if (u.role === newRole) return;

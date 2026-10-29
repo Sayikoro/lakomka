@@ -11,6 +11,8 @@ interface OrderRow {
   status: string;
   delivery_method: string;
   created_at: string;
+  email_sent: number | null;
+  email_error: string | null;
   items_preview: { product_name: string; qty: number }[];
 }
 
@@ -31,6 +33,32 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-gray-100 text-gray-700",
   cancelled: "bg-red-100 text-red-700",
 };
+
+/** Красный конверт — письмо клиенту не ушло (orders.email_sent = 0) */
+function MailFailedIcon({ error }: { error: string | null }) {
+  return (
+    <span
+      title={`Письмо клиенту не отправлено: ${error ?? "ошибка SMTP"}`}
+      aria-label="Письмо клиенту не отправлено"
+      className="ml-2 inline-flex cursor-help align-[-2px]"
+    >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-red-600"
+      >
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="m2 7 10 6 10-6" />
+      </svg>
+    </span>
+  );
+}
 
 async function getOrders(): Promise<OrderRow[]> {
   const cookieStore = await cookies();
@@ -96,6 +124,7 @@ export default async function AdminOrdersPage() {
                     >
                       {o.order_number}
                     </Link>
+                    {o.email_sent === 0 && <MailFailedIcon error={o.email_error} />}
                   </td>
                   <td className="p-3 text-[var(--color-muted)]">
                     {o.created_at}

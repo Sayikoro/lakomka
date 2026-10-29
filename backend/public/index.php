@@ -100,9 +100,26 @@ try {
         );
         $stmt->execute();
         $products = $stmt->fetchAll();
-        foreach ($products as &$p) hydrateImages($pdo, $p);
+
+        // Task 50: состав наборов в компактном виде — для фильтра «Состав» на витрине
+        $compMap = [];
+        foreach ($pdo->query('SELECT product_id, GROUP_CONCAT(component_id) AS ids FROM bundle_items GROUP BY product_id') as $r) {
+            $compMap[(int)$r['product_id']] = array_map('intval', explode(',', (string)$r['ids']));
+        }
+        foreach ($products as &$p) {
+            if ($p['type'] === 'bundle') {
+                $p['component_ids'] = $compMap[(int)$p['id']] ?? [];
+            }
+            hydrateImages($pdo, $p);
+        }
         unset($p);
         jsonResponse(['data' => $products]);
+    }
+
+    /* Task 50: публичные фильтры «Состав» (кастомные наборы конфет с is_filter=1) */
+    if ($path === '/api/candy-filters' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandySetController.php';
+        AdminCandySetController::publicFilters($pdo);
     }
 
     if (preg_match('#^/api/products/by-legacy/(.+)$#', $path, $m) && $method === 'GET') {
@@ -291,6 +308,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         AdminOrdersController::list($pdo);
     }
+    if (preg_match('#^/api/admin/orders/(\d+)/resend-email$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
+        Auth::requireEditor();
+        AdminOrdersController::resendEmail($pdo, (int)$m[1]);
+    }
     if (preg_match('#^/api/admin/orders/(\d+)$#', $path, $m)) {
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         $id = (int)$m[1];
@@ -395,6 +417,42 @@ $stmt->execute([$m[1]]);
         Auth::requireEditor();
         require_once __DIR__ . '/../src/Controllers/AdminImagesController.php';
         AdminImagesController::removeMedia($pdo, (int)$m[1], (int)$m[2]);
+    }
+
+    /* ========== ADMIN: CANDIES (справочник конфет, Task 50) ========== */
+    if ($path === '/api/admin/candies' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandyController.php';
+        AdminCandyController::list($pdo);
+    }
+    if ($path === '/api/admin/candies/options' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandyController.php';
+        AdminCandyController::options($pdo);
+    }
+    if ($path === '/api/admin/candies' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandyController.php';
+        AdminCandyController::create($pdo);
+    }
+    if (preg_match('#^/api/admin/candies/(\d+)$#', $path, $m)) {
+        require_once __DIR__ . '/../src/Controllers/AdminCandyController.php';
+        $id = (int)$m[1];
+        if ($method === 'POST')   AdminCandyController::update($pdo, $id);
+        if ($method === 'DELETE') AdminCandyController::destroy($pdo, $id);
+    }
+
+    /* ========== ADMIN: CANDY SETS (кастомные наборы конфет, Task 50) ========== */
+    if ($path === '/api/admin/candy-sets' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandySetController.php';
+        AdminCandySetController::list($pdo);
+    }
+    if ($path === '/api/admin/candy-sets' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminCandySetController.php';
+        AdminCandySetController::create($pdo);
+    }
+    if (preg_match('#^/api/admin/candy-sets/(\d+)$#', $path, $m)) {
+        require_once __DIR__ . '/../src/Controllers/AdminCandySetController.php';
+        $id = (int)$m[1];
+        if ($method === 'POST')   AdminCandySetController::update($pdo, $id);
+        if ($method === 'DELETE') AdminCandySetController::destroy($pdo, $id);
     }
 
     /* ========== ADMIN: BUNDLE ========== */

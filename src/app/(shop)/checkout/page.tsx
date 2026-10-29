@@ -108,7 +108,7 @@ export default function CheckoutPage() {
     setSubmitting(true);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api"}/orders`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? "/api"}/orders`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

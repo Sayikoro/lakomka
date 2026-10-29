@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PAGE_TEXTS, TEXT_PREFIX } from "@/lib/page-texts";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export function PageTextsEditor() {
   const [saved, setSaved] = useState<Record<string, string> | null>(null);

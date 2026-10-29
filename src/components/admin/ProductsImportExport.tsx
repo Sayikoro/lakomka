@@ -33,7 +33,7 @@ export function ProductsImportExport() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [funnyIndex, setFunnyIndex] = useState(0);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   useEffect(() => {
     if (!exporting && !importing) {
@@ -171,6 +171,13 @@ export function ProductsImportExport() {
             скачать ещё раз
           </button>
           . Ссылка активна 2 часа
+          <div className="mt-1 text-[13px] text-green-700">
+            💡 Внутри архива есть <b>editor.html</b> — откройте его в браузере,
+            перетащите архив на страницу, поправьте товары в таблице, добавьте
+            медиа перетаскиванием файлов в карточке товара (превью — прямо в
+            таблице) и нажмите «Сохранить ZIP». Полученный архив импортируйте
+            здесь — без ручного редактирования CSV.
+          </div>
         </div>
       )}
 

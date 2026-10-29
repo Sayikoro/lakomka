@@ -74,7 +74,7 @@ export function SettingsForm({ initial }: Props) {
     setError(null);
     setUploading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const fd = new FormData();
       fd.append("file", await fileToResizedJpeg(file));
       const res = await fetch(`${apiUrl}/admin/uploads/hero`, {
@@ -100,7 +100,7 @@ export function SettingsForm({ initial }: Props) {
     setError(null);
     setUploadingFlake(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const fd = new FormData();
       fd.append("file", file); // SVG не сжимаем — отправляем как есть
       const res = await fetch(`${apiUrl}/admin/uploads/snowflake`, {
@@ -138,7 +138,7 @@ export function SettingsForm({ initial }: Props) {
     setSavedAt(null);
     setSaving(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -186,7 +186,7 @@ export function SettingsForm({ initial }: Props) {
     setTestStatus(null);
     setTesting(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/settings/test-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

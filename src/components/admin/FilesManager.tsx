@@ -94,7 +94,7 @@ function typeLabel(e: Entry): string {
 
 export function FilesManager() {
   const downloads = useDownloads();
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   const [path, setPath] = useState("");
   const [folder, setFolder] = useState<FolderData | null>(null);

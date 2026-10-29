@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { ProductMedia } from "@/lib/types";
 
@@ -31,16 +31,22 @@ export function ProductGallery({ media, productName }: Props) {
     [media]
   );
 
-  const defaultActive = useMemo(() => {
-    const idx = sorted.findIndex((m) => m.type === "image");
-    return idx >= 0 ? idx : 0;
+  // Главное медиа — первое по sort_order: если в админке видео поставлено первым,
+  // при заходе на товар открывается именно оно, а не первая картинка.
+  // Сброс слайда при смене товара — adjust state during render (без useEffect)
+  const [active, setActive] = useState(0);
+  const [prevMedia, setPrevMedia] = useState(media);
+  if (prevMedia !== media) {
+    setPrevMedia(media);
+    setActive(0);
+  }
+
+  // Постер для видео — первая картинка (если есть).
+  // Хуки объявлены до early return — нельзя вызывать их после условия
+  const posterUrl = useMemo(() => {
+    const img = sorted.find((m) => m.type === "image");
+    return img?.url ?? null;
   }, [sorted]);
-
-  const [active, setActive] = useState(defaultActive);
-
-  useEffect(() => {
-    setActive(defaultActive);
-  }, [defaultActive]);
 
   const current = sorted[active];
 
@@ -50,16 +56,11 @@ export function ProductGallery({ media, productName }: Props) {
     );
   }
 
-  const posterUrl = useMemo(() => {
-    const img = sorted.find((m) => m.type === "image");
-    return img?.url ?? null;
-  }, [sorted]);
-
   return (
     <div className="space-y-3">
       <div className="relative aspect-square overflow-hidden rounded-[var(--radius-card)] bg-white">
         {current.type === "video" ? (
-          <MainVideo url={current.url} poster={posterUrl} />
+          <MainVideo key={current.url} url={current.url} poster={posterUrl} />
         ) : (
           <Image
             src={current.url}
@@ -122,22 +123,58 @@ export function ProductGallery({ media, productName }: Props) {
   );
 }
 
+/** Прелоадер поверх видео: спиннер, пока кадры не готовы к показу */
+function VideoSpinner() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/55"
+    >
+      <span className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--color-border)] border-t-[var(--color-primary)]" />
+    </div>
+  );
+}
+
 function MainVideo({ url, poster }: { url: string; poster: string | null }) {
   const kind = classifyVideo(url);
+  const [ready, setReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  /* Видео из кеша может быть готово ещё до монтирования — события canplay уже не будет.
+     Проверяем readyState в ref-колбэке (setState в теле effect запрещён линтером) */
+  const attachVideo = (el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && el.readyState >= 3) setReady(true);
+  };
+
+  /* Страховка: если загрузка зависла (внешний iframe заблокирован и т.п.),
+     прелоадер не должен висеть вечно */
+  useEffect(() => {
+    if (ready) return;
+    const t = window.setTimeout(() => setReady(true), 8000);
+    return () => window.clearTimeout(t);
+  }, [ready, url]);
 
   if (kind === "local") {
     return (
-      <video
-        src={url}
-        poster={poster ?? undefined}
-        autoPlay
-        loop
-        muted
-        playsInline
-        controls={false}
-        preload="metadata"
-        className="h-full w-full object-contain p-6"
-      />
+      <div className="relative h-full w-full">
+        <video
+          ref={attachVideo}
+          src={url}
+          poster={poster ?? undefined}
+          autoPlay
+          loop
+          muted
+          playsInline
+          controls={false}
+          preload="auto"
+          onCanPlay={() => setReady(true)}
+          onLoadedData={() => setReady(true)}
+          onError={() => setReady(true)}
+          className="h-full w-full object-contain p-6"
+        />
+        {!ready && <VideoSpinner />}
+      </div>
     );
   }
 
@@ -145,13 +182,17 @@ function MainVideo({ url, poster }: { url: string; poster: string | null }) {
     const id = extractYouTubeId(url);
     if (!id) return <FallbackLink url={url} />;
     return (
-      <iframe
-        src={`https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&modestbranding=1&playsinline=1&rel=0`}
-        title="Видео-презентация"
-        allow="autoplay; encrypted-media; picture-in-picture"
-        allowFullScreen
-        className="absolute inset-0 h-full w-full"
-      />
+      <div className="relative h-full w-full">
+        <iframe
+          src={`https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&modestbranding=1&playsinline=1&rel=0`}
+          title="Видео-презентация"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          onLoad={() => setReady(true)}
+          className="absolute inset-0 h-full w-full"
+        />
+        {!ready && <VideoSpinner />}
+      </div>
     );
   }
 
@@ -159,13 +200,17 @@ function MainVideo({ url, poster }: { url: string; poster: string | null }) {
     const m = url.match(/video(-?\d+)_(\d+)/);
     if (!m) return <FallbackLink url={url} />;
     return (
-      <iframe
-        src={`https://vk.com/video_ext.php?oid=${m[1]}&id=${m[2]}&autoplay=1&hd=2`}
-        title="Видео-презентация"
-        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-        allowFullScreen
-        className="absolute inset-0 h-full w-full"
-      />
+      <div className="relative h-full w-full">
+        <iframe
+          src={`https://vk.com/video_ext.php?oid=${m[1]}&id=${m[2]}&autoplay=1&hd=2`}
+          title="Видео-презентация"
+          allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+          allowFullScreen
+          onLoad={() => setReady(true)}
+          className="absolute inset-0 h-full w-full"
+        />
+        {!ready && <VideoSpinner />}
+      </div>
     );
   }
 

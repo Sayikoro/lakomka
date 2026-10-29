@@ -8,12 +8,15 @@ import { useT } from "@/components/texts/TextsProvider";
 import type { Category } from "@/lib/products";
 import { mockCategories } from "@/lib/mock-data";
 import type { Product } from "@/lib/types";
+import type { CandyFilter } from "@/lib/types";
 
 interface Props {
   products: Product[];
   categories: Category[];
   /** Шаблон карточки: classic (светлая) | new (тёмная со свайпом) — задаётся в админке */
   template?: "classic" | "new";
+  /** Task 50: кастомные наборы конфет с галочкой «Учитывать как фильтр» */
+  candyFilters?: CandyFilter[];
 }
 
 /** Фолбэк-миниатюры для категорий без товаров */
@@ -133,9 +136,10 @@ function DualSlider({
   );
 }
 
-export function CatalogClient({ products, categories, template = "classic" }: Props) {
+export function CatalogClient({ products, categories, template = "classic", candyFilters = [] }: Props) {
   const t = useT();
   const [category, setCategory] = useState<string>("all"); // slug категории | "all"
+  const [candySetIds, setCandySetIds] = useState<number[]>([]); // Task 50: выбранные фильтры «Состав»
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]); // индексы ступеней, пересчитываются от данных
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]); // kopecks, пересчитываются от данных
   const [search, setSearch] = useState("");
@@ -222,8 +226,23 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     const priceActive = boundsReady && (priceRange[0] > priceBounds.min || priceRange[1] < priceBounds.max);
     const cat = categoryOptions.find((c) => c.slug === category);
 
+    // Task 50: фильтр «Состав» — объединённое множество конфет выбранных кастомных наборов;
+    // товар проходит, если в его составе есть хотя бы одна конфета из этого множества
+    const candyUnion: Set<number> | null =
+      candySetIds.length > 0
+        ? new Set<number>(
+            candyFilters
+              .filter((f) => candySetIds.includes(f.id))
+              .flatMap((f) => f.product_ids)
+          )
+        : null;
+
     return products.filter((p) => {
       if (cat && p.category_id !== cat.id) return false;
+      if (candyUnion) {
+        const comp = p.component_ids ?? [];
+        if (!comp.some((id) => candyUnion.has(id))) return false;
+      }
       if (weightActive) {
         const w = p.recipe_weight_g ?? 0;
         if (w < wLo || w > wHi) return false;
@@ -232,11 +251,12 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [products, category, categoryOptions, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
+  }, [products, category, categoryOptions, candySetIds, candyFilters, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
 
   const hasFilters =
     category !== "all" ||
     search.trim() !== "" ||
+    candySetIds.length > 0 ||
     (boundsReady && weightSteps.length > 0 && (weightIdx[0] > 0 || weightIdx[1] < weightSteps.length - 1)) ||
     (boundsReady && (priceRange[0] > priceBounds.min || priceRange[1] < priceBounds.max));
 
@@ -289,8 +309,15 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     window.history.replaceState(null, "", url);
   };
 
+  // Task 50: мультивыбор фильтров «Состав»
+  const toggleCandySet = (id: number) => {
+    setCandySetIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    setPage(1);
+  };
+
   const resetFilters = () => {
     setCategory("all");
+    setCandySetIds([]);
     setWeightIdx([0, Math.max(weightSteps.length - 1, 0)]);
     setPriceRange([priceBounds.min, priceBounds.max]);
     setSearch("");
@@ -307,7 +334,8 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
 
   return (
     <div className="grid gap-6 xl:grid-cols-[240px_1fr]">
-      <aside className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
+      {/* self-start: колонка по высоте контента, а не на всю высоту сетки товаров */}
+      <aside className="self-start space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
         <div>
           <label className="mb-2 block text-sm font-medium text-[var(--color-heading)]">{t("catalog_search_label")}</label>
           <input
@@ -373,6 +401,33 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                   )}
                   {c.name}
                 </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Task 50: фильтр «Состав» — кастомные наборы с галочкой «Учитывать как фильтр» */}
+        {candyFilters.length > 0 && (
+          <div>
+            <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Состав</div>
+            <div className="space-y-1.5">
+              {candyFilters.map((f) => (
+                <label
+                  key={f.id}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition ${
+                    candySetIds.includes(f.id)
+                      ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                      : "border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={candySetIds.includes(f.id)}
+                    onChange={() => toggleCandySet(f.id)}
+                    className="accent-[var(--color-primary)]"
+                  />
+                  <span className="min-w-0 truncate">{f.name}</span>
+                </label>
               ))}
             </div>
           </div>

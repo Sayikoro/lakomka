@@ -14,7 +14,8 @@ class AdminOrdersController
         $number = trim($_GET['number'] ?? '');
 
         $sql = 'SELECT id, order_number, customer_name, customer_phone, customer_email,
-                       total_kopecks, status, delivery_method, created_at
+                       total_kopecks, status, delivery_method, created_at,
+                       email_sent, email_error
                 FROM orders WHERE 1=1';
         $params = [];
 
@@ -90,6 +91,59 @@ class AdminOrdersController
         $order['history'] = $history->fetchAll();
 
         jsonResponse(['data' => $order]);
+    }
+
+    /**
+     * Повторная отправка письма клиенту (кнопка «Отправить клиенту» в админке).
+     * Обновляет email_sent/email_error по факту попытки.
+     */
+    public static function resendEmail(PDO $pdo, int $id): void
+    {
+        Auth::requireEditor();
+
+        $stmt = $pdo->prepare('SELECT * FROM orders WHERE id = ?');
+        $stmt->execute([$id]);
+        $order = $stmt->fetch();
+        if (!$order) jsonResponse(['error' => 'Заказ не найден'], 404);
+
+        $email = Crypto::decrypt($order['customer_email']);
+        if ($email === '') {
+            jsonResponse(['error' => 'У заказа не указан email клиента'], 422);
+        }
+
+        $itemsStmt = $pdo->prepare(
+            'SELECT product_name, qty, price_kopecks FROM order_items WHERE order_id = ?'
+        );
+        $itemsStmt->execute([$id]);
+        $items = $itemsStmt->fetchAll();
+
+        require_once __DIR__ . '/../Mailer.php';
+        $mailer = new Mailer();
+
+        $fullOrder = [
+            'order_number'    => $order['order_number'],
+            'customer_name'   => Crypto::decrypt($order['customer_name']),
+            'customer_phone'  => Crypto::decrypt($order['customer_phone']),
+            'delivery_method' => $order['delivery_method'],
+            'address'         => Crypto::decrypt($order['address']),
+            'comment'         => Crypto::decrypt($order['comment']),
+            'total_kopecks'   => (int)$order['total_kopecks'],
+        ];
+
+        $ok = $mailer->sendOrderToCustomer($fullOrder, $items, $email);
+
+        $pdo->prepare('UPDATE orders SET email_sent = ?, email_error = ? WHERE id = ?')
+            ->execute([
+                $ok ? 1 : 0,
+                $ok ? null : ($mailer->lastError !== '' ? $mailer->lastError : 'Неизвестная ошибка отправки'),
+                $id,
+            ]);
+
+        if (!$ok) {
+            jsonResponse(['error' => 'Не удалось отправить: ' . ($mailer->lastError ?: 'ошибка SMTP')], 502);
+        }
+
+        jsonResponse(['data' => ['ok' => true, 'to' => $email]]);
     }
 
     public static function updateStatus(PDO $pdo, int $id): void

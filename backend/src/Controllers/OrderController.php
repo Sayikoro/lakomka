@@ -130,7 +130,11 @@ class OrderController
 
             $pdo->exec('COMMIT');
 
-            // Письма — после COMMIT, ошибки не ломают ответ
+            // Письма — после COMMIT, ошибки не ломают ответ.
+            // Статус письма клиенту фиксируем в orders.email_sent / email_error,
+            // чтобы админка показала красный маркер и кнопку «Отправить клиенту».
+            $emailSent = null;   // NULL — письма не требовалось (нет email)
+            $emailError = null;
             try {
                 require_once __DIR__ . '/../Mailer.php';
                 $mailer = new Mailer();
@@ -143,10 +147,24 @@ class OrderController
                     'comment'         => $comment,
                     'total_kopecks'   => $total,
                 ];
-                $mailer->sendOrderToCustomer($fullOrder, $lines, $email !== '' ? $email : null);
+                if ($email !== '') {
+                    $okCustomer = $mailer->sendOrderToCustomer($fullOrder, $lines, $email);
+                    $emailSent  = $okCustomer ? 1 : 0;
+                    $emailError = $okCustomer
+                        ? null
+                        : ($mailer->lastError !== '' ? $mailer->lastError : 'Неизвестная ошибка отправки');
+                }
                 $mailer->sendOrderToAdmin($fullOrder, $lines);
             } catch (Throwable $mailErr) {
                 error_log('[mail] ' . $mailErr->getMessage());
+                if ($email !== '' && $emailSent === null) {
+                    $emailSent = 0;
+                    $emailError = $mailErr->getMessage();
+                }
+            }
+            if ($emailSent !== null) {
+                $pdo->prepare('UPDATE orders SET email_sent = ?, email_error = ? WHERE id = ?')
+                    ->execute([$emailSent, $emailError, $orderId]);
             }
 
             jsonResponse([

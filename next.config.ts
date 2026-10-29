@@ -5,6 +5,10 @@ import type { NextConfig } from "next";
 const API_PROXY_TARGET = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
+  // Dev-сервер: разрешаем HMR/dev-ресурсы для локальных origin
+  // (без этого turbopack-клиент блокируется и гидратация не стартует)
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
+
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "lakomkakhv.ru", pathname: "/wp-content/uploads/**" },

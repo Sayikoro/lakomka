@@ -35,21 +35,21 @@ class Mailer
     /* ============================================================
        ПИСЬМА О ЗАКАЗЕ (создание)
        ============================================================ */
-    public function sendOrderToCustomer(array $order, array $items, ?string $email): void
+    public function sendOrderToCustomer(array $order, array $items, ?string $email): bool
     {
-        if (!$email) return;
+        if (!$email) return true; // некуда слать — не считаем ошибкой
         $subject = "Заказ {$order['order_number']} — Лакомка";
         $html = $this->renderOrderHtml($order, $items, false);
-        $this->send($email, $order['customer_name'], $subject, $html);
+        return $this->send($email, $order['customer_name'], $subject, $html);
     }
 
-    public function sendOrderToAdmin(array $order, array $items): void
+    public function sendOrderToAdmin(array $order, array $items): bool
     {
         $email = $this->setting('admin_email');
-        if ($email === '') return;
+        if ($email === '') return true;
         $subject = "Новый заказ {$order['order_number']} — {$this->fmtPrice($order['total_kopecks'])}";
         $html = $this->renderOrderHtml($order, $items, true);
-        $this->send($email, 'Администратор', $subject, $html);
+        return $this->send($email, 'Администратор', $subject, $html);
     }
 
     /* ============================================================
@@ -96,11 +96,12 @@ class Mailer
     /* ============================================================
        ОТПРАВКА
        ============================================================ */
-    private function send(string $toEmail, string $toName, string $subject, string $html): void
+    /** true — письмо ушло (или записано в log-драйвер); false — SMTP-ошибка (текст в lastError) */
+    private function send(string $toEmail, string $toName, string $subject, string $html): bool
     {
         if ($this->driver === 'log') {
             $this->logMail($toEmail, $subject, $html);
-            return;
+            return true;
         }
 
         $mail = new PHPMailer(true);
@@ -127,11 +128,13 @@ class Mailer
             $mail->AltBody = strip_tags($html);
 
             $mail->send();
+            return true;
         } catch (MailException $e) {
             // Заказы не должны падать из-за почты: ошибку запоминаем и пишем в лог сервера,
-            // а testEmail из админки покажет её пользователю
+            // статус «не отправлено» фиксируется в orders.email_sent вызывающим кодом
             $this->lastError = $mail->ErrorInfo;
             error_log('[mail] failed to ' . $toEmail . ': ' . $this->lastError);
+            return false;
         }
     }
 

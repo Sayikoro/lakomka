@@ -93,13 +93,13 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
 
       {/* Текст сверху по центру (отступ 10vh — чтобы нижний край не залезал на овечку) */}
       <div className="relative mx-auto flex h-full w-full max-w-[1200px] flex-col items-center px-4 pt-[10vh] text-center supports-[height:1svh]:pt-[10svh]">
-        <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+        <p className="font-hero text-[min(8.6vw,42px)] uppercase leading-[1.05] tracking-[0.11em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
           {t("home_hero_line1")}
         </p>
-        <p className="font-hero text-[42px] uppercase leading-[1.05] tracking-[4.6px] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+        <p className="font-hero text-[min(8.6vw,42px)] uppercase leading-[1.05] tracking-[0.11em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
           {t("home_hero_line2")}
         </p>
-        <p className="font-display mt-3 text-[52px] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
+        <p className="font-display mt-3 text-[min(11vw,52px)] leading-none text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[84px]">
           {t("home_hero_line3")}
         </p>
       </div>

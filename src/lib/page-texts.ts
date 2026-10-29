@@ -43,7 +43,7 @@ export const PAGE_TEXTS: PageTextsDef[] = [
     id: "global",
     title: "Хедер и футер (везде)",
     texts: [
-      { key: "global_brand", label: "Название магазина в шапке", def: "Лакомка" },
+      // global_brand (название в шапке) удалён: в шапке теперь логотип-картинка
       { key: "global_nav_gifts", label: "Пункт меню — Подарки", def: "Подарки" },
       { key: "global_nav_catalogs", label: "Пункт меню — Скачать каталоги", def: "Скачать каталоги" },
       { key: "global_menu_title", label: "Заголовок бургер-меню", def: "Меню" },

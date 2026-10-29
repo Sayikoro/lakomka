@@ -331,6 +331,16 @@ class AdminProductsImportExportController
             }
 
             $zip->addFromString('products.csv', $csv);
+
+            // Task 51: офлайн-редактор каталога внутри архива.
+            // Пользователь открывает editor.html, перетаскивает ZIP (или products.csv),
+            // правит таблицу и сохраняет готовый ZIP обратно — всё на стороне клиента.
+            // __DIR__ = backend/src/Controllers → ../../resources = backend/resources
+            $editorPath = __DIR__ . '/../../resources/product-editor.html';
+            if (is_file($editorPath)) {
+                $zip->addFromString('editor.html', (string)file_get_contents($editorPath));
+            }
+
             $zip->close();
 
             if (!@rename($tmpPath, $finalPath)) {
@@ -383,7 +393,11 @@ class AdminProductsImportExportController
     /* ============================================================
        ВНУТРЕННЕЕ
        ============================================================ */
-    private static function applyImport(PDO $pdo, array $parsed, array $imageFiles, array $videoFiles): array
+    /* $uploadsRoot — корень файловой системы для медиа. По умолчанию — реальный
+       public/. Тесты с копией БД ОБЯЗАНЫ передавать песочницу (напр. /tmp/fs),
+       иначе импорт удалит/перезапишет файлы живого сайта (урок Task 51:
+       no-op-тест на копии БД вытер 432 файла в public/uploads/products). */
+    private static function applyImport(PDO $pdo, array $parsed, array $imageFiles, array $videoFiles, ?string $uploadsRoot = null): array
     {
         $stats = [
             'created' => 0,
@@ -506,7 +520,8 @@ class AdminProductsImportExportController
                     // так round-trip экспорт→импорт не меняет порядок на сайте.
                     $clearMedia->execute([$productId]);
                     $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($slug)) ?: "p$productId";
-                    $dir = __DIR__ . '/../../../public/uploads/products/' . $safeSlug;
+                    $fsRoot = $uploadsRoot ?? (__DIR__ . '/../../../public');
+                    $dir = $fsRoot . '/uploads/products/' . $safeSlug;
                     if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
                         $stats['errors'][] = "Строка {$r['_row_number']}: не удалось создать папку";
                         continue;

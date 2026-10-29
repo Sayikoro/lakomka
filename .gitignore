@@ -46,12 +46,12 @@ next-env.d.ts
 
 # backend: секреты, БД и рантайм-файлы
 backend/config.local.php
-backend/storage/
+backend/storage/*
+!backend/storage/database.sqlite
+backend/storage/database.sqlite-*
 backend/public/uploads-test/
+/public/exports/
 
 # next.js env
 .env.local
 .env*.local
-
-# Экспортные ZIP-архивы товаров (сотни МБ) — в git не кладём
-/public/exports/

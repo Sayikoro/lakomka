@@ -1,0 +1,1791 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лакомка · Редактор каталога (offline)</title>
+<style>
+:root{
+  --primary:#0274BE; --heading:#3A3A3A; --muted:#7A7A7A;
+  --border:#E5E5E5; --bg:#FFFFFF; --bg-page:#F3F4F6; --soft:#F5F5F5;
+  --ok:#1F8B4C; --warn:#B7791F; --err:#C53030; --changed-bg:#FFFBEB;
+  --radius-btn:50px; --radius-card:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  background:var(--bg-page);color:var(--heading);font-size:14px;line-height:1.45;
+}
+button{font:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:1400px;margin:0 auto;padding:0 16px 60px}
+
+/* ===== Шапка ===== */
+header.top{
+  position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid var(--border);
+  padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;
+  box-shadow:0 1px 8px rgba(0,0,0,.04);
+}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand .logo{
+  width:38px;height:38px;border-radius:12px;background:var(--primary);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex:none;
+}
+.brand h1{font-size:17px;font-weight:700;white-space:nowrap}
+.brand small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;margin-top:-2px}
+.fileinfo{color:var(--muted);font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:340px}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.stat{
+  background:var(--soft);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--heading);white-space:nowrap;
+}
+.stat b{font-weight:700}
+.stat.warn{background:#FDF3D7;color:var(--warn)}
+.stat.err{background:#FDE8E8;color:var(--err)}
+.stat.ok{background:#E3F5EB;color:var(--ok)}
+
+/* ===== Кнопки ===== */
+.btn{
+  border-radius:var(--radius-btn);padding:8px 18px;font-weight:600;font-size:13.5px;
+  transition:background .15s,border-color .15s,opacity .15s;white-space:nowrap;
+}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover:not(:disabled){background:#02619e}
+.btn-ghost{border:1.5px solid var(--border);background:#fff;color:var(--heading)}
+.btn-ghost:hover:not(:disabled){border-color:var(--primary);color:var(--primary)}
+.btn-danger{background:#FDE8E8;color:var(--err)}
+.btn-danger:hover:not(:disabled){background:#f8c8c8}
+.btn-sm{padding:5px 12px;font-size:12.5px}
+
+/* ===== Зона загрузки ===== */
+.dropzone{
+  margin-top:22px;border:2.5px dashed #c3cfd9;border-radius:var(--radius-card);
+  background:#fff;padding:52px 24px;text-align:center;transition:all .18s;
+}
+.dropzone.drag{border-color:var(--primary);background:#EAF4FB;transform:scale(1.004)}
+.dropzone .big{font-size:19px;font-weight:700;margin-bottom:8px}
+.dropzone p{color:var(--muted);max-width:640px;margin:0 auto 6px}
+.dropzone .hintline{font-size:12.5px;margin-top:14px}
+.dropzone .dz-buttons{margin-top:18px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.loading{margin-top:22px;border-radius:var(--radius-card);background:#fff;padding:40px;text-align:center;color:var(--muted)}
+.spinner{
+  width:34px;height:34px;border:3.5px solid var(--border);border-top-color:var(--primary);
+  border-radius:50%;margin:0 auto 14px;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== Панель инструментов ===== */
+.toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0 12px;
+  position:sticky;top:66px;z-index:40;background:var(--bg-page);padding:8px 0;
+}
+.search{
+  flex:1 1 260px;max-width:420px;border:1.5px solid var(--border);border-radius:var(--radius-btn);
+  padding:8px 18px;background:#fff;outline:none;
+}
+.search:focus{border-color:var(--primary)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{
+  border:1.5px solid var(--border);background:#fff;border-radius:999px;padding:6px 14px;
+  font-size:12.5px;font-weight:600;color:var(--muted);transition:all .12s;
+}
+.chip:hover{border-color:var(--primary)}
+.chip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.toolbar .spacer{flex:1}
+label.chk{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
+label.chk input{accent-color:var(--primary);width:15px;height:15px}
+
+/* ===== Таблица ===== */
+.tablecard{background:#fff;border-radius:var(--radius-card);border:1px solid var(--border);overflow:auto;max-height:calc(100vh - 220px)}
+table{border-collapse:separate;border-spacing:0;width:100%;min-width:1250px}
+thead th{
+  position:sticky;top:0;background:var(--soft);z-index:5;text-align:left;
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  padding:9px 8px;border-bottom:1.5px solid var(--border);white-space:nowrap;
+}
+tbody td{padding:4px 6px;border-bottom:1px solid #F0F0F0;vertical-align:middle}
+tbody tr:hover{background:#FAFCFE}
+tbody tr.sel{background:#EAF4FB}
+tbody tr.changed{background:var(--changed-bg)}
+tbody tr.changed td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+tbody tr.invalid{background:#FFF5F5}
+tbody tr.invalid td:first-child{box-shadow:inset 3px 0 0 var(--err)}
+td.c-id,td.c-num{white-space:nowrap;color:var(--muted);font-size:12px;text-align:center}
+.cell-id{display:flex;align-items:center;gap:4px}
+.newbadge{background:#E3F5EB;color:var(--ok);border-radius:6px;font-size:10px;font-weight:700;padding:1px 5px}
+.cell-input{
+  width:100%;border:1px solid transparent;background:transparent;border-radius:8px;
+  padding:5px 7px;outline:none;min-width:0;
+}
+.cell-input:hover{border-color:var(--border)}
+.cell-input:focus{border-color:var(--primary);background:#fff}
+.cell-input.num{text-align:right;max-width:86px}
+.cell-input.price{max-width:96px}
+select.cell-input{cursor:pointer}
+select.cell-input.type{max-width:110px}
+.badge{display:inline-block;border-radius:6px;font-size:10.5px;font-weight:700;padding:2px 7px}
+.b-simple{background:#E8F1FB;color:#2B6CB0}
+.b-bundle{background:#E3F5EB;color:var(--ok)}
+.b-recipe{background:#FDF3D7;color:var(--warn)}
+.rowbtns{display:flex;gap:2px;justify-content:flex-end;white-space:nowrap}
+.icobtn{
+  width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:14px;transition:all .12s;flex:none;
+}
+.icobtn:hover{background:var(--soft);color:var(--heading)}
+.icobtn.del:hover{background:#FDE8E8;color:var(--err)}
+.cell-media{font-size:11px;color:var(--muted);white-space:nowrap}
+.count0{color:#D0D0D0}
+.selbox{width:15px;height:15px;accent-color:var(--primary);cursor:pointer;display:block;margin:0 auto}
+.errcell{background:#FDE8E8 !important;border-radius:8px}
+
+/* ===== Панель массовых действий ===== */
+.bulkbar{
+  display:none;align-items:center;gap:8px;flex-wrap:wrap;background:#223038;color:#fff;
+  border-radius:14px;padding:9px 14px;margin:0 0 12px;font-size:13px;
+}
+.bulkbar.show{display:flex}
+.bulkbar b{color:#9FD4F5}
+.bulkbar .bk{background:rgba(255,255,255,.12);border-radius:999px;padding:5px 13px;font-size:12.5px;font-weight:600}
+.bulkbar .bk:hover{background:rgba(255,255,255,.24)}
+.bulkbar .bk.danger{background:#8C3A3A}
+.bulkbar .bk.danger:hover{background:#A94444}
+.bulkbar input.pct{width:64px;background:rgba(255,255,255,.14);border:none;border-radius:8px;color:#fff;padding:5px 8px;text-align:center;outline:none}
+.bulkbar .close{margin-left:auto;opacity:.7}
+.bulkbar .close:hover{opacity:1}
+
+/* ===== Боковая панель (детали) ===== */
+.overlay{position:fixed;inset:0;background:rgba(20,30,40,.42);z-index:90;opacity:0;pointer-events:none;transition:opacity .2s}
+.overlay.show{opacity:1;pointer-events:auto}
+.drawer{
+  position:fixed;top:0;right:0;height:100%;width:min(560px,96vw);background:#fff;z-index:95;
+  transform:translateX(102%);transition:transform .22s ease;display:flex;flex-direction:column;
+  box-shadow:-8px 0 30px rgba(0,0,0,.14);
+}
+.drawer.show{transform:none}
+.drawer .dhead{
+  padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+}
+.drawer .dhead h2{font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drawer .dhead .x{margin-left:auto}
+.drawer .dbody{padding:16px 20px 30px;overflow-y:auto;flex:1}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fgrid .full{grid-column:1/-1}
+.field label{display:block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.field .fin{
+  width:100%;border:1.5px solid var(--border);border-radius:10px;padding:8px 11px;outline:none;background:#fff;
+}
+.field .fin:focus{border-color:var(--primary)}
+.field textarea.fin{min-height:110px;resize:vertical;line-height:1.5}
+.field .note{font-size:11.5px;color:var(--muted);margin-top:4px}
+.field .note b{color:var(--warn)}
+.field.err .fin{border-color:var(--err)}
+.dfoot{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center}
+.mediabox{border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--soft)}
+.mediabox h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px}
+.mediabox .mfiles{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.mchip{font-size:11px;background:#fff;border:1px solid var(--border);border-radius:7px;padding:2px 8px}
+.mchip.ok{border-color:#BFE3CD;color:var(--ok)}
+.mchip.miss{border-color:#F2C6C6;color:var(--err)}
+
+/* ===== Превью медиа в таблице ===== */
+.cell-thumb{width:118px}
+.pv-wrap{display:flex;align-items:center;gap:8px}
+.pv-cell{width:54px;height:54px;border-radius:10px;overflow:hidden;background:#EEF1F4;flex:none;position:relative;border:1px solid var(--border);transition:transform .12s}
+.pv-cell:hover{transform:scale(1.07)}
+.pv-cell img,.pv-cell video{width:100%;height:100%;object-fit:cover;display:block}
+.pv-cell video{background:#000}
+.pv-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#C3CCD6;font-size:18px}
+.pv-ph.miss{color:var(--err);background:#FFF5F5}
+.pv-count{font-size:10.5px;color:var(--muted);line-height:1.35;white-space:nowrap}
+.pv-count b{color:var(--heading)}
+
+/* ===== Медиа-менеджер в карточке ===== */
+.mgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.mgrid:empty::after{content:"— пусто —";color:var(--muted);font-size:12px;padding:4px}
+.mtile{width:98px;border:1.5px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;position:relative}
+.mtile .mth{width:100%;height:72px;background:#EEF1F4;display:block;position:relative}
+.mtile img,.mtile video{width:100%;height:72px;object-fit:cover;display:block}
+.mtile video{background:#000}
+.mtile .mname{font-size:9.5px;color:var(--muted);padding:3px 6px 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtile .tx{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;background:rgba(20,30,40,.72);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s;z-index:2}
+.mtile:hover .tx{opacity:1}
+.mtile .tx:hover{background:var(--err)}
+.mtile .nbadge{position:absolute;left:4px;top:3px;background:#E3F5EB;color:var(--ok);font-size:9px;font-weight:700;border-radius:6px;padding:1px 5px;z-index:2}
+.mtile.miss{border-color:#F2C6C6}
+.mtile.miss .mth{display:flex;align-items:center;justify-content:center;color:var(--err);font-size:20px}
+.mdrop{margin-top:8px;border:2px dashed #c3cfd9;border-radius:10px;padding:13px 10px;text-align:center;color:var(--muted);font-size:12px;transition:all .15s;background:#fff}
+.mdrop.drag{border-color:var(--primary);background:#EAF4FB;color:var(--primary)}
+.mdrop b{cursor:pointer;color:var(--primary)}
+.mdrop b:hover{text-decoration:underline}
+
+/* ===== Подсказки/тосты/инструкция ===== */
+.empty-warn{
+  margin-top:14px;background:#FDF3D7;border:1px solid #F0DCA8;color:#7A5A10;border-radius:14px;
+  padding:10px 16px;font-size:13px;display:none;
+}
+.empty-warn.show{display:block}
+.toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{
+  background:#223038;color:#fff;border-radius:12px;padding:10px 20px;font-size:13.5px;
+  box-shadow:0 6px 22px rgba(0,0,0,.25);animation:tin .25s ease;max-width:90vw;
+}
+.toast.ok{background:var(--ok)}
+.toast.err{background:var(--err)}
+@keyframes tin{from{opacity:0;transform:translateY(10px)}to{opacity:1}}
+details.help{
+  margin-top:26px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-card);
+  padding:0 20px;color:var(--muted);
+}
+details.help summary{cursor:pointer;font-weight:700;color:var(--heading);padding:14px 0;list-style:none}
+details.help summary::-webkit-details-marker{display:none}
+details.help summary::after{content:" +";float:right;color:var(--muted)}
+details.help[open] summary::after{content:" −"}
+details.help ol{margin:0 0 16px 20px;display:grid;gap:7px;font-size:13.5px}
+details.help .imh{color:var(--warn);font-weight:600}
+.draftbar{
+  display:none;margin-top:16px;background:#EAF4FB;border:1px solid #BBDFF5;border-radius:14px;
+  padding:10px 16px;font-size:13px;align-items:center;gap:12px;flex-wrap:wrap;
+}
+.draftbar.show{display:flex}
+.draftbar b{color:var(--primary)}
+@media (max-width:760px){
+  .fileinfo{display:none}
+  .toolbar{top:58px}
+  .tablecard{max-height:calc(100vh - 260px)}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">Л</div>
+    <div>
+      <h1>Редактор каталога</h1>
+      <small>офлайн-страница из архива экспорта · работает без сервера</small>
+    </div>
+  </div>
+  <div class="fileinfo" id="fileinfo"></div>
+  <div class="stats" id="stats"></div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-ghost" id="btnReset" disabled>Сбросить правки</button>
+    <button class="btn btn-ghost" id="btnCsv" disabled>Скачать CSV</button>
+    <button class="btn btn-primary" id="btnZip" disabled>Сохранить ZIP</button>
+  </div>
+</header>
+<div class="wrap">
+
+  <div class="dropzone" id="dropzone">
+    <div class="big">Перетащите сюда ZIP-архив экспорта или файл products.csv</div>
+    <p>Страница прочитает товары прямо в браузере — данные никуда не отправляются.
+       Отредактируйте каталог и нажмите «Сохранить ZIP»: готовый архив останется
+       только импортировать в админке («Товары → Импорт ZIP»).</p>
+    <div class="dz-buttons">
+      <button class="btn btn-primary" id="btnPickZip">Выбрать ZIP…</button>
+      <button class="btn btn-ghost" id="btnPickCsv">Выбрать products.csv…</button>
+    </div>
+    <p class="hintline">Работает и без интернета. Правки автоматически сохраняются в черновик браузера.</p>
+  </div>
+
+  <div class="loading" id="loading" style="display:none">
+    <div class="spinner"></div>
+    <div id="loadingText">Читаем архив…</div>
+  </div>
+
+  <div class="draftbar" id="draftbar">
+    📝 Найден несохранённый черновик от <b id="draftDate"></b>
+    <button class="btn btn-primary btn-sm" id="draftRestore">Восстановить</button>
+    <button class="btn btn-ghost btn-sm" id="draftDrop">Удалить черновик</button>
+  </div>
+
+  <div class="bulkbar" id="bulkbar">
+    Выбрано: <b id="bulkCount">0</b>
+    <button class="bk" data-bulk="show1">Показывать ✓</button>
+    <button class="bk" data-bulk="show0">Показывать ✗</button>
+    <button class="bk" data-bulk="pub1">Опубликовать</button>
+    <button class="bk" data-bulk="pub0">Скрыть (черновик)</button>
+    <span style="opacity:.7">Цена:</span>
+    <input class="pct" id="bulkPct" type="number" value="10" step="0.5"> %
+    <button class="bk" data-bulk="pctup">+ поднять</button>
+    <button class="bk" data-bulk="pctdown">− опустить</button>
+    <button class="bk danger" data-bulk="delete">Удалить строки</button>
+    <button class="close bk" data-bulk="clear">Снять выделение</button>
+  </div>
+
+  <div class="toolbar" id="toolbar" style="display:none">
+    <input class="search" id="search" type="search" placeholder="Поиск: название, артикул, slug, ID…">
+    <div class="chips" id="typeChips">
+      <button class="chip on" data-type="all">Все</button>
+      <button class="chip" data-type="bundle">Наборы</button>
+      <button class="chip" data-type="simple">Простые</button>
+      <button class="chip" data-type="recipe">Конфеты</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="onlyChanged"> только изменённые</label>
+    <label class="chk"><input type="checkbox" id="onlyErrors"> только с ошибками</label>
+    <span class="spacer"></span>
+    <button class="btn btn-ghost btn-sm" id="btnAdd">+ Добавить товар</button>
+  </div>
+
+  <div class="empty-warn" id="emptyWarn"></div>
+  <div class="tablecard" id="tablecard" style="display:none">
+    <table>
+      <thead><tr>
+        <th style="width:34px"><input type="checkbox" class="selbox" id="selAll" title="Выделить всё (видимые)"></th>
+        <th style="width:70px">ID</th>
+        <th style="min-width:230px">Название</th>
+        <th style="width:110px">Тип</th>
+        <th style="width:100px">Цена ₽</th>
+        <th style="width:100px">Старая ₽</th>
+        <th style="width:78px">Остаток</th>
+        <th style="width:78px">Вес, г</th>
+        <th style="min-width:140px">Производитель</th>
+        <th style="min-width:120px">Категория</th>
+        <th style="width:56px">Показ</th>
+        <th style="width:56px">Опубл.</th>
+        <th style="width:118px">Медиа</th>
+        <th style="width:96px"></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <details class="help" id="help">
+    <summary>Как пользоваться редактором — 6 шагов</summary>
+    <ol>
+      <li>В админке: <b>Товары → Экспорт ZIP</b> — скачайте архив (внутри products.csv, картинки, видео и эта страница).</li>
+      <li>Перетащите <b>ZIP целиком</b> на эту страницу (распаковывать не обязательно) — либо только products.csv.</li>
+      <li>Отредактируйте товары: правьте прямо в таблице или откройте карточку кнопкой ✎. Строку можно <b>продублировать</b> (⧉) или удалить (✕). Новые строки без ID создадутся как новые товары.</li>
+      <li><b>Медиа:</b> превью видно прямо в таблице (видео проигрывается без кнопок). Добавляйте файлы <b>перетаскиванием</b> в зоны «Картинки» / «Видео» в карточке товара (jpg/png/webp/gif · mp4/webm/mov) — при «Сохранить ZIP» они войдут в архив. Убрать медиа — ✕ на плитке (на сайте оно удалится при импорте).</li>
+      <li>Нажмите <b>«Сохранить ZIP»</b> — скачается готовый архив с вашим products.csv и всеми медиа. Либо «Скачать CSV» и добавьте его в исходный архив вручную (замените products.csv).</li>
+      <li>В админке: <b>Товары → Импорт ZIP</b> с сохранённым архивом. Товары с существующим ID/slug обновятся, новые — создадутся.</li>
+    </ol>
+    <p style="margin-bottom:16px">
+      <span class="imh">Важно:</span> импорт <u>не удаляет</u> товары, которых нет в CSV — удалённая из таблицы строка просто не будет затронута на сайте.
+      Медиа товара при импорте пересоздаются: имя файла, у которого нет файла в архиве (красные ⚠ в карточке), приведёт к <u>удалению этого медиа у товара на сайте</u>.
+      Файлы, добавленные drag&amp;drop, живут, пока открыта страница — не забудьте «Сохранить ZIP».
+      Колонка «Показ» для конфет (тип recipe) при импорте всегда станет 0 — конфеты не показываются в каталоге напрямую.
+      УПАКОВКА — одно из: cardboard, tin, textile, tube, pouch (или пусто).
+    </p>
+  </details>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhead">
+    <h2 id="dTitle">Товар</h2>
+    <button class="icobtn x" id="dClose" title="Закрыть">✕</button>
+  </div>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot">
+    <button class="btn btn-primary" id="dSave">Готово</button>
+    <span id="dMsg" style="font-size:12.5px;color:var(--muted)"></span>
+  </div>
+</aside>
+<div class="toasts" id="toasts"></div>
+<input type="file" id="inpZip" accept=".zip,application/zip" hidden>
+<input type="file" id="inpCsv" accept=".csv,text/csv" hidden>
+<input type="file" id="inpAddImg" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+<input type="file" id="inpAddVid" accept=".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime" multiple hidden>
+<script>
+"use strict";
+/* =====================================================================
+   Лакомка · Редактор каталога. Полностью офлайн: без сети, без библиотек.
+   ===================================================================== */
+
+/* ============================ CSV ============================
+   Формат полностью совместим с бэкендом:
+   - разделитель ";", BOM в начале, переводы строк \n
+   - экранирование как csvEscape(): кавычки если значение содержит ; , " \n \r
+   - колонки в порядке экспорта (22 шт.)
+=============================================================== */
+
+const HEADERS = [
+  "ID","НАЗВАНИЕ","ТИП","SLUG","SKU",
+  "ЦЕНА","СТАРАЯ_ЦЕНА","ОСТАТОК",
+  "ВЕС","ДЛИНА","ШИРИНА","ВЫСОТА",
+  "ПРОИЗВОДИТЕЛЬ","КАТЕГОРИЯ","ОПИСАНИЕ",
+  "КАРТИНКИ","ВИДЕО","РЕЦЕПТ_ВЕС","УПАКОВКА",
+  "ПОКАЗЫВАТЬ","ОПУБЛИКОВАН","LEGACY_SLUG",
+];
+
+const ALIASES = {
+  ID:["ID","id"], НАЗВАНИЕ:["НАЗВАНИЕ","Название","название"],
+  ТИП:["ТИП","Тип","тип"], SLUG:["SLUG","Slug","slug"], SKU:["SKU","Артикул","sku"],
+  ЦЕНА:["ЦЕНА","Цена","цена"], СТАРАЯ_ЦЕНА:["СТАРАЯ_ЦЕНА","Старая цена"],
+  ОСТАТОК:["ОСТАТОК","Остаток"], ВЕС:["ВЕС","Вес"],
+  ДЛИНА:["ДЛИНА","Длина"], ШИРИНА:["ШИРИНА","Ширина"], ВЫСОТА:["ВЫСОТА","Высота"],
+  ПРОИЗВОДИТЕЛЬ:["ПРОИЗВОДИТЕЛЬ","Производитель"], КАТЕГОРИЯ:["КАТЕГОРИЯ","Категория"],
+  ОПИСАНИЕ:["ОПИСАНИЕ","Описание"], КАРТИНКИ:["КАРТИНКИ","Картинки"], ВИДЕО:["ВИДЕО","Видео"],
+  РЕЦЕПТ_ВЕС:["РЕЦЕПТ_ВЕС","Рецепт вес"], УПАКОВКА:["УПАКОВКА","Упаковка"],
+  ПОКАЗЫВАТЬ:["ПОКАЗЫВАТЬ","Показывать"], ОПУБЛИКОВАН:["ОПУБЛИКОВАН","Опубликован"],
+  LEGACY_SLUG:["LEGACY_SLUG","Legacy slug"],
+};
+const VALID_TYPES = ["simple","bundle","recipe"];
+const VALID_PACKAGING = ["cardboard","tin","textile","tube","pouch"];
+
+/* PHP-совместимый trim: PHP не режет NBSP (\u00A0), а JS trim — режет.
+   Для байт-в-байт совместимости с ProductCsvParser чистим только тот же набор. */
+function phpTrim(s) {
+  return String(s).replace(/^[\t\n\r \x0B\0]+/, "").replace(/[\t\n\r \x0B\0]+$/, "");
+}
+
+/* --- парсер CSV: конечный автомат, кавычки/переносы внутри значения --- */
+function parseCsv(text, delim) {
+  delim = delim || ";";
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const rows = [];
+  let field = "", row = [], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += ch;
+    } else if (ch === '"') {
+      inQ = true;
+    } else if (ch === delim) {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); field = ""; rows.push(row); row = [];
+    } else if (ch === "\r") {
+      /* пропускаем (поддержка \r\n) */
+    } else field += ch;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  if (s === "") return "";
+  if (/[;,"\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function serializeCsv(rows) {
+  const lines = [HEADERS.map(csvEscape).join(";")];
+  for (const p of rows) lines.push(productToRow(p).map(csvEscape).join(";"));
+  return "\uFEFF" + lines.join("\n") + "\n";
+}
+
+/* строка CSV -> объект товара (как ProductCsvParser) */
+function rowToProduct(cells, colMap) {
+  const get = (h) => {
+    const i = colMap[h];
+    return i === undefined || i === null ? "" : phpTrim(cells[i] ?? "");
+  };
+  const splitList = (s) => s.split(",").map(phpTrim).filter(Boolean);
+  return {
+    id: /^\d+$/.test(get("ID")) ? get("ID") : "",
+    name: get("НАЗВАНИЕ"),
+    type: (get("ТИП") || "simple").toLowerCase(),
+    slug: get("SLUG"),
+    sku: get("SKU"),
+    price: get("ЦЕНА").replace(/\s/g, "").replace(",", "."),
+    old_price: get("СТАРАЯ_ЦЕНА").replace(/\s/g, "").replace(",", "."),
+    stock: get("ОСТАТОК"),
+    weight: get("ВЕС"),
+    length: get("ДЛИНА"), width: get("ШИРИНА"), height: get("ВЫСОТА"),
+    manufacturer: get("ПРОИЗВОДИТЕЛЬ"),
+    category: get("КАТЕГОРИЯ"),
+    description: get("ОПИСАНИЕ"),
+    images: splitList(get("КАРТИНКИ")),
+    videos: splitList(get("ВИДЕО")),
+    recipe_weight: get("РЕЦЕПТ_ВЕС"),
+    packaging: get("УПАКОВКА").toLowerCase(),
+    show: get("ПОКАЗЫВАТЬ"),
+    published: get("ОПУБЛИКОВАН"),
+    legacy: get("LEGACY_SLUG"),
+    _changed: false,
+  };
+}
+
+/* объект товара -> массив ячеек (порядок как в экспорте) */
+function productToRow(p) {
+  const num = (v) => (v === null || v === undefined ? "" : String(v));
+  return [
+    p.id, p.name, p.type, p.slug, p.sku,
+    p.price, p.old_price, p.stock,
+    num(p.weight), num(p.length), num(p.width), num(p.height),
+    p.manufacturer, p.category, p.description,
+    p.images.join(","), p.videos.join(","),
+    num(p.recipe_weight), p.packaging,
+    p.show, p.published, p.legacy,
+  ];
+}
+
+/* построение карты колонок из строки заголовков (как в PHP-парсере) */
+function buildColMap(headerCells) {
+  const idx = {};
+  headerCells.forEach((h, i) => { const k = phpTrim(h); if (k && idx[k] === undefined) idx[k] = i; });
+  const map = {};
+  for (const canon of Object.keys(ALIASES)) {
+    for (const alias of ALIASES[canon]) {
+      if (idx[alias] !== undefined) { map[canon] = idx[alias]; break; }
+    }
+  }
+  return map;
+}
+
+/* ============================ CRC32 + ZIP Writer ============================ */
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosDateTime(d) {
+  const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
+  const hh = d.getHours(), mm = d.getMinutes(), ss = Math.floor(d.getSeconds() / 2);
+  return {
+    time: (hh << 11) | (mm << 5) | ss,
+    date: ((Math.max(0, year - 1980)) << 9) | (month << 5) | day,
+  };
+}
+
+/**
+ * Сборка нового ZIP: новый products.csv (STORE) + все остальные записи
+ * исходного архива КОПИРУЮТСЯ БАЙТ-В-БАЙТ (локальный заголовок + данные),
+ * центральный каталог строится заново со сдвинутыми смещениями.
+ * extraFiles: [{entry:'images/12-4.jpg', bytes:Uint8Array}] — файлы drag&drop (STORE).
+ * entries: результат readZipStructure (см. ниже), csvBytes: Uint8Array
+ */
+function buildZip(entries, csvBytes, extraFiles) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const dt = dosDateTime(new Date());
+
+  function pushU8(arr) { parts.push(arr); offset += arr.length; }
+  function u16(v) { return new Uint8Array([v & 255, (v >>> 8) & 255]); }
+  function u32(v) { return new Uint8Array([v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]); }
+
+  /* --- STORE-запись с нуля (products.csv и добавленные медиа) --- */
+  function addStoreEntry(name, bytes) {
+    const nameBytes = new TextEncoder().encode(name);
+    const crc = crc32(bytes);
+    const entryOffset = offset;
+    const lfh = [
+      u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(dt.time), u16(dt.date),
+      u32(crc), u32(bytes.length), u32(bytes.length),
+      u16(nameBytes.length), u16(0),
+    ];
+    for (const b of lfh) pushU8(b);
+    pushU8(nameBytes);
+    pushU8(bytes);
+    central.push({
+      nameBytes, method: 0, crc, csize: bytes.length, usize: bytes.length,
+      offset: entryOffset, dosTime: dt.time, dosDate: dt.date, externalAttr: 0,
+    });
+  }
+
+  /* --- запись products.csv (STORE) --- */
+  addStoreEntry("products.csv", csvBytes);
+
+  /* --- копирование остальных записейverbatim --- */
+  for (const e of entries) {
+    if (e.isCsv) continue;
+    const raw = e.rawLocalBytes; // локальный заголовок + имя+extra + данные (как есть)
+    const entryOffset = offset;
+    pushU8(raw);
+    central.push({
+      nameBytes: e.nameBytes, method: e.method, crc: e.crc,
+      csize: e.csize, usize: e.usize, offset: entryOffset,
+      dosTime: e.dosTime, dosDate: e.dosDate, externalAttr: e.externalAttr || e.extAttr,
+    });
+  }
+
+  /* --- добавленные drag&drop медиа (STORE) --- */
+  for (const x of extraFiles || []) addStoreEntry(x.entry, x.bytes);
+
+  /* --- центральный каталог --- */
+  const cdStart = offset;
+  for (const c of central) {
+    pushU8(u32(0x02014b50));
+    pushU8(u16(20));           // версия создания
+    pushU8(u16(20));           // версия нужна
+    pushU8(u16(0x0800));       // флаги: UTF-8 имена
+    pushU8(u16(c.method));
+    pushU8(u16(c.dosTime));
+    pushU8(u16(c.dosDate));
+    pushU8(u32(c.crc));
+    pushU8(u32(c.csize));
+    pushU8(u32(c.usize));
+    pushU8(u16(c.nameBytes.length));
+    pushU8(u16(0));            // extra len
+    pushU8(u16(0));            // comment len
+    pushU8(u16(0));            // disk
+    pushU8(u16(0));            // internal attr
+    pushU8(u32(c.externalAttr));
+    pushU8(u32(c.offset));
+    pushU8(c.nameBytes);
+  }
+  const cdSize = offset - cdStart;
+
+  /* --- EOCD --- */
+  pushU8(u32(0x06054b50));
+  pushU8(u16(0)); pushU8(u16(0));
+  pushU8(u16(central.length));
+  pushU8(u16(central.length));
+  pushU8(u32(cdSize));
+  pushU8(u32(cdStart));
+  pushU8(u16(0));
+
+  return new Blob(parts, { type: "application/zip" });
+}
+
+/* ============================ ZIP Reader ============================ */
+
+/**
+ * Читает структуру ZIP (без распаковки данных).
+ * Возвращает { entries: [{name, nameBytes, isCsv, method, crc, csize, usize,
+ *   dataStart, rawLocalBytes(Promise->Uint8Array), dosTime, dosDate, externalAttr}], zipBytes }
+ */
+async function readZipStructure(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const dv = new DataView(arrayBuffer);
+
+  /* --- поиск EOCD (последние 64КБ + ZIP64) --- */
+  let eocd = -1;
+  const minEocd = Math.max(0, bytes.length - 65557);
+  for (let i = bytes.length - 22; i >= minEocd; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("Это не ZIP-архив (не найден конец каталога)");
+
+  let count = dv.getUint16(eocd + 10, true);
+  let cdOffset = dv.getUint32(eocd + 16, true);
+
+  /* ZIP64: если значения «упёрлись в потолок» — читаем ZIP64 EOCD */
+  if (count === 0xFFFF || cdOffset === 0xFFFFFFFF) {
+    for (let i = eocd - 20; i >= minEocd; i--) {
+      if (dv.getUint32(i, true) === 0x07064b50) { // ZIP64 EOCD locator
+        const z64 = dv.getUint32(i + 8 + 4, true) >>> 0; // offset of ZIP64 EOCD (low 32)
+        if (dv.getUint32(z64, true) === 0x06064b50) {
+          count = Number(dv.getBigUint64(z64 + 32, true));
+          cdOffset = Number(dv.getBigUint64(z64 + 48, true));
+        }
+        break;
+      }
+    }
+  }
+
+  const dec = new TextDecoder("utf-8");
+  const cp437 = null; // имена нашего экспорта ASCII/UTF-8; прочие — как есть
+  const entries = [];
+  let p = cdOffset;
+  for (let n = 0; n < count; n++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error("Повреждён центральный каталог ZIP");
+    const flags   = dv.getUint16(p + 8, true);
+    const method  = dv.getUint16(p + 10, true);
+    const dosTime = dv.getUint16(p + 12, true);
+    const dosDate = dv.getUint16(p + 14, true);
+    const crc     = dv.getUint32(p + 16, true) >>> 0;
+    const csize   = dv.getUint32(p + 20, true) >>> 0;
+    const usize   = dv.getUint32(p + 24, true) >>> 0;
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen= dv.getUint16(p + 30, true);
+    const commLen = dv.getUint16(p + 32, true);
+    const extAttr = dv.getUint32(p + 38, true);
+    const lhOff   = dv.getUint32(p + 42, true) >>> 0;
+    const nameBytes = bytes.slice(p + 46, p + 46 + nameLen);
+    let name = dec.decode(nameBytes);
+    if (!(flags & 0x0800) && /[\xC2-\xF4]/.test(name)) {
+      /* имя без UTF-8 флага и с старшими байтами — оставляем как есть (cp866 не конвертируем) */
+    }
+    const isDir = name.endsWith("/");
+    const lower = name.toLowerCase();
+    const isCsv = !isDir && (lower === "products.csv" || lower.endsWith("/products.csv"));
+
+    /* --- локальный заголовок: реальные len имени/extra --- */
+    if (dv.getUint32(lhOff, true) !== 0x04034b50) throw new Error("Повреждён локальный заголовок: " + name);
+    const lNameLen  = dv.getUint16(lhOff + 26, true);
+    const lExtraLen = dv.getUint16(lhOff + 28, true);
+    let csizeLocal = dv.getUint32(lhOff + 18, true) >>> 0;
+    const dataStart = lhOff + 30 + lNameLen + lExtraLen;
+    const dataEnd = (csizeLocal && csizeLocal !== 0xFFFFFFFF) ? dataStart + csizeLocal : dataStart + csize;
+
+    entries.push({
+      name, nameBytes, isCsv, isDir, method, crc, csize, usize,
+      dataStart, dataEnd, lhOff,
+      dosTime, dosDate, extAttr, flags,
+      /* блок [локальный заголовок + имя + extra + данные] — копируем verbatim при пересборке */
+      rawLocalBytes: bytes.subarray(lhOff, dataEnd),
+    });
+
+    p += 46 + nameLen + extraLen + commLen;
+  }
+  return { entries, zipBytes: bytes, dv };
+}
+
+/* извлечение содержимого записи (STORE или DEFLATE) */
+async function extractEntry(zipCtx, e) {
+  const raw = zipCtx.zipBytes.subarray(e.dataStart, e.dataEnd);
+  if (e.method === 0) return raw;
+  if (e.method === 8) {
+    if (typeof DecompressionStream === "undefined")
+      throw new Error("Браузер не поддерживает распаковку DEFLATE — откройте страницу в свежем Chrome/Safari/Firefox");
+    const ds = new DecompressionStream("deflate-raw");
+    const stream = new Blob([raw]).stream().pipeThrough(ds);
+    const buf = await new Response(stream).arrayBuffer();
+    return new Uint8Array(buf);
+  }
+  throw new Error("Неподдерживаемый метод сжатия #" + e.method + " в файле " + e.name);
+}
+
+/* копия локального блока записи (заголовок+имя+extra+данные) для пересборки */
+function localBlock(zipCtx, e) {
+  return zipCtx.zipBytes.subarray(e.lhOff, e.dataEnd);
+}
+</script>
+<script>
+"use strict";
+/* ============================ Состояние ============================ */
+
+const S = {
+  rows: [],            // объекты товаров
+  originalCsvText: "", // исходный CSV (для сброса)
+  zipName: "", zipSize: 0,
+  zipCtx: null,        // {entries, zipBytes, dv}
+  mediaIndex: new Map(), // lower(name) -> entry (images/, videos/)
+  addedMedia: new Map(), // lower(name) -> {name, kind:'image'|'video', blob, url, ext} — файлы drag&drop
+  previewCache: new Map(), // kind+":"+lower(name) -> Promise<objectURL> — ленивые превью
+  pvObserver: null,    // IntersectionObserver превью
+  filterText: "", filterType: "all", onlyChanged: false, onlyErrors: false,
+  selected: new Set(),
+  drawerIdx: -1,
+  draftKey: null,
+};
+const $ = (id) => document.getElementById(id);
+const fmtInt = (n) => n.toLocaleString("ru-RU");
+
+/* ============================ Медиа-утилиты ============================ */
+
+const IMG_EXT = ["jpg","jpeg","png","webp","gif"];
+const VID_EXT = ["mp4","webm","mov"];
+const MIME = {
+  jpg:"image/jpeg", jpeg:"image/jpeg", png:"image/png", webp:"image/webp", gif:"image/gif",
+  mp4:"video/mp4", webm:"video/webm", mov:"video/quicktime",
+};
+function fileExt(n) { const m = /\.([a-z0-9]+)$/i.exec(String(n)); return m ? m[1].toLowerCase() : ""; }
+function normImgExt(e) { return e === "jpeg" ? "jpg" : e; }
+function isMediaFile(fname) {
+  const e = fileExt(fname);
+  return IMG_EXT.includes(e) || VID_EXT.includes(e);
+}
+
+/* объектный URL превью: из добавленных файлов — сразу, из ZIP — ленивая распаковка */
+function previewUrl(kind, ref) {
+  const key = kind + ":" + ref.toLowerCase();
+  if (S.previewCache.has(key)) return S.previewCache.get(key);
+  if (kind === "a") {
+    const am = S.addedMedia.get(ref.toLowerCase());
+    return am ? am.url : null;
+  }
+  const e = S.mediaIndex.get(ref.toLowerCase());
+  if (!e || !S.zipCtx) return null;
+  const pr = extractEntry(S.zipCtx, e)
+    .then((bytes) => URL.createObjectURL(new Blob([bytes], { type: MIME[fileExt(ref)] || "application/octet-stream" })))
+    .catch(() => null);
+  S.previewCache.set(key, pr);
+  return pr;
+}
+
+function mountPreview(el) {
+  if (el.dataset.pvMounted === "1") return;
+  el.dataset.pvMounted = "1";
+  const kind = el.dataset.pvKind, ref = el.dataset.pvRef, ext = (el.dataset.pvExt || "").toLowerCase();
+  const isVideo = VID_EXT.includes(ext);
+  Promise.resolve(previewUrl(kind, ref)).then((url) => {
+    if (!url) { el.innerHTML = '<span class="pv-ph miss">⚠</span>'; return; }
+    if (isVideo) {
+      const v = document.createElement("video");
+      v.src = url; v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
+      v.addEventListener("canplay", () => v.play().catch(() => {}), { once: true });
+      el.innerHTML = ""; el.appendChild(v);
+    } else {
+      const im = document.createElement("img");
+      im.src = url; im.alt = "";
+      el.innerHTML = ""; el.appendChild(im);
+    }
+  }).catch(() => { el.innerHTML = '<span class="pv-ph miss">⚠</span>'; });
+}
+function unmountPreview(el) {
+  const v = el.querySelector("video");
+  if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
+  el.dataset.pvMounted = "";
+}
+function observePvs(rootEl) {
+  for (const el of rootEl.querySelectorAll(".pv-cell[data-pv-auto]")) S.pvObserver.observe(el);
+}
+function unobservePvs(rootEl) {
+  for (const el of rootEl.querySelectorAll(".pv-cell[data-pv-auto]")) { S.pvObserver.unobserve(el); unmountPreview(el); }
+}
+S.pvObserver = new IntersectionObserver((ents) => {
+  for (const en of ents) {
+    if (en.isIntersecting) mountPreview(en.target); else unmountPreview(en.target);
+  }
+}, { rootMargin: "160px" });
+
+function clearAddedMedia() {
+  for (const am of S.addedMedia.values()) { try { URL.revokeObjectURL(am.url); } catch (e) {} }
+  S.addedMedia.clear();
+  S.previewCache.clear();
+}
+
+/* ============================ Тосты ============================ */
+function toast(msg, kind) {
+  const t = document.createElement("div");
+  t.className = "toast" + (kind ? " " + kind : "");
+  t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .4s"; }, 2600);
+  setTimeout(() => t.remove(), 3100);
+}
+
+/* ============================ Валидация ============================ */
+
+function rowErrors(p) {
+  const errs = [];
+  if (!p.name.trim()) errs.push("нет названия");
+  if (!VALID_TYPES.includes(p.type)) errs.push("неверный тип");
+  if (p.price !== "" && !isFinite(Number(p.price))) errs.push("цена не число");
+  if (p.old_price !== "" && !isFinite(Number(p.old_price))) errs.push("старая цена не число");
+  if (p.weight !== "" && !/^\d+$/.test(p.weight)) errs.push("вес не целое");
+  if (p.recipe_weight !== "" && !/^\d+$/.test(p.recipe_weight)) errs.push("рецепт-вес не целое");
+  if (p.packaging !== "" && !VALID_PACKAGING.includes(p.packaging)) errs.push("упаковка: " + p.packaging);
+  if (p.type === "bundle" && p.price !== "" && Number(p.price) <= 0) errs.push("у набора нет цены");
+  return errs;
+}
+
+/* ============================ Загрузка данных ============================ */
+
+function setUiLoaded() {
+  $("dropzone").style.display = "none";
+  $("toolbar").style.display = "flex";
+  $("tablecard").style.display = "block";
+  $("btnReset").disabled = $("btnCsv").disabled = $("btnZip").disabled = false;
+}
+
+async function loadFromZipFile(file) {
+  showLoading("Читаем архив…");
+  try {
+    const buf = await file.arrayBuffer();
+    const ctx = await readZipStructure(buf);
+    const csvEntry = ctx.entries.find(e => e.isCsv);
+    if (!csvEntry) throw new Error("В архиве нет products.csv — это не архив экспорта товаров");
+    setLoadingText("Распаковываем products.csv…");
+    const csvBytes = await extractEntry(ctx, csvEntry);
+    const csvText = new TextDecoder("utf-8").decode(csvBytes);
+
+    S.zipName = file.name; S.zipSize = file.size; S.zipCtx = ctx;
+    S.mediaIndex = new Map();
+    for (const e of ctx.entries) {
+      if (e.isDir || e.isCsv) continue;
+      const m = e.name.match(/^(?:.*\/)?(images|videos)\/(.+)$/i);
+      if (m) S.mediaIndex.set(m[2].toLowerCase(), e);
+      else S.mediaIndex.set(e.name.toLowerCase(), e); // файлы в корне тоже учитываем
+    }
+    clearAddedMedia();
+    acceptCsv(csvText, `${file.name} · ${fmtInt(Math.round(file.size / 1024))} КБ`);
+  } catch (err) {
+    console.error(err);
+    toast(err.message || "Не удалось прочитать ZIP", "err");
+  } finally {
+    hideLoading();
+  }
+}
+
+async function loadFromCsvFile(file) {
+  showLoading("Читаем CSV…");
+  try {
+    const text = await file.text();
+    S.zipName = file.name; S.zipSize = file.size; S.zipCtx = null;
+    S.mediaIndex = new Map();
+    clearAddedMedia();
+    acceptCsv(text, `${file.name} · ${fmtInt(Math.round(file.size / 1024))} КБ · только CSV`);
+  } catch (err) {
+    toast("Не удалось прочитать файл", "err");
+  } finally {
+    hideLoading();
+  }
+}
+
+function acceptCsv(csvText, sourceLabel) {
+  const rows2d = parseCsv(csvText, ";");
+  if (!rows2d.length) { toast("CSV пуст", "err"); return; }
+  const colMap = buildColMap(rows2d[0]);
+  if (colMap["НАЗВАНИЕ"] === undefined || colMap["ТИП"] === undefined) {
+    toast("В CSV нет колонок НАЗВАНИЕ/ТИП — это не файл экспорта товаров", "err");
+    return;
+  }
+  S.originalCsvText = csvText;
+  S.rows = [];
+  let skipped = 0;
+  for (let i = 1; i < rows2d.length; i++) {
+    const cells = rows2d[i];
+    if (!cells.some(c => c && String(c).trim() !== "")) continue;
+    const prod = rowToProduct(cells, colMap);
+    if (!prod.name && !prod.slug && !prod.id) { skipped++; continue; }
+    S.rows.push(prod);
+  }
+  S.selected.clear();
+  S.draftKey = draftKey();
+  $("fileinfo").textContent = sourceLabel;
+  setUiLoaded();
+  renderAll();
+  toast(`Загружено товаров: ${S.rows.length}` + (skipped ? ` (пропущено пустых: ${skipped})` : ""), "ok");
+  checkDraft();
+}
+
+function showLoading(t) { $("loading").style.display = "block"; $("loadingText").textContent = t || "…"; $("dropzone").style.display = "none"; }
+function setLoadingText(t) { $("loadingText").textContent = t; }
+function hideLoading() { $("loading").style.display = "none"; if (!S.rows.length) $("dropzone").style.display = "block"; }
+
+/* ============================ Фильтрация ============================ */
+
+function visibleRows() {
+  const q = S.filterText.trim().toLowerCase();
+  return S.rows
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => {
+      if (S.filterType !== "all" && p.type !== S.filterType) return false;
+      if (S.onlyChanged && !p._changed) return false;
+      if (S.onlyErrors && rowErrors(p).length === 0) return false;
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.slug.toLowerCase().includes(q) ||
+        p.id.includes(q) ||
+        p.manufacturer.toLowerCase().includes(q)
+      );
+    });
+}
+
+/* ============================ Рендер ============================ */
+
+function renderAll() { renderTable(); renderStats(); }
+
+function renderStats() {
+  const total = S.rows.length;
+  const changed = S.rows.filter(p => p._changed).length;
+  const invalid = S.rows.filter(p => rowErrors(p).length).length;
+  const bundles = S.rows.filter(p => p.type === "bundle").length;
+  const recipes = S.rows.filter(p => p.type === "recipe").length;
+  const media = (S.zipCtx ? S.zipCtx.entries.filter(e => !e.isDir && !e.isCsv).length : 0) + S.addedMedia.size;
+  const el = $("stats");
+  el.innerHTML = "";
+  const add = (cls, html) => {
+    const s = document.createElement("span");
+    s.className = "stat" + (cls ? " " + cls : "");
+    s.innerHTML = html;
+    el.appendChild(s);
+  };
+  add("", `товаров: <b>${fmtInt(total)}</b>`);
+  add("", `наборов: <b>${fmtInt(bundles)}</b> · конфет: <b>${fmtInt(recipes)}</b>`);
+  if (media) add("", `медиа: <b>${fmtInt(media)}</b>`);
+  if (S.addedMedia.size) add("ok", `новых медиа: <b>${fmtInt(S.addedMedia.size)}</b>`);
+  if (changed) add("warn", `изменено: <b>${fmtInt(changed)}</b>`);
+  if (invalid) add("err", `с ошибками: <b>${fmtInt(invalid)}</b>`);
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+function mediaLabel(p) {
+  return `<b>${p.images.length}</b> 🖼 · <b>${p.videos.length}</b> 🎬`;
+}
+
+/* превью-ячейка таблицы: первое медиа (видео без контролов либо картинка) + счётчики */
+function thumbCell(p) {
+  const firstRef = p.videos.length ? p.videos[0] : (p.images.length ? p.images[0] : "");
+  let pv;
+  if (!firstRef) {
+    pv = '<div class="pv-cell" title="медиа нет"><span class="pv-ph">🖼</span></div>';
+  } else if (/^https?:/i.test(firstRef)) {
+    pv = `<div class="pv-cell" title="внешняя ссылка: ${esc(firstRef)}"><span class="pv-ph">🔗</span></div>`;
+  } else {
+    const lower = firstRef.toLowerCase();
+    const known = S.mediaIndex.has(lower) || S.addedMedia.has(lower);
+    if (!known) {
+      pv = `<div class="pv-cell" title="файла нет в архиве: ${esc(firstRef)}"><span class="pv-ph miss">⚠</span></div>`;
+    } else {
+      const kind = S.addedMedia.has(lower) ? "a" : "z";
+      pv = `<div class="pv-cell" data-pv-auto="1" data-pv-kind="${kind}" data-pv-ref="${esc(lower)}" data-pv-ext="${esc(fileExt(firstRef))}" title="${esc(firstRef)}"></div>`;
+    }
+  }
+  return `<div class="pv-wrap">${pv}<div class="pv-count">🖼 <b>${p.images.length}</b><br>🎬 <b>${p.videos.length}</b></div></div>`;
+}
+
+/* построение <tr> одного товара (используется таблицей и точечным обновлением строки) */
+function buildRow(p, i) {
+  const errs = rowErrors(p);
+  const errSet = new Set(errs);
+  const tr = document.createElement("tr");
+  tr.dataset.idx = i;
+  tr.className = (S.selected.has(i) ? "sel " : "") + (p._changed ? "changed " : "") + (errs.length ? "invalid" : "");
+
+  const mediaKnown = p.images.concat(p.videos).filter(f => !/^https?:/i.test(f));
+  const missing = mediaKnown.filter(f => !S.mediaIndex.has(f.toLowerCase()) && !S.addedMedia.has(f.toLowerCase())).length;
+
+  tr.innerHTML = `
+    <td><input type="checkbox" class="selbox rowchk" ${S.selected.has(i) ? "checked" : ""}></td>
+    <td class="c-id"><span class="cell-id">${p.id ? esc(p.id) : '<span class="newbadge">новый</span>'}</span></td>
+    <td>
+      <input class="cell-input ${errSet.has("нет названия") ? "errcell" : ""}" data-f="name" value="${esc(p.name)}" placeholder="Название товара">
+      ${p.slug ? `<div style="font-size:10.5px;color:var(--muted);padding:0 8px;overflow:hidden;text-overflow:ellipsis">${esc(p.slug)}</div>` : ""}
+    </td>
+    <td>
+      <select class="cell-input type" data-f="type">
+        ${VALID_TYPES.map(t => `<option value="${t}" ${p.type === t ? "selected" : ""}>${t === "simple" ? "простой" : t === "bundle" ? "набор" : "конфета"}</option>`).join("")}
+      </select>
+    </td>
+    <td><input class="cell-input num price ${/цена не число/.test([...errSet].join(" ")) ? "errcell" : ""}" data-f="price" inputmode="decimal" value="${esc(p.price)}"></td>
+    <td><input class="cell-input num price ${/старая цена/.test([...errSet].join(" ")) ? "errcell" : ""}" data-f="old_price" inputmode="decimal" value="${esc(p.old_price)}"></td>
+    <td><input class="cell-input num" data-f="stock" inputmode="numeric" value="${esc(p.stock)}"></td>
+    <td><input class="cell-input num" data-f="weight" inputmode="numeric" value="${esc(p.weight)}"></td>
+    <td><input class="cell-input" data-f="manufacturer" value="${esc(p.manufacturer)}"></td>
+    <td><input class="cell-input" data-f="category" value="${esc(p.category)}" placeholder="slug категории"></td>
+    <td style="text-align:center"><input type="checkbox" class="rowchk-flag" data-f="show" ${String(p.show) === "1" ? "checked" : ""}></td>
+    <td style="text-align:center"><input type="checkbox" class="rowchk-flag" data-f="published" ${String(p.published) === "1" ? "checked" : ""}></td>
+    <td class="cell-thumb" title="${missing ? "нет в архиве: " + missing + " файл(ов)" : "все медиа на месте"}">${thumbCell(p)}${missing ? '<span style="color:var(--err);font-size:11px" title="нет в архиве">⚠ ' + missing + '</span>' : ""}</td>
+    <td>
+      <div class="rowbtns">
+        <button class="icobtn" data-act="edit" title="Карточка товара (все поля)">✎</button>
+        <button class="icobtn" data-act="dup" title="Дублировать строку">⧉</button>
+        <button class="icobtn del" data-act="del" title="Убрать строку (товар на сайте НЕ удалится)">✕</button>
+      </div>
+    </td>`;
+  return tr;
+}
+
+/* точечное обновление одной строки (после изменения медиа) */
+function renderRow(i) {
+  const tr = $("tbody").querySelector(`tr[data-idx="${i}"]`);
+  if (!tr) return;
+  unobservePvs(tr);
+  const p = S.rows[i];
+  if (!p) { tr.remove(); return; }
+  tr.replaceWith(buildRow(p, i));
+  observePvs($("tbody"));
+}
+
+function renderTable() {
+  const tbody = $("tbody");
+  const vis = visibleRows();
+  unobservePvs(tbody);
+  const frag = document.createDocumentFragment();
+
+  for (const { p, i } of vis) {
+    frag.appendChild(buildRow(p, i));
+  }
+  tbody.innerHTML = "";
+  tbody.appendChild(frag);
+  observePvs(tbody);
+  if (!vis.length && S.rows.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">Ничего не найдено по фильтрам</td>`;
+    tbody.appendChild(tr);
+  }
+  const n = S.selected.size;
+  $("bulkbar").classList.toggle("show", n > 0);
+  $("bulkCount").textContent = fmtInt(n);
+  const warnBox = $("emptyWarn");
+  if (S.rows.length === 0) {
+    warnBox.classList.add("show");
+    warnBox.textContent = "В CSV нет ни одной строки товаров — добавьте товары кнопкой «+ Добавить товар» или загрузите другой файл.";
+  } else warnBox.classList.remove("show");
+}
+
+/* ============================ Черновик (localStorage) ============================ */
+
+function draftKey() { return "lakomka-editor:" + S.zipName + ":" + S.zipSize; }
+function saveDraft() {
+  if (!S.rows.length || !S.draftKey) return;
+  try {
+    const dirty = S.rows.some(p => p._changed);
+    if (!dirty) { localStorage.removeItem(S.draftKey); return; }
+    localStorage.setItem(S.draftKey, JSON.stringify({
+      at: Date.now(),
+      csv: serializeCsv(S.rows),
+    }));
+  } catch (e) { /* квота — молча */ }
+}
+function checkDraft() {
+  if (!S.draftKey) return;
+  let raw = null;
+  try { raw = localStorage.getItem(S.draftKey); } catch (e) {}
+  if (!raw) return;
+  try {
+    const d = JSON.parse(raw);
+    const dt = new Date(d.at).toLocaleString("ru-RU");
+    $("draftDate").textContent = dt;
+    $("draftbar").classList.add("show");
+    $("draftRestore").onclick = () => {
+      acceptCsv(d.csv, $("fileinfo").textContent + " · восстановлен черновик");
+      $("draftbar").classList.remove("show");
+      toast("Черновик восстановлен", "ok");
+    };
+    $("draftDrop").onclick = () => {
+      localStorage.removeItem(S.draftKey);
+      $("draftbar").classList.remove("show");
+    };
+  } catch (e) { localStorage.removeItem(S.draftKey); }
+}
+let draftTimer = null;
+function scheduleDraft() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 1200); }
+window.addEventListener("beforeunload", (e) => {
+  if (S.rows.some(p => p._changed)) { e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+<script>
+"use strict";
+/* ============================ Правки строк ============================ */
+
+function touch(p) { p._changed = true; scheduleDraft(); }
+
+function editField(i, field, value) {
+  const p = S.rows[i];
+  if (!p) return;
+  if (String(p[field] ?? "") === value) return;
+  p[field] = value;
+  touch(p);
+}
+
+function deleteRow(i) {
+  const p = S.rows[i];
+  if (!p) return;
+  if (!confirm(`Убрать из таблицы «${p.name || "без названия"}»?\n\nТовар на сайте НЕ удалится — импорт не трогает товары, которых нет в CSV.`)) return;
+  S.rows.splice(i, 1);
+  S.selected.delete(i);
+  S.selected = new Set([...S.selected].map(x => (x > i ? x - 1 : x)));
+  renderAll();
+  saveDraft();
+}
+
+function duplicateRow(i) {
+  const p = S.rows[i];
+  const copy = JSON.parse(JSON.stringify(p));
+  copy.id = "";
+  copy.slug = "";
+  copy.sku = "";
+  copy.name = p.name + " (копия)";
+  copy._changed = true;
+  S.rows.splice(i + 1, 0, copy);
+  renderAll();
+  saveDraft();
+  toast("Строка продублирована — ID пустой, при импорте создастся новый товар", "ok");
+}
+
+function addRow() {
+  S.rows.push({
+    id: "", name: "", type: "simple", slug: "", sku: "",
+    price: "", old_price: "", stock: "0",
+    weight: "", length: "", width: "", height: "",
+    manufacturer: "", category: "", description: "",
+    images: [], videos: [], recipe_weight: "", packaging: "",
+    show: "1", published: "1", legacy: "",
+    _changed: true,
+  });
+  renderAll();
+  saveDraft();
+  const vis = visibleRows();
+  const last = vis[vis.length - 1];
+  if (last) openDrawer(last.i);
+}
+
+/* ============================ Обработчики таблицы ============================ */
+
+$("tbody").addEventListener("input", (e) => {
+  const inp = e.target.closest("[data-f]");
+  if (!inp) return;
+  const tr = inp.closest("tr");
+  const i = Number(tr.dataset.idx);
+  editField(i, inp.dataset.f, inp.value);
+  /* лёгкий ререндер статусов без потери фокуса: только классы строки и стата */
+  const p = S.rows[i];
+  tr.classList.toggle("changed", p._changed);
+  const errs = rowErrors(p);
+  tr.classList.toggle("invalid", errs.length > 0);
+  renderStats();
+});
+
+$("tbody").addEventListener("change", (e) => {
+  /* чекбоксы-флаги и селекты */
+  const flag = e.target.closest(".rowchk-flag");
+  if (flag) {
+    const i = Number(flag.closest("tr").dataset.idx);
+    editField(i, flag.dataset.f, flag.checked ? "1" : "0");
+    flag.closest("tr").classList.toggle("changed", S.rows[i]._changed);
+    renderStats();
+    return;
+  }
+  const sel = e.target.closest("select[data-f]");
+  if (sel) {
+    const i = Number(sel.closest("tr").dataset.idx);
+    editField(i, sel.dataset.f, sel.value);
+    renderTable();
+    renderStats();
+  }
+});
+
+$("tbody").addEventListener("click", (e) => {
+  const chk = e.target.closest(".rowchk");
+  if (chk) {
+    const i = Number(chk.closest("tr").dataset.idx);
+    if (chk.checked) S.selected.add(i); else S.selected.delete(i);
+    chk.closest("tr").classList.toggle("sel", chk.checked);
+    $("bulkbar").classList.toggle("show", S.selected.size > 0);
+    $("bulkCount").textContent = fmtInt(S.selected.size);
+    return;
+  }
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const i = Number(btn.closest("tr").dataset.idx);
+  const act = btn.dataset.act;
+  if (act === "edit") openDrawer(i);
+  else if (act === "dup") duplicateRow(i);
+  else if (act === "del") deleteRow(i);
+});
+
+$("selAll").addEventListener("change", (e) => {
+  const on = e.target.checked;
+  for (const { i } of visibleRows()) { if (on) S.selected.add(i); else S.selected.delete(i); }
+  renderTable();
+});
+
+/* ============================ Фильтры ============================ */
+
+$("search").addEventListener("input", (e) => { S.filterText = e.target.value; renderTable(); });
+$("typeChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  S.filterType = chip.dataset.type;
+  for (const c of $("typeChips").children) c.classList.toggle("on", c === chip);
+  renderTable();
+});
+$("onlyChanged").addEventListener("change", (e) => { S.onlyChanged = e.target.checked; renderTable(); });
+$("onlyErrors").addEventListener("change", (e) => { S.onlyErrors = e.target.checked; renderTable(); });
+
+/* ============================ Массовые операции ============================ */
+
+$("bulkbar").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bulk]");
+  if (!b) return;
+  const act = b.dataset.bulk;
+  const idxs = [...S.selected].filter(i => S.rows[i]);
+  if (!idxs.length) return;
+
+  if (act === "clear") { S.selected.clear(); renderTable(); return; }
+
+  if (act === "delete") {
+    if (!confirm(`Убрать из таблицы выбранные строки: ${idxs.length}?\n\nСами товары на сайте НЕ удалятся (импорт не удаляет отсутствующие в CSV).`)) return;
+    const drop = new Set(idxs);
+    S.rows = S.rows.filter((_, i) => !drop.has(i));
+    S.selected.clear();
+    renderAll(); saveDraft();
+    toast(`Строк убрано: ${idxs.length}`, "ok");
+    return;
+  }
+
+  if (act === "pctup" || act === "pctdown") {
+    const pct = Number(String($("bulkPct").value).replace(",", "."));
+    if (!isFinite(pct) || pct === 0) { toast("Укажите процент", "err"); return; }
+    const k = 1 + (act === "pctup" ? pct : -pct) / 100;
+    let touched = 0;
+    for (const i of idxs) {
+      const p = S.rows[i];
+      if (p.price === "" || !isFinite(Number(p.price))) continue;
+      const next = Math.max(0, Math.round(Number(p.price) * k * 100) / 100);
+      p.price = String(next === Math.floor(next) ? next : next.toFixed(2));
+      p._changed = true;
+      touched++;
+    }
+    renderAll(); saveDraft();
+    toast(`Цены изменены у ${touched} товаров`, "ok");
+    return;
+  }
+
+  const flagMap = { show1: ["show", "1"], show0: ["show", "0"], pub1: ["published", "1"], pub0: ["published", "0"] };
+  if (flagMap[act]) {
+    const [f, v] = flagMap[act];
+    for (const i of idxs) { S.rows[i][f] = v; S.rows[i]._changed = true; }
+    renderAll(); saveDraft();
+    toast("Применено", "ok");
+  }
+});
+
+/* ============================ Сброс ============================ */
+
+$("btnReset").addEventListener("click", () => {
+  if (!confirm("Отменить ВСЕ правки и вернуться к исходному CSV из архива?\n\nДобавленные drag&drop файлы тоже будут убраны.")) return;
+  clearAddedMedia();
+  acceptCsv(S.originalCsvText, $("fileinfo").textContent.replace(/ · восстановлен черновик$/, ""));
+  toast("Правки сброшены", "ok");
+});
+
+/* ============================ Боковая панель ============================ */
+
+function openDrawer(i) {
+  S.drawerIdx = i;
+  const p = S.rows[i];
+  if (!p) return;
+  $("dTitle").textContent = (p.id ? `#${p.id} · ` : "Новый · ") + (p.name || "без названия");
+
+  $("dBody").innerHTML = `
+    <div class="fgrid">
+      <div class="field full ${p.name.trim() ? "" : "err"}">
+        <label>Название *</label>
+        <input class="fin" data-df="name" value="${esc(p.name)}">
+      </div>
+      <div class="field">
+        <label>Тип</label>
+        <select class="fin" data-df="type">
+          ${VALID_TYPES.map(t => `<option value="${t}" ${p.type === t ? "selected" : ""}>${t}</option>`).join("")}
+        </select>
+        <div class="note">simple — простой, bundle — набор, recipe — конфета справочника</div>
+      </div>
+      <div class="field">
+        <label>Категория (slug)</label>
+        <input class="fin" data-df="category" value="${esc(p.category)}" placeholder="napr. podarochnye-nabory">
+      </div>
+      <div class="field">
+        <label>Цена, ₽</label>
+        <input class="fin" data-df="price" inputmode="decimal" value="${esc(p.price)}">
+      </div>
+      <div class="field">
+        <label>Старая цена, ₽</label>
+        <input class="fin" data-df="old_price" inputmode="decimal" value="${esc(p.old_price)}">
+        <div class="note">пусто = без скидки</div>
+      </div>
+      <div class="field">
+        <label>Остаток</label>
+        <input class="fin" data-df="stock" inputmode="numeric" value="${esc(p.stock)}">
+      </div>
+      <div class="field">
+        <label>Вес, г</label>
+        <input class="fin" data-df="weight" inputmode="numeric" value="${esc(p.weight)}">
+      </div>
+      <div class="field">
+        <label>Длина, см</label>
+        <input class="fin" data-df="length" inputmode="decimal" value="${esc(p.length)}">
+      </div>
+      <div class="field">
+        <label>Ширина, см</label>
+        <input class="fin" data-df="width" inputmode="decimal" value="${esc(p.width)}">
+      </div>
+      <div class="field">
+        <label>Высота, см</label>
+        <input class="fin" data-df="height" inputmode="decimal" value="${esc(p.height)}">
+      </div>
+      <div class="field">
+        <label>Артикул (SKU)</label>
+        <input class="fin" data-df="sku" value="${esc(p.sku)}">
+      </div>
+      <div class="field">
+        <label>Производитель</label>
+        <input class="fin" data-df="manufacturer" value="${esc(p.manufacturer)}">
+      </div>
+      <div class="field">
+        <label>Slug (URL)</label>
+        <input class="fin" data-df="slug" value="${esc(p.slug)}">
+        <div class="note">пусто у нового товара — сгенерируется автоматически</div>
+      </div>
+      <div class="field">
+        <label>Legacy slug</label>
+        <input class="fin" data-df="legacy" value="${esc(p.legacy)}">
+      </div>
+      <div class="field">
+        <label>Рецепт-вес (для наборов)</label>
+        <input class="fin" data-df="recipe_weight" inputmode="numeric" value="${esc(p.recipe_weight)}">
+        <div class="note">если задан — состав набора соберётся из рецепта этого веса</div>
+      </div>
+      <div class="field">
+        <label>Упаковка</label>
+        <select class="fin" data-df="packaging">
+          <option value="" ${p.packaging === "" ? "selected" : ""}>— не задана —</option>
+          ${VALID_PACKAGING.map(t => `<option value="${t}" ${p.packaging === t ? "selected" : ""}>${t}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field full">
+        <label>Описание</label>
+        <textarea class="fin" data-df="description">${esc(p.description)}</textarea>
+      </div>
+      <div class="field full">
+        <label>Картинки</label>
+        <input class="fin" data-df="images" value="${esc(p.images.join(","))}">
+        <div class="note">через запятую: имена файлов из ZIP (напр. 12-0.jpg) или https-ссылки. Порядок = порядок в галерее товара.</div>
+        <div id="dMediaImages"></div>
+      </div>
+      <div class="field full">
+        <label>Видео</label>
+        <input class="fin" data-df="videos" value="${esc(p.videos.join(","))}">
+        <div class="note">имена файлов (12-v0.mp4) или ссылки YouTube/VK. Видео указывается ПЕРЕД картинками в галерее.</div>
+        <div id="dMediaVideos"></div>
+      </div>
+      <div class="field">
+        <label>Показывать в каталоге</label>
+        <select class="fin" data-df="show">
+          <option value="1" ${String(p.show) === "1" ? "selected" : ""}>1 — да</option>
+          <option value="0" ${String(p.show) === "0" ? "selected" : ""}>0 — нет</option>
+        </select>
+        <div class="note"><b>для конфет (recipe) импорт всегда поставит 0</b></div>
+      </div>
+      <div class="field">
+        <label>Опубликован</label>
+        <select class="fin" data-df="published">
+          <option value="1" ${String(p.published) === "1" ? "selected" : ""}>1 — да</option>
+          <option value="0" ${String(p.published) === "0" ? "selected" : ""}>0 — черновик</option>
+        </select>
+      </div>
+    </div>`;
+
+  $("overlay").classList.add("show");
+  $("drawer").classList.add("show");
+  $("drawer").setAttribute("aria-hidden", "false");
+  renderDrawerMedia();
+}
+
+/* ============================ Медиа-менеджер карточки ============================ */
+
+/* плитка одного медиа: превью (видео — без контролов) + имя + удалить */
+function mediaTile(kind, name) {
+  const ext = fileExt(name);
+  const isVideo = VID_EXT.includes(ext);
+  const isUrl = /^https?:/i.test(name);
+  const lower = name.toLowerCase();
+  const added = S.addedMedia.has(lower);
+  const inZip = S.mediaIndex.has(lower);
+  const miss = !isUrl && !added && !inZip;
+  const cls = "mtile" + (miss ? " miss" : "") + (added ? " newm" : "");
+  const rm = `<button class="tx" data-mact="rm" title="Убрать (при импорте медиа удалится у товара)">✕</button>`;
+  if (isUrl) {
+    return `<div class="${cls}" data-mkind="${kind}" data-mname="${esc(name)}">
+      <div class="mth"><span class="pv-ph">🔗</span></div>${rm}
+      <div class="mname" title="${esc(name)}">${esc(name)}</div></div>`;
+  }
+  if (miss) {
+    return `<div class="${cls}" data-mkind="${kind}" data-mname="${esc(name)}">
+      <div class="mth" title="файла нет в архиве — при импорте это медиа будет удалено у товара">⚠</div>${rm}
+      <div class="mname" title="${esc(name)}">${esc(name)}</div></div>`;
+  }
+  const pvKind = added ? "a" : "z";
+  return `<div class="${cls}" data-mkind="${kind}" data-mname="${esc(name)}">
+    <div class="mth pv-cell" data-pv-auto="1" data-pv-kind="${pvKind}" data-pv-ref="${esc(lower)}" data-pv-ext="${esc(ext)}"></div>
+    ${added ? '<span class="nbadge">новый</span>' : ""}${rm}
+    <div class="mname" title="${esc(name)}">${esc(name)}</div></div>`;
+}
+
+function mediaBoxHtml(kind, title, arr, hint) {
+  return `
+    <div class="mediabox">
+      <h3>${title} (${arr.length})</h3>
+      <div class="mgrid">${arr.map(f => mediaTile(kind, f)).join("")}</div>
+      <div class="mdrop" data-mdrop="${kind}">Перетащите ${kind === "images" ? "картинки (jpg, png, webp, gif)" : "видео (mp4, webm, mov)"} сюда — или <b data-mpick="${kind}">выберите файлы</b></div>
+      ${hint ? `<div class="note" style="margin-top:6px">${hint}</div>` : ""}
+    </div>`;
+}
+
+/* перерисовать только медиа-секции карточки (без потери фокуса в полях) */
+function renderDrawerMedia() {
+  const i = S.drawerIdx;
+  if (i < 0) return;
+  const p = S.rows[i];
+  if (!p) return;
+  unobservePvs($("dBody"));
+  $("dMediaImages").innerHTML = mediaBoxHtml("images", "Картинки товара", p.images,
+    "новые файлы войдут в ZIP при «Сохранить ZIP»");
+  $("dMediaVideos").innerHTML = mediaBoxHtml("videos", "Видео товара", p.videos,
+    "локальные видео проигрываются прямо в карточке — без кнопок");
+  // синхронизируем текстовые инпуты со списками
+  const ii = $("dBody").querySelector('[data-df="images"]');
+  const iv = $("dBody").querySelector('[data-df="videos"]');
+  if (ii && document.activeElement !== ii) ii.value = p.images.join(",");
+  if (iv && document.activeElement !== iv) iv.value = p.videos.join(",");
+  observePvs($("dBody"));
+}
+
+/* уникальное имя нового файла: {id или nNN}-{N}.ext / {…}-v{N}.ext */
+function uniqueMediaName(p, i, kind, ext) {
+  const taken = new Set();
+  for (const r of S.rows) { for (const f of r.images) taken.add(f.toLowerCase()); for (const f of r.videos) taken.add(f.toLowerCase()); }
+  for (const n of S.mediaIndex.keys()) taken.add(n);
+  for (const n of S.addedMedia.keys()) taken.add(n);
+  const prefix = String(p.id || "n" + (i + 1)).toLowerCase();
+  const maxSuf = (re) => { let m = 0; for (const t of taken) { const x = re.exec(t); if (x) m = Math.max(m, Number(x[1])); } return m; };
+  let n = 0, name = "";
+  if (kind === "images") {
+    n = maxSuf(new RegExp("^" + prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "-(\\d+)\\.")) + 1;
+    do { name = `${p.id ? p.id : "n" + (i + 1)}-${n++}.${ext}`; } while (taken.has(name.toLowerCase()));
+  } else {
+    n = maxSuf(new RegExp("^" + prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "-v(\\d+)\\.")) + 1;
+    do { name = `${p.id ? p.id : "n" + (i + 1)}-v${n++}.${ext}`; } while (taken.has(name.toLowerCase()));
+  }
+  return name;
+}
+
+/* добавление файлов drag&drop/пикером к товару */
+function addMediaFiles(i, kind, files) {
+  const p = S.rows[i];
+  if (!p) return;
+  const okExt = kind === "images" ? IMG_EXT : VID_EXT;
+  let added = 0;
+  for (const f of files) {
+    const ext = normImgExt(fileExt(f.name));
+    if (!okExt.includes(ext)) { toast(`${f.name}: не ${kind === "images" ? "картинка (jpg/png/webp/gif)" : "видео (mp4/webm/mov)"} — пропущен`, "err"); continue; }
+    const name = uniqueMediaName(p, i, kind, ext);
+    S.addedMedia.set(name.toLowerCase(), { name, kind: kind === "images" ? "image" : "video", blob: f, url: URL.createObjectURL(f), ext });
+    p[kind].push(name);
+    added++;
+  }
+  if (!added) return;
+  touch(p);
+  renderDrawerMedia();
+  renderRow(i);
+  renderStats();
+  saveDraft();
+  toast(`Добавлено: ${added} файл(ов) — не забудьте «Сохранить ZIP»`, "ok");
+}
+
+/* удаление медиа из товара */
+function removeMedia(i, kind, name) {
+  const p = S.rows[i];
+  if (!p) return;
+  const arr = p[kind];
+  const k = arr.indexOf(name);
+  if (k < 0) return;
+  arr.splice(k, 1);
+  const stillUsed = S.rows.some(r => r.images.includes(name) || r.videos.includes(name));
+  if (!stillUsed) {
+    const am = S.addedMedia.get(name.toLowerCase());
+    if (am) { try { URL.revokeObjectURL(am.url); } catch (e) {} S.addedMedia.delete(name.toLowerCase()); }
+  }
+  touch(p);
+  renderDrawerMedia();
+  renderRow(i);
+  renderStats();
+  saveDraft();
+}
+
+function closeDrawer() {
+  unobservePvs($("dBody"));
+  $("overlay").classList.remove("show");
+  $("drawer").classList.remove("show");
+  $("drawer").setAttribute("aria-hidden", "true");
+  S.drawerIdx = -1;
+  renderAll();
+}
+
+$("dBody").addEventListener("input", (e) => {
+  const inp = e.target.closest("[data-df]");
+  if (!inp || S.drawerIdx < 0) return;
+  const p = S.rows[S.drawerIdx];
+  const f = inp.dataset.df;
+  if (f === "images" || f === "videos") {
+    p[f] = inp.value.split(",").map(x => x.trim()).filter(Boolean);
+    scheduleDrawerMediaRefresh();
+  } else {
+    p[f] = inp.value;
+  }
+  touch(p);
+  if (f === "name") $("dTitle").textContent = (p.id ? `#${p.id} · ` : "Новый · ") + (p.name || "без названия");
+  $("dMsg").textContent = rowErrors(p).length ? "⚠ " + rowErrors(p).join(", ") : "✓ сохранено локально";
+});
+/* живое обновление плиток при правке списков текстом */
+let dmTimer = null;
+function scheduleDrawerMediaRefresh() {
+  clearTimeout(dmTimer);
+  dmTimer = setTimeout(() => { if (S.drawerIdx >= 0) { renderDrawerMedia(); renderRow(S.drawerIdx); } }, 400);
+}
+$("dBody").addEventListener("change", (e) => {
+  const inp = e.target.closest("select[data-df]");
+  if (!inp || S.drawerIdx < 0) return;
+  S.rows[S.drawerIdx][inp.dataset.df] = inp.value;
+  touch(S.rows[S.drawerIdx]);
+  $("dMsg").textContent = "✓ сохранено локально";
+});
+$("dClose").addEventListener("click", closeDrawer);
+$("dSave").addEventListener("click", closeDrawer);
+$("overlay").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+/* ---- клики по плиткам медиа: удалить / открыть пикер ---- */
+$("dBody").addEventListener("click", (e) => {
+  const rm = e.target.closest('[data-mact="rm"]');
+  if (rm) {
+    const tile = rm.closest("[data-mkind]");
+    if (tile && S.drawerIdx >= 0) removeMedia(S.drawerIdx, tile.dataset.mkind, tile.dataset.mname);
+    return;
+  }
+  const pick = e.target.closest("[data-mpick]");
+  if (pick && S.drawerIdx >= 0) {
+    $(pick.dataset.mpick === "images" ? "inpAddImg" : "inpAddVid").click();
+  }
+});
+$("inpAddImg").addEventListener("change", (e) => {
+  if (e.target.files.length && S.drawerIdx >= 0) addMediaFiles(S.drawerIdx, "images", [...e.target.files]);
+  e.target.value = "";
+});
+$("inpAddVid").addEventListener("change", (e) => {
+  if (e.target.files.length && S.drawerIdx >= 0) addMediaFiles(S.drawerIdx, "videos", [...e.target.files]);
+  e.target.value = "";
+});
+
+/* ---- drag&drop медиа в карточке (перехват до глобального ZIP/CSV-обработчика) ---- */
+$("dBody").addEventListener("dragover", (e) => {
+  if (S.drawerIdx < 0) return;
+  const box = e.target.closest("[data-mdrop]") || e.target.closest(".mediabox");
+  if (box) { e.preventDefault(); e.stopPropagation(); box.classList.add("drag"); }
+});
+$("dBody").addEventListener("dragleave", (e) => {
+  const box = e.target.closest("[data-mdrop]") || e.target.closest(".mediabox");
+  if (box) box.classList.remove("drag");
+});
+$("dBody").addEventListener("drop", (e) => {
+  if (S.drawerIdx < 0 || !e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  const box = e.target.closest("[data-mdrop]") || e.target.closest(".mediabox");
+  if (!box) return; /* дроп мимо медиа-зоны — обработает глобальный обработчик */
+  e.preventDefault(); e.stopPropagation();
+  box.classList.remove("drag");
+  splitDrop(e.dataTransfer.files, true);
+}, true); /* capture — раньше document-обработчика */
+
+/* распределение файлов по типам: картинки/видео → в товар, остальное — мимо */
+function splitDrop(files, strict) {
+  const imgs = [], vids = [], other = [];
+  for (const f of files) {
+    const e = normImgExt(fileExt(f.name));
+    if (IMG_EXT.includes(e)) imgs.push(f);
+    else if (VID_EXT.includes(e)) vids.push(f);
+    else other.push(f);
+  }
+  if (imgs.length) addMediaFiles(S.drawerIdx, "images", imgs);
+  if (vids.length) addMediaFiles(S.drawerIdx, "videos", vids);
+  if (other.length) {
+    if (strict || S.drawerIdx >= 0) toast(`Пропущено (не медиа): ${other.map(f => f.name).join(", ")}`, "err");
+  }
+  return imgs.length + vids.length;
+}
+
+/* ============================ Сохранение ============================ */
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+
+function invalidCount() { return S.rows.filter(p => rowErrors(p).length).length; }
+
+$("btnCsv").addEventListener("click", () => {
+  const bad = invalidCount();
+  if (bad && !confirm(`Строк с ошибками: ${bad}. CSV всё равно скачается, но такие строки импорт отбросит. Продолжить?`)) return;
+  downloadBlob(new Blob([serializeCsv(S.rows)], { type: "text/csv;charset=utf-8" }), "products.csv");
+  toast("CSV скачан — замените им products.csv в исходном архиве", "ok");
+});
+
+$("btnZip").addEventListener("click", async () => {
+  if (!S.zipCtx) {
+    toast("Архив не загружен (открыт только CSV) — доступен «Скачать CSV»", "err");
+    return;
+  }
+  const bad = invalidCount();
+  if (bad && !confirm(`Строк с ошибками: ${bad}. Такие строки импорт отбросит. Собрать ZIP всё равно?`)) return;
+  /* имена без файлов в архиве — при импорте такие медиа УДАЛЯТСЯ у товара */
+  const missFiles = S.rows.reduce((n, p) => n + p.images.concat(p.videos)
+    .filter(f => !/^https?:/i.test(f) && !S.mediaIndex.has(f.toLowerCase()) && !S.addedMedia.has(f.toLowerCase())).length, 0);
+  if (missFiles && !confirm(`Внимание: ${missFiles} имя(медиа) без файла в архиве (красные ⚠ в карточках).\n\nПри импорте эти медиа будут удалены у товаров. Продолжить?`)) return;
+  try {
+    $("btnZip").disabled = true;
+    $("btnZip").textContent = S.addedMedia.size ? "Собираем (включая новые медиа)…" : "Собираем…";
+    const extra = [];
+    for (const am of S.addedMedia.values()) {
+      const bytes = new Uint8Array(await am.blob.arrayBuffer());
+      extra.push({ entry: (am.kind === "image" ? "images/" : "videos/") + am.name, bytes });
+    }
+    const csvBytes = new TextEncoder().encode(serializeCsv(S.rows));
+    const blob = buildZip(S.zipCtx.entries, csvBytes, extra);
+    const base = (S.zipName || "lakomka-products").replace(/\.zip$/i, "");
+    downloadBlob(blob, base + "-edited.zip");
+    toast(S.addedMedia.size
+      ? `ZIP собран: +${S.addedMedia.size} новых медиа — импортируйте в админке`
+      : "ZIP собран — импортируйте его в админке", "ok");
+  } catch (err) {
+    console.error(err);
+    toast("Не удалось собрать ZIP: " + err.message, "err");
+  } finally {
+    $("btnZip").disabled = false;
+    $("btnZip").textContent = "Сохранить ZIP";
+  }
+});
+
+/* ============================ Загрузка файлов (drop + picker) ============================ */
+
+$("btnPickZip").addEventListener("click", () => $("inpZip").click());
+$("btnPickCsv").addEventListener("click", () => $("inpCsv").click());
+$("inpZip").addEventListener("change", (e) => { if (e.target.files[0]) loadFromZipFile(e.target.files[0]); e.target.value = ""; });
+$("inpCsv").addEventListener("change", (e) => { if (e.target.files[0]) loadFromCsvFile(e.target.files[0]); e.target.value = ""; });
+
+let dragDepth = 0;
+document.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  dragDepth++;
+  $("dropzone").classList.add("drag");
+});
+document.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  if (--dragDepth <= 0) { dragDepth = 0; $("dropzone").classList.remove("drag"); }
+});
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("dropzone").classList.remove("drag");
+  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  if (!files.length) return;
+  /* при открытой карточке медиа-файлы добавляются к текущему товару */
+  if (S.drawerIdx >= 0) {
+    if (splitDrop(files, false) > 0) return;
+  }
+  const f = files[0];
+  if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") loadFromZipFile(f);
+  else if (/\.csv$/i.test(f.name) || f.type === "text/csv") loadFromCsvFile(f);
+  else toast("Перетащите ZIP, CSV или медиа-файлы", "err");
+});
+
+/* попытка подхватить products.csv, если страницу открыли на http(s) рядом с csv */
+(async () => {
+  try {
+    if (location.protocol !== "file:") {
+      const res = await fetch("products.csv", { cache: "no-store" });
+      if (res.ok) {
+        const text = await res.text();
+        if (text.includes("НАЗВАНИЕ") && text.includes(";")) {
+          S.zipName = "products.csv (по ссылке)"; S.zipSize = text.length; S.zipCtx = null;
+          S.mediaIndex = new Map();
+          acceptCsv(text, "products.csv · загружен рядом с страницей");
+        }
+      }
+    }
+  } catch (e) { /* file:// или нет файла — просто ждём дроп */ }
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 const CHUNK_SIZE = 512 * 1024; // 512 KB base64-encoded
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 function bufferToBase64(bytes: Uint8Array): string {
   let binary = "";

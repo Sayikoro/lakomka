@@ -186,8 +186,8 @@ export function ProcessSteps() {
               {steps.map((s) => (
                 <div key={s.n} className="flex flex-col items-center">
                   <StepNode step={s} size="md" />
-                  {/* Текстовый блок центрирован под узлом, внутри — выравнивание по левому краю */}
-                  <div className="mt-5 w-full max-w-[210px] text-left">
+                  {/* Текстовый блок центрирован под узлом, текст — по центру */}
+                  <div className="mt-5 w-full max-w-[210px] text-center">
                     <h3 className="text-[17px] font-semibold leading-snug text-white! [text-shadow:0_2px_6px_rgba(0,0,0,0.95),0_0_20px_rgba(0,0,0,0.6)]">
                       {s.t2[0]}
                       <br />
@@ -224,7 +224,7 @@ export function ProcessSteps() {
             {steps.map((s) => (
               <div key={s.n} className="flex items-start gap-4">
                 <StepNode step={s} size="sm" />
-                <div className="pt-1">
+                <div className="pt-1 text-center">
                   <h3 className="text-[17px] font-semibold text-white! [text-shadow:0_2px_6px_rgba(0,0,0,0.95),0_0_20px_rgba(0,0,0,0.6)]">
                     {s.title}
                   </h3>

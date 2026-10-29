@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import { StatusChanger } from "@/components/admin/StatusChanger";
+import { ResendEmailButton } from "@/components/admin/ResendEmailButton";
 
 interface OrderItem {
   id: number;
@@ -29,6 +30,8 @@ interface Order {
   total_kopecks: number;
   status: string;
   created_at: string;
+  email_sent: number | null;
+  email_error: string | null;
   items: OrderItem[];
   history: HistoryEntry[];
 }
@@ -174,6 +177,14 @@ export default async function AdminOrderPage({ params }: PageProps) {
                     <a href={`mailto:${order.customer_email}`} className="text-[var(--color-primary)] hover:underline">
                       {order.customer_email}
                     </a>
+                    {order.email_sent === 1 && (
+                      <span className="ml-2 inline-flex items-center gap-1 align-[-2px] text-xs font-medium text-green-700">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                        письмо отправлено
+                      </span>
+                    )}
                   </dd>
                 </>
               )}
@@ -200,6 +211,34 @@ export default async function AdminOrderPage({ params }: PageProps) {
 
         {/* Правая колонка — статус и история */}
         <aside className="space-y-6">
+          {order.email_sent === 0 && order.customer_email && (
+            <section className="rounded-[var(--radius-card)] border border-red-300 bg-red-50 p-6">
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-red-700">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <path d="m2 7 10 6 10-6" />
+                </svg>
+                Письмо клиенту не отправлено
+              </h2>
+              <p className="mt-2 break-words text-sm text-red-600">
+                {order.email_error ?? "Ошибка SMTP"}
+              </p>
+              <div className="mt-4">
+                <ResendEmailButton orderId={order.id} />
+              </div>
+            </section>
+          )}
+
           <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-6">
             <h2 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Статус

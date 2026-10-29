@@ -52,7 +52,7 @@ export function ProductsTable({ initialProducts }: Props) {
     setSavingId(id);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/products/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -77,7 +77,7 @@ export function ProductsTable({ initialProducts }: Props) {
     setDeletingId(id);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/products/${id}`, {
         method: "DELETE",
         credentials: "include",

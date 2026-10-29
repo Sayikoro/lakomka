@@ -1,0 +1,13 @@
+uploads/snowflake/snowflake.svg
+uploads/ico-step3.svg
+uploads/pdfs/catalog_1.pdf
+uploads/pdfs/certificate.jpg
+uploads/pdfs/catalog_2.jpg
+uploads/pdfs/catalog_2.pdf
+uploads/pdfs/certificate.pdf
+uploads/pdfs/catalog_1.jpg
+uploads/ico-step1.svg
+uploads/ico-step2.svg
+uploads/process-bg.png
+uploads/brand/logo-lakomka.webp
+uploads/hero/test-slide-2.jpg

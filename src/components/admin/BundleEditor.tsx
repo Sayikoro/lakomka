@@ -48,7 +48,7 @@ export function BundleEditor({ productId, initial, initialRecipeWeight }: Props)
   const [error, setError] = useState<string | null>(null);
   const [busyRow, setBusyRow] = useState<number | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   /* ---- Загрузка опций граммовок ---- */
   useEffect(() => {
