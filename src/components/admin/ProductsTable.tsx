@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { AdminProduct } from "@/app/admin/products/page";
@@ -26,6 +26,12 @@ const TYPE_BADGE: Record<string, string> = {
 export function ProductsTable({ initialProducts }: Props) {
   const router = useRouter();
   const [products, setProducts] = useState(initialProducts);
+  // router.refresh() приносит новые props — синхронизируем state, иначе таблица
+  // навсегда показывает snapshot на момент монтирования (после импорта список
+  // выглядел «не обновившимся», хотя данные в БД уже были новые).
+  useEffect(() => {
+    setProducts(initialProducts);
+  }, [initialProducts]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [savingId, setSavingId] = useState<number | null>(null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PasswordModal } from "@/components/admin/PasswordModal";
@@ -36,6 +36,10 @@ function formatDate(s: string | null): string {
 export function UsersTable({ initialUsers, currentUserId }: Props) {
   const router = useRouter();
   const [users, setUsers] = useState(initialUsers);
+  // синхронизация с props после router.refresh() — иначе список stale
+  useEffect(() => {
+    setUsers(initialUsers);
+  }, [initialUsers]);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [changingRole, setChangingRole] = useState<number | null>(null);
   const [passwordFor, setPasswordFor] = useState<AdminUser | null>(null);
