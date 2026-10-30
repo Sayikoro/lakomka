@@ -1,12 +1,12 @@
 # Деплой-архив: как собрать lakomka-deploy-static.zip из частей
 
 GitHub не принимает файлы больше 100 МБ, поэтому архив
-`lakomka-deploy-static.zip` (116074993 байт) лежит в репозитории двумя частями:
+`lakomka-deploy-static.zip` (116072587 байт) лежит в репозитории двумя частями:
 
 | Файл | Размер |
 | --- | --- |
 | `lakomka-deploy-static.zip.part-00` | 94371840 байт |
-| `lakomka-deploy-static.zip.part-01` | 21703153 байт |
+| `lakomka-deploy-static.zip.part-01` | 21700747 байт |
 
 ## Склейка
 
@@ -29,7 +29,7 @@ cat lakomka-deploy-static.zip.part-00 lakomka-deploy-static.zip.part-01 > lakomk
 sha256 собранного файла должен совпадать:
 
 ```
-f89c8da468ef06420384fd7619d1c785fdaf2a76a97294b146d31c4f1a156eb0
+5f981a9d80105d37ce38988911aaf0779e558876b647e9ada6cde9313fada4ea
 ```
 
 - Windows PowerShell: `Get-FileHash lakomka-deploy-static.zip -Algorithm SHA256`
