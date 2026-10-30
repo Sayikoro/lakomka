@@ -31,25 +31,14 @@ export default async function CatalogPage() {
         {tFrom(cfg.texts, "catalog_h1")}
       </h1>
 
-      {products.length === 0 ? (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-12 text-center">
-          <p className="mb-2 font-medium text-[var(--color-heading)]">
-            {tFrom(cfg.texts, "catalog_empty_title")}
-          </p>
-          <p className="text-sm text-[var(--color-muted)]">
-            Проверь{" "}
-            <code className="rounded bg-white px-1.5 py-0.5">
-              curl http://localhost:8000/api/products
-            </code>
-          </p>
-        </div>
-      ) : (
-        <CatalogClient
-          products={products}
-          categories={categories}
-          template={cfg.product_card_template}
-        />
-      )}
+      {/* CatalogClient — клиентский: если запечённый каталог пуст (сборка при
+          недоступном API) или устарел — после монтирования подтянет живые
+          данные с /api/products (скелетон вместо дебаг-подсказки) */}
+      <CatalogClient
+        products={products}
+        categories={categories}
+        template={cfg.product_card_template}
+      />
     </div>
   );
 }

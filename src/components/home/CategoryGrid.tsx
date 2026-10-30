@@ -1,6 +1,20 @@
+"use client";
+
+/* ============================================================
+   Плитки категорий на главной.
+   Клиентский компонент: стартует с запечённых данных (SEO,
+   мгновенный рендер), после монтирования подтягивает живые
+   товары/категории с API — новые товары и категории появляются
+   на развёрнутом сайте без пересборки. Картинки плиток
+   рандомизируются только на клиенте (иначе гидратация
+   расходится с разметкой).
+   ============================================================ */
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
 import type { Category } from "@/lib/products";
+import { fetchLiveCategories, fetchLiveProducts, productsDiffer } from "@/lib/product-api";
 import { mockCategories } from "@/lib/mock-data";
 import { SmartImage } from "@/components/ui/SmartImg";
 
@@ -10,32 +24,87 @@ interface CategoryGridProps {
 }
 
 export function CategoryGrid({ categories, products }: CategoryGridProps) {
-  /* Пул картинок на категорию: первая (главная) картинка каждого товара.
-     Пересобирается на каждый запрос → выбор random даёт новую картинку
-     при каждой загрузке страницы. */
-  const poolByCategory = new Map<number, string[]>();
-  for (const p of products) {
-    if (p.category_id == null) continue;
-    const img = p.images[0]?.url;
-    if (!img) continue;
-    const pool = poolByCategory.get(p.category_id);
-    if (pool) pool.push(img);
-    else poolByCategory.set(p.category_id, [img]);
-  }
+  const [liveProducts, setLiveProducts] = useState<Product[]>(products);
+  const [liveCategories, setLiveCategories] = useState<Category[]>(categories);
+  /* Пул картинок на категорию: первая (главная) картинка каждого товара */
+  const poolByCategory = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const p of liveProducts) {
+      if (p.category_id == null) continue;
+      const img = p.images[0]?.url;
+      if (!img) continue;
+      const pool = map.get(p.category_id);
+      if (pool) pool.push(img);
+      else map.set(p.category_id, [img]);
+    }
+    return map;
+  }, [liveProducts]);
 
-  /* Фолбэк для категорий без товаров (например «Тубы») — прежние мок-картинки */
-  const mockBySlug = new Map(mockCategories.map((c) => [c.slug, c.imageUrl]));
-  const pickRandom = (arr: string[]): string =>
-    arr[Math.floor(Math.random() * arr.length)];
+  /* Фолбэк для категорий без товаров — прежние мок-картинки */
+  const mockBySlug = useMemo(
+    () => new Map(mockCategories.map((c) => [c.slug, c.imageUrl])),
+    [],
+  );
+
+  /* Детерминированный выбор по хешу slug: одинаков на сервере (сборка)
+     и клиенте → гидратация без рассинхрона, в запечённой главной
+     реальные картинки товаров, а не моки */
+  const initialBySlug = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cat of liveCategories) {
+      const pool = poolByCategory.get(cat.id);
+      if (!pool || pool.length === 0) continue;
+      let h = 0;
+      for (let i = 0; i < cat.slug.length; i++) h = (h * 31 + cat.slug.charCodeAt(i)) | 0;
+      map.set(cat.slug, pool[Math.abs(h) % pool.length]);
+    }
+    return map;
+  }, [liveCategories, poolByCategory]);
+
+  /* Случайная картинка каждой плитки — только после монтирования
+     (каждая загрузка главной даёт новый набор) */
+  const [picked, setPicked] = useState<Map<string, string> | null>(null);
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const cat of liveCategories) {
+      const pool = poolByCategory.get(cat.id);
+      map.set(
+        cat.slug,
+        pool && pool.length > 0
+          ? pool[Math.floor(Math.random() * pool.length)]
+          : mockBySlug.get(cat.slug) ?? mockCategories[0].imageUrl,
+      );
+    }
+    setPicked(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveCategories, poolByCategory]);
+
+  /* Живые данные: новые товары/категории без пересборки */
+  useEffect(() => {
+    let cancelled = false;
+    fetchLiveProducts().then((fresh) => {
+      if (cancelled || !fresh) return;
+      setLiveProducts((cur) => (productsDiffer(cur, fresh) ? fresh : cur));
+    });
+    fetchLiveCategories().then((fresh) => {
+      if (cancelled || !fresh) return;
+      setLiveCategories((cur) =>
+        JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
-      {categories.map((cat) => {
-        const pool = poolByCategory.get(cat.id);
+      {liveCategories.map((cat) => {
         const imageUrl =
-          pool && pool.length > 0
-            ? pickRandom(pool)
-            : mockBySlug.get(cat.slug) ?? mockCategories[0].imageUrl;
+          picked?.get(cat.slug) ??
+          initialBySlug.get(cat.slug) ??
+          mockBySlug.get(cat.slug) ??
+          mockCategories[0].imageUrl;
         return (
           <Link
             key={cat.slug}

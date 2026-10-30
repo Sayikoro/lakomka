@@ -2,21 +2,54 @@
 
 /* Смешная страница 404: при каждой загрузке — случайная отговорка
  * «Почему страницы нет» в новогоднем стиле (30 фраз, см. not-found-phrases).
- * Рандом — в useEffect, чтобы гидратация не расходилась с разметкой. */
+ * Рандом — в useEffect, чтобы гидратация не расходилась с разметкой.
+ *
+ * «Спасение» новых товаров: витрина статическая — страницы товаров,
+ * созданных ПОСЛЕ сборки, физически отсутствуют в пакете, и Apache
+ * отдаёт 404. Здесь при открытии /product/<slug> запрашиваем API:
+ * если товар существует — рендерим полноценную карточку прямо на
+ * 404-странице (шапка/подвал уже вокруг). Новый товар доступен по
+ * ссылке сразу, без пересборки. */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { NOT_FOUND_PHRASES } from "@/lib/not-found-phrases";
+import { fetchLiveProductBySlug } from "@/lib/product-api";
+import { ProductView } from "@/components/product/ProductView";
+import type { Product } from "@/lib/types";
 
 export function NotFoundView() {
   /* До гидратации — фиксированная фраза (без mismatch), после — случайная */
   const [phrase, setPhrase] = useState(NOT_FOUND_PHRASES[0]);
+  /* Товар, «спасённый» с несуществующей статической страницы */
+  const [rescued, setRescued] = useState<Product | null>(null);
 
   useEffect(() => {
     setPhrase(
       NOT_FOUND_PHRASES[Math.floor(Math.random() * NOT_FOUND_PHRASES.length)],
     );
+
+    /* Спасение товара: /product/<slug> → живой запрос к API */
+    const m = window.location.pathname.match(/^\/product\/([^/]+)\/?$/);
+    if (!m) return;
+    const slug = decodeURIComponent(m[1]);
+    let cancelled = false;
+    fetchLiveProductBySlug(slug)
+      .then((p) => {
+        if (cancelled || !p) return;
+        setRescued(p);
+        document.title = `${p.name} — Лакомка`;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  /* Товар найден в API — показываем полноценную карточку */
+  if (rescued) {
+    return <ProductView product={rescued} />;
+  }
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-b from-[#eaf4ff] to-[#fdfdfd] px-4 py-16 text-center">

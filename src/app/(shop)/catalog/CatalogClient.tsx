@@ -5,6 +5,7 @@ import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductCardNew } from "@/components/ui/ProductCardNew";
 import { SmartImg } from "@/components/ui/SmartImg";
 import { useT } from "@/components/texts/TextsProvider";
+import { fetchLiveProducts, productsDiffer } from "@/lib/product-api";
 import type { Category } from "@/lib/products";
 import { mockCategories } from "@/lib/mock-data";
 import type { Product } from "@/lib/types";
@@ -144,18 +145,77 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
   const [page, setPage] = useState(1);
   const gridTopRef = useRef<HTMLDivElement | null>(null);
 
+  /* ── Живые данные витрины ──
+     Стартуем с запечённых при сборке товаров (мгновенный рендер, SEO),
+     после монтирования подтягиваем свежий каталог с /api/products:
+     новые товары, цены и видео появляются на развёрнутом сайте
+     без пересборки. API недоступен → остаётся запечённая версия. */
+  const [liveProducts, setLiveProducts] = useState<Product[]>(products);
+  const liveRef = useRef<Product[]>(products); // зеркало состояния — без устаревших замыканий
+  const [liveChecked, setLiveChecked] = useState(false); // API ответил (успешно или нет)
+  const filtersTouchedRef = useRef(false); // пользователь менял фильтры?
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLiveProducts()
+      .then((fresh) => {
+        if (cancelled) return;
+        setLiveChecked(true);
+        if (!fresh || !productsDiffer(liveRef.current, fresh)) return;
+        liveRef.current = fresh;
+        setLiveProducts(fresh);
+
+        const steps = Array.from(
+          new Set(fresh.map((p) => p.recipe_weight_g ?? 0).filter((w) => w > 0)),
+        ).sort((a, b) => a - b);
+        let pmin = Infinity;
+        let pmax = 0;
+        for (const p of fresh) {
+          if (p.price_kopecks < pmin) pmin = p.price_kopecks;
+          if (p.price_kopecks > pmax) pmax = p.price_kopecks;
+        }
+        const bounds = Number.isFinite(pmin)
+          ? {
+              min: Math.floor(pmin / 10000) * 10000,
+              max: Math.max(Math.ceil(pmax / 10000) * 10000, Math.floor(pmin / 10000) * 10000 + 10000),
+            }
+          : { min: 0, max: 0 };
+
+        if (!filtersTouchedRef.current) {
+          // Фильтры ещё не трогали — пересчитать границы от свежих данных
+          if (steps.length) setWeightIdx([0, steps.length - 1]);
+          if (bounds.max > 0) setPriceRange([bounds.min, bounds.max]);
+          setPage(1);
+        } else {
+          // Фильтры активны — только прижать индексы ступеней веса к новому диапазону
+          if (steps.length) {
+            setWeightIdx(([lo, hi]) => [
+              Math.min(lo, steps.length - 1),
+              Math.min(hi, steps.length - 1),
+            ]);
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLiveChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Ступени веса из каталога (по возрастанию)
   const weightSteps = useMemo(() => {
     const set = new Set<number>();
-    products.forEach((p) => p.recipe_weight_g && set.add(p.recipe_weight_g));
+    liveProducts.forEach((p) => p.recipe_weight_g && set.add(p.recipe_weight_g));
     return Array.from(set).sort((a, b) => a - b);
-  }, [products]);
+  }, [liveProducts]);
 
   // Границы цены по каталогу, округлённые до сотен рублей
   const priceBounds = useMemo(() => {
     let min = Infinity;
     let max = 0;
-    products.forEach((p) => {
+    liveProducts.forEach((p) => {
       if (p.price_kopecks < min) min = p.price_kopecks;
       if (p.price_kopecks > max) max = p.price_kopecks;
     });
@@ -164,7 +224,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
       min: Math.floor(min / 10000) * 10000,
       max: Math.max(Math.ceil(max / 10000) * 10000, Math.floor(min / 10000) * 10000 + 10000),
     };
-  }, [products]);
+  }, [liveProducts]);
 
   // Инициализация ползунков после получения данных + категория из URL (?category=slug с главной)
   useEffect(() => {
@@ -181,9 +241,9 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
   // Категории, реально представленные в каталоге (порядок — как на главной)
   const categoryOptions = useMemo(() => {
     const present = new Set<number>();
-    products.forEach((p) => p.category_id && present.add(p.category_id));
+    liveProducts.forEach((p) => p.category_id && present.add(p.category_id));
     return categories.filter((c) => present.has(c.id));
-  }, [products, categories]);
+  }, [liveProducts, categories]);
 
   /* Миниатюры-кнопки фильтров: пул первых картинок товаров категории,
      как на главной. Рандом выбирается только на клиенте после монтирования
@@ -222,7 +282,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
     const priceActive = boundsReady && (priceRange[0] > priceBounds.min || priceRange[1] < priceBounds.max);
     const cat = categoryOptions.find((c) => c.slug === category);
 
-    return products.filter((p) => {
+    return liveProducts.filter((p) => {
       if (cat && p.category_id !== cat.id) return false;
       if (weightActive) {
         const w = p.recipe_weight_g ?? 0;
@@ -232,7 +292,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [products, category, categoryOptions, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
+  }, [liveProducts, category, categoryOptions, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
 
   const hasFilters =
     category !== "all" ||
@@ -280,6 +340,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
   };
 
   const changeCategory = (slug: string) => {
+    filtersTouchedRef.current = true;
     setCategory(slug);
     setPage(1); // смена категории — к первой странице
     // Синхронизируем ?category= в адресе (ссылки с главной: /catalog?category=vip)
@@ -290,6 +351,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
   };
 
   const resetFilters = () => {
+    filtersTouchedRef.current = true;
     setCategory("all");
     setWeightIdx([0, Math.max(weightSteps.length - 1, 0)]);
     setPriceRange([priceBounds.min, priceBounds.max]);
@@ -316,6 +378,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              filtersTouchedRef.current = true;
               setPage(1); // новый поиск — к первой странице
             }}
             placeholder={t("catalog_search_placeholder")}
@@ -391,6 +454,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                 value={weightIdx}
                 onChange={(v) => {
                   setWeightIdx(v);
+                  filtersTouchedRef.current = true;
                   setPage(1); // новый фильтр — к первой странице
                 }}
                 format={(i) => weightLabel(weightSteps[i] ?? 0)}
@@ -409,6 +473,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                 value={priceRange}
                 onChange={(v) => {
                   setPriceRange(v);
+                  filtersTouchedRef.current = true;
                   setPage(1); // новый фильтр — к первой странице
                 }}
                 format={priceLabel}
@@ -452,6 +517,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
                 value={sort}
                 onChange={(e) => {
                   setSort(e.target.value as SortKey);
+                  filtersTouchedRef.current = true;
                   setPage(1); // новая сортировка — к первой странице
                 }}
                 aria-label="Сортировка"
@@ -466,7 +532,19 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
             </label>
           </div>
         </div>
-        {sorted.length === 0 ? (
+        {/* Пока живые данные не загружены и запечённых нет — скелетон сетки
+            (случается на сайте, собранном при недоступном API) */}
+        {liveProducts.length === 0 && !liveChecked ? (
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div
+                key={i}
+                aria-hidden
+                className="aspect-square animate-pulse rounded-3xl bg-white shadow-sm"
+              />
+            ))}
+          </div>
+        ) : sorted.length === 0 ? (
           <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] p-12 text-center text-[var(--color-muted)]">
             {t("catalog_empty_result")}
           </div>
