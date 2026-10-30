@@ -148,11 +148,20 @@ class MediaOptimizer
      */
     public static function optimizeVideoFile(string $path): array
     {
+        // нормализуем разделители: «uploads//file.mov» иначе уезжает в ответ
+        // ffmpeg как есть и пугает пользователя двойными слэшами
+        $path = preg_replace('#/+#', '/', (string)$path) ?? $path;
         $name = basename($path);
         $before = @filesize($path) ?: 0;
         $noop = ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before, 'note' => ''];
 
-        if (!is_file($path)) return $noop;
+        if (!is_file($path)) {
+            // раньше здесь был молчаливый noop — вызывающий показывал пустое
+            // «Не удалось сжать видео», а при гонке двух запросов ffmpeg
+            // успевал упасть с техношумом «No such file or directory»
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'файл не найден на диске — возможно, он был перемещён, удалён или уже перекодирован'];
+        }
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         if (!in_array($ext, ['mov', 'm4v'], true)) return $noop; // mp4/webm уже хороши
 
@@ -266,11 +275,15 @@ class MediaOptimizer
      */
     public static function recompressMp4File(string $path): array
     {
+        $path = preg_replace('#/+#', '/', (string)$path) ?? $path; // см. optimizeVideoFile
         $name = basename($path);
         $before = @filesize($path) ?: 0;
         $noop = ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before, 'note' => ''];
 
-        if (!is_file($path)) return $noop;
+        if (!is_file($path)) {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'файл не найден на диске — возможно, он был перемещён, удалён или уже перекодирован'];
+        }
         if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'mp4') return $noop;
         if ($before < 1024 * 1024) {
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,

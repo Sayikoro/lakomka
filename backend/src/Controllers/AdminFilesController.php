@@ -500,7 +500,40 @@ class AdminFilesController
 
         $uploadsRoot = realpath(Paths::uploadsRoot());
         $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
-        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
+        $locatedUrl = $url; // URL, под которым файл реально лежит (для переписывания ссылок)
+
+        /* Файла по точному пути нет — ЖИЗНЕННАЯ ситуация (Task 87):
+            файл переместили по FTP, удалили, либо он уже был перекодирован
+            параллельным запросом («Сжать» нажали дважды). Раньше отсюда
+            уходил 404 или техношум ffmpeg «uploads//file.mov: No such
+            file or directory». Теперь ищем файл по всему uploads-дереву. */
+        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)) {
+            $found = self::locateUploaded($url);
+            if ($found === null) {
+                jsonResponse(['error' => 'Файл ' . basename($url)
+                    . ' не найден в /uploads — возможно, он удалён или уже перекодирован'], 404);
+            }
+            if (strcasecmp(pathinfo($found['url'], PATHINFO_EXTENSION), 'mp4') === 0
+                && strcasecmp(pathinfo($url, PATHINFO_EXTENSION), 'mp4') !== 0) {
+                /* Просили mov, а на диске уже лежит mp4 с тем же именем —
+                    видео было перекодировано ранее, осталось обновить ссылки. */
+                $refs = self::retargetRefs($pdo, $url, $found['url']);
+                $size = @filesize($found['abs']) ?: 0;
+                jsonResponse(['data' => [
+                    'ok'           => true,
+                    'url'          => $found['url'],
+                    'old_url'      => $url,
+                    'before'       => $size,
+                    'after'        => $size,
+                    'note'         => 'видео уже было перекодировано ранее — найден готовый '
+                        . basename($found['url']) . ', ссылки товаров обновлены',
+                    'refs_updated' => $refs,
+                ]]);
+            }
+            $realFile = $found['abs'];
+            $locatedUrl = $found['url'];
+        }
+        if (!is_file($realFile)
             || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
             jsonResponse(['error' => 'Файл не найден на сервере'], 404);
         }
@@ -519,21 +552,12 @@ class AdminFilesController
             jsonResponse(['error' => $opt['note'] ?: 'Не удалось сжать видео'], 422);
         }
 
-        $newUrl = rtrim(dirname($url), '/') . '/' . $opt['name'];
+        $newUrl = rtrim(dirname($locatedUrl), '/') . '/' . $opt['name'];
 
         // Переписываем привязки, чтобы видео осталось у тех же товаров
-        $refs = 0;
-        $upd = $pdo->prepare('UPDATE product_images SET url = ? WHERE url = ?');
-        $upd->execute([$newUrl, $url]);
-        $refs += $upd->rowCount();
-
-        try {
-            $upd2 = $pdo->prepare('UPDATE products SET video_url = ? WHERE video_url = ?');
-            $upd2->execute([$newUrl, $url]);
-            $refs += $upd2->rowCount();
-        } catch (PDOException) {
-            // старая схема без products.video_url — пропускаем
-        }
+        // (WHERE — по URL из запроса: именно он записан в базе, даже если
+        // файл на диске нашёлся в другой папке и ссылка в базе устарела)
+        $refs = self::retargetRefs($pdo, $url, $newUrl);
 
         jsonResponse(['data' => [
             'ok'           => true,
@@ -544,6 +568,80 @@ class AdminFilesController
             'note'         => $opt['note'],
             'refs_updated' => $refs,
         ]]);
+    }
+
+    /** Переписать ссылки на файл у товаров (product_images + products.video_url).
+        Возвращает число обновлённых строк. */
+    private static function retargetRefs(PDO $pdo, string $fromUrl, string $toUrl): int
+    {
+        $refs = 0;
+        $upd = $pdo->prepare('UPDATE product_images SET url = ? WHERE url = ?');
+        $upd->execute([$toUrl, $fromUrl]);
+        $refs += $upd->rowCount();
+
+        try {
+            $upd2 = $pdo->prepare('UPDATE products SET video_url = ? WHERE video_url = ?');
+            $upd2->execute([$toUrl, $fromUrl]);
+            $refs += $upd2->rowCount();
+        } catch (PDOException) {
+            // старая схема без products.video_url — пропускаем
+        }
+        return $refs;
+    }
+
+    /** Поиск файла по всему /uploads, когда точный URL не существует.
+        Приоритет: 1) то же имя в любой папке; 2) то же имя без учёта
+        регистра; 3) тот же ствол с .mp4 — файл уже был перекодирован.
+        Совпадений несколько → берём самый свежий по mtime.
+        Возвращает ['url' => '/uploads/…', 'abs' => '…'] или null. */
+    private static function locateUploaded(string $url): ?array
+    {
+        $root = realpath(Paths::uploadsRoot());
+        if ($root === false || !is_dir($root)) return null;
+
+        $name = basename($url);                        // KAM_v012.mov
+        $stem = pathinfo($name, PATHINFO_FILENAME);    // KAM_v012
+        if ($name === '' || $name === '.' || $name === '..') return null;
+
+        $same = [];    // то же имя (KAM_v012.mov в другой папке)
+        $ci = [];      // то же имя, регистр отличается (kam_V012.MOV)
+        $mp4 = [];     // тот же ствол с .mp4 (уже перекодирован ранее)
+        try {
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $file) {
+                $f = (string)$file;
+                $b = basename($f);
+                if ($b === $name) $same[] = $f;
+                elseif (strcasecmp($b, $name) === 0) $ci[] = $f;
+                elseif (strcasecmp(pathinfo($b, PATHINFO_FILENAME), $stem) === 0
+                        && strcasecmp(pathinfo($b, PATHINFO_EXTENSION), 'mp4') === 0) {
+                    $mp4[] = $f;
+                }
+            }
+        } catch (UnexpectedValueException) {
+            return null; // дерево не прочиталось (права и т.п.)
+        }
+
+        $pick = static function (array $list) use ($root): ?string {
+            if ($list === []) return null;
+            $best = null; $bestM = -1;
+            foreach ($list as $f) {
+                $m = @filemtime($f) ?: 0;
+                if ($m > $bestM) { $bestM = $m; $best = $f; }
+            }
+            return $best;
+        };
+        $abs = $pick($same) ?? $pick($ci) ?? $pick($mp4);
+        if ($abs === null) return null;
+
+        $rel = ltrim(substr($abs, strlen($root)), '/\\');
+        return [
+            'abs' => $abs,
+            'url' => '/uploads/' . str_replace(DIRECTORY_SEPARATOR, '/', $rel),
+        ];
     }
 
     /* ── СКАЧИВАНИЕ ФАЙЛА СЕРВЕРОМ (для разделов без публичного URL) ── */
