@@ -59,11 +59,17 @@ class AuthController
             $pdo->exec("DELETE FROM login_attempts WHERE created_at < datetime('now', '-1 day')");
         } catch (Throwable $e) { }
 
+        // Secure-флаг только на HTTPS (иначе на http-хостинге кука просто
+        // не поставится и вход сломается). За прокси смотрим X-Forwarded-Proto.
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+
         setcookie('admin_token', $token, [
             'expires'  => time() + 7 * 24 * 3600,
             'path'     => '/',
             'httponly' => true,
             'samesite' => 'Lax',
+            'secure'   => $isHttps,
         ]);
 
         jsonResponse([

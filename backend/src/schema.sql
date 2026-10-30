@@ -121,6 +121,13 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Анти-флуд публичного оформления заказов (OrderController).
+-- На существующих сайтах создаётся лениво при первом заказе.
+CREATE TABLE IF NOT EXISTS order_rate (
+    ip TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_products_category   ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_catalog    ON products(show_in_catalog, is_published);
 CREATE INDEX IF NOT EXISTS idx_products_legacy_slug ON products(legacy_slug);
@@ -131,3 +138,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_status       ON orders(status, created_at)
 CREATE INDEX IF NOT EXISTS idx_orders_phone_hash   ON orders(customer_phone_hash);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip   ON login_attempts(ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email, created_at);
+CREATE INDEX IF NOT EXISTS idx_order_rate_ip       ON order_rate(ip, created_at);

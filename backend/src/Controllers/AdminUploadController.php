@@ -37,7 +37,7 @@ class AdminUploadController
        ============================================================ */
     public static function saveHeroImage(): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
 
         $dir = __DIR__ . '/../../../public/uploads/hero';
         if (!is_dir($dir)) {
@@ -79,7 +79,7 @@ class AdminUploadController
        ============================================================ */
     public static function saveSnowflakeSvg(): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
 
         $dir = __DIR__ . '/../../../public/uploads/snowflake';
         if (!is_dir($dir)) {
@@ -104,8 +104,31 @@ class AdminUploadController
             jsonResponse(['error' => 'Нужен файл SVG со снежинкой (<svg>…)'], 422);
         }
 
-        /* Лёгкая санитизация: вырезаем script и обработчики событий */
-        $content = preg_replace('#<script[\s\S]*?</script>#i', '', $content) ?? $content;
+        /* Жёсткая санитизация SVG: активное содержимое НЕ вырезаем тихо,
+           а ОТКЛОНЯЕМ файл — так нельзя «протащить» вектор атаки хитрым
+           кодированием (SVG умеет исполнять JS через script, foreignObject,
+           use/href, animate/set, javascript:-URL и вложенные data:-документы). */
+        $dangerous = [
+            '#<script\b#i',
+            '#<foreignobject\b#i',
+            '#<use\b#i',
+            '#<animate\b#i',
+            '#<set\b#i',
+            '#<handler\b#i',
+            '#<iframe\b#i',
+            '#<object\b#i',
+            '#<embed\b#i',
+            '#javascript\s*:#i',
+            '#\bdata\s*:\s*(?!image/(png|jpe?g|webp))#i',
+            '#\son\w+\s*=#i',
+            '#<\?xml-stylesheet#i',
+            '#<!entity#i',
+        ];
+        foreach ($dangerous as $re) {
+            if (preg_match($re, $content)) {
+                jsonResponse(['error' => 'SVG содержит активное содержимое и отклонён'], 422);
+            }
+        }
         $content = preg_replace('/\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $content) ?? $content;
 
         $filename = 'flake-' . time() . '-' . bin2hex(random_bytes(4)) . '.svg';

@@ -39,7 +39,12 @@ export function ProductJsonLd({ product }: Props) {
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+      dangerouslySetInnerHTML={{
+        // Экранируем «<» — иначе «</script>» внутри названия товара вырвется
+        // из тега script (stored XSS). Только админы вводят данные, но защита
+        // должна быть и от скомпрометированной админки.
+        __html: JSON.stringify(data).replace(/</g, "\\u003c"),
+      }}
     />
   );
 }

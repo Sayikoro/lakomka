@@ -10,6 +10,16 @@ Options -Indexes
 RewriteEngine On
 
 # ------------------------------------------------------------
+# 0. AI-FIREWALL: ИИ-краулеры и автономные агенты — 403.
+#    Классические поисковики (Googlebot, Bingbot, Yandex) не тронуты.
+# ------------------------------------------------------------
+RewriteCond %{HTTP_USER_AGENT} (GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-Web|anthropic-ai|CCBot|Google-Extended|Bytespider|PerplexityBot|Perplexity-User|YouBot|Amazonbot|Applebot-Extended|Diffbot|ImagesiftBot|Meta-ExternalAgent|FacebookBot|cohere-ai) [NC]
+RewriteRule ^ - [F,L]
+
+# Внутренняя инструкция деплоя — только для владельца
+RewriteRule ^README-DEPLOY\.md$ - [F,L]
+
+# ------------------------------------------------------------
 # 1. Защита: наружу отдаётся ТОЛЬКО backend/public/index.php.
 #    База (storage), исходники (src), конфиги — закрыты.
 # ------------------------------------------------------------
@@ -53,7 +63,22 @@ ErrorDocument 404 /404.html
 
 # ------------------------------------------------------------
 # 6. Сжатие и кэш (модули есть не везде — обёрнуто в IfModule)
+#    6a. Security-заголовки (кликджекинг, MIME-sniffing, утечки)
 # ------------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+</IfModule>
+
+# SVG (в т.ч. снежинки из админки): запрет сценариев при прямом открытии
+<FilesMatch "\.svg$">
+  <IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    Header always set X-Content-Type-Options "nosniff"
+  </IfModule>
+</FilesMatch>
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
 </IfModule>

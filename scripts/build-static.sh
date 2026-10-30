@@ -85,6 +85,9 @@ cp "$ROOT/scripts/deploy/update.html" "$PKG/update.html"
 # с кредами показывает страница входа до смены пароля.
 PHP_BIN="$(command -v php || echo "$ROOT/.ztools/php")"
 "$PHP_BIN" "$ROOT/scripts/seed-default-admin.php" "$PKG/backend/storage/database.sqlite"
+# Рантайм-мусор песочницы (попытки входа, анти-флуд, тестовые заказы) —
+# наружу не едем: иначе отравленный рейт-лимит и чужие заказы в пакете.
+"$PHP_BIN" "$ROOT/scripts/clean-package-db.php" "$PKG/backend/storage/database.sqlite"
 
 VERSION="$(date +%Y.%m.%d-%H%M)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

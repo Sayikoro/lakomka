@@ -9,6 +9,7 @@ import { RoutePreloader } from "@/components/ui/RoutePreloader";
 import { CookieBanner } from "@/components/ui/CookieBanner";
 import { getPublicSettings } from "@/lib/settings";
 import { TextsProvider } from "@/components/texts/TextsProvider";
+import { AiGuard } from "@/components/security/AiGuard";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -75,6 +76,7 @@ export default async function RootLayout({
   return (
     <html lang="ru" className={poppins.variable}>
       <body className="flex min-h-screen flex-col">
+        <AiGuard />
         <TextsProvider texts={cfg.texts}>
           <RoutePreloader />
           <OrganizationJsonLd />

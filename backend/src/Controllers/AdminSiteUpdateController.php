@@ -169,6 +169,10 @@ class AdminSiteUpdateController
                 || $norm === 'backend/config.local.php'
                 || $norm === 'backend/storage/last-update.json'
                 || $norm === 'backend/storage/php-errors.log'
+                || $norm === 'backend/storage/secret-keys.php'
+                || $norm === 'backend/storage/github-token.txt'
+                || $norm === 'backend/storage/github-release-cache.json'
+                || $norm === 'backend/storage/deploy-archive-meta.json'
                 || preg_match('#^backend/storage/database\.sqlite(\.|-|$)?#', $norm)
                 || str_starts_with($norm, 'backend/storage/logs/')
                 || str_starts_with($norm, 'backend/storage/chunked-uploads/')) {

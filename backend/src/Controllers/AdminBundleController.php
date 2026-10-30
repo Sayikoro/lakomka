@@ -23,7 +23,7 @@ class AdminBundleController
 
     public static function addComponent(PDO $pdo, int $productId): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
 
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?? [];
@@ -57,7 +57,7 @@ class AdminBundleController
 
     public static function updateComponent(PDO $pdo, int $productId, int $itemId): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
 
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true) ?? [];
@@ -72,7 +72,7 @@ class AdminBundleController
 
     public static function removeComponent(PDO $pdo, int $productId, int $itemId): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
         $pdo->prepare('DELETE FROM bundle_items WHERE id = ? AND product_id = ?')
             ->execute([$itemId, $productId]);
         jsonResponse(['data' => ['ok' => true]]);

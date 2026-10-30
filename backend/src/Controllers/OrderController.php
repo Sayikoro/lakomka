@@ -6,6 +6,11 @@ class OrderController
 {
     public static function create(PDO $pdo): void
     {
+        /* Анти-флуд: публичный эндпоинт создаёт заказы, списывает сток и
+           запускает письма через SMTP магазина — без лимита это и спам-дренаж,
+           и mail-бомбинг. 5 заказов в час с одного IP. */
+        self::assertNotFlooding($pdo);
+
         $raw = file_get_contents('php://input');
         $payload = json_decode($raw, true);
 
@@ -23,11 +28,22 @@ class OrderController
 
         if ($name === '')  self::fail('Укажите имя', 422);
         if ($phone === '') self::fail('Укажите телефон', 422);
+        if (mb_strlen($name) > 100)    $name = mb_substr($name, 0, 100);
+        if (mb_strlen($phone) > 30)    self::fail('Слишком длинный номер телефона', 422);
+        if (mb_strlen($address) > 300) self::fail('Слишком длинный адрес', 422);
+        if (mb_strlen($comment) > 1000) self::fail('Слишком длинный комментарий', 422);
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            self::fail('Некорректный email', 422);
+        }
+        if ($email !== '' && mb_strlen($email) > 120) self::fail('Слишком длинный email', 422);
         if (!in_array($method, ['pickup', 'city', 'region', 'tk'], true)) {
             self::fail('Некорректный способ доставки', 422);
         }
         if (!is_array($items) || count($items) === 0) {
             self::fail('Корзина пуста', 422);
+        }
+        if (count($items) > 50) {
+            self::fail('Слишком много позиций в заказе', 422);
         }
 
         $pdo->exec('BEGIN IMMEDIATE');
@@ -46,7 +62,7 @@ class OrderController
                 $productId = (int)($row['product_id'] ?? 0);
                 $qty = (int)($row['qty'] ?? 0);
 
-                if ($productId <= 0 || $qty <= 0) {
+                if ($productId <= 0 || $qty <= 0 || $qty > 999) {
                     throw new RuntimeException('Некорректная позиция корзины');
                 }
 
@@ -130,6 +146,14 @@ class OrderController
 
             $pdo->exec('COMMIT');
 
+            // Фиксируем заказ в анти-флуд-счётчике и чистим старые записи
+            try {
+                $pdo->prepare('INSERT INTO order_rate (ip) VALUES (?)')
+                    ->execute([self::clientIp()]);
+                $pdo->exec("DELETE FROM order_rate WHERE created_at < datetime('now', '-1 day')");
+            } catch (Throwable $ignored) {
+            }
+
             // Письма — после COMMIT, ошибки не ломают ответ.
             // Статус письма клиенту фиксируем в orders.email_sent / email_error,
             // чтобы админка показала красный маркер и кнопку «Отправить клиенту».
@@ -185,5 +209,45 @@ class OrderController
     private static function fail(string $message, int $status = 400): never
     {
         jsonResponse(['error' => $message], $status);
+    }
+
+    /* ============================================================
+       АНТИ-ФЛУД (рейт-лимит заказов)
+       ============================================================ */
+
+    private static function clientIp(): string
+    {
+        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
+            if (!empty($_SERVER[$k])) {
+                $ip = explode(',', (string)$_SERVER[$k])[0];
+                $ip = trim($ip);
+                if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+            }
+        }
+        return '0.0.0.0';
+    }
+
+    private static function assertNotFlooding(PDO $pdo): void
+    {
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM order_rate
+                 WHERE ip = ? AND created_at > datetime('now', '-60 minutes')"
+            );
+            $stmt->execute([self::clientIp()]);
+            if ((int)$stmt->fetchColumn() >= 5) {
+                self::fail('Слишком много заказов за последний час. Позвоните нам — оформим вручную.', 429);
+            }
+        } catch (Throwable $e) {
+            // Таблицы ещё нет (сайт обновился с голосой базы) — создаём и идём дальше
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS order_rate (
+                    ip TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )");
+                $pdo->exec('CREATE INDEX IF NOT EXISTS idx_order_rate_ip ON order_rate(ip, created_at)');
+            } catch (Throwable $ignored) {
+            }
+        }
     }
 }

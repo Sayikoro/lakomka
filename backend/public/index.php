@@ -22,17 +22,47 @@ header('Content-Type: application/json; charset=utf-8');
 // При same-origin проксировании (прод, превью) браузер сам не требует CORS.
 $_corsConfig = require __DIR__ . '/../config.php';
 $_origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-if ($_origin !== '' && in_array($_origin, $_corsConfig['cors_allowed_origins'] ?? [], true)) {
-    header('Access-Control-Allow-Origin: ' . $_origin);
-    header('Access-Control-Allow-Credentials: true');
-    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization');
-    header('Vary: Origin');
+$_host = $_SERVER['HTTP_HOST'] ?? '';
+// Локальный/доверенный прокси (Next-превью, dev): Host — loopback, origin — домен
+// превью. На публичном хостинге Host — реальный домен, там проверка строгая.
+$_hostIsLocal = (bool)preg_match(
+    '/^(localhost|127\.|::1|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i',
+    $_host
+);
+$_originAllowed = $_hostIsLocal;
+if ($_origin !== '') {
+    $_originHost = (string)(parse_url($_origin, PHP_URL_HOST) ?? '');
+    $_originPort = parse_url($_origin, PHP_URL_PORT);
+    $_originHostPort = $_originPort ? "{$_originHost}:{$_originPort}" : $_originHost;
+    if ($_originHost !== '' && $_host !== ''
+        && strcasecmp($_originHostPort, $_host) === 0) {
+        $_originAllowed = true; // тот же хост:порт — same-origin запрос
+    }
+    if (in_array($_origin, $_corsConfig['cors_allowed_origins'] ?? [], true)) {
+        $_originAllowed = true;
+        header('Access-Control-Allow-Origin: ' . $_origin);
+        header('Access-Control-Allow-Credentials: true');
+        header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+        header('Vary: Origin');
+    }
 }
-unset($_corsConfig, $_origin);
+unset($_corsConfig, $_origin, $_originHost, $_originPort, $_originHostPort, $_host, $_hostIsLocal);
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
+    exit;
+}
+
+/* CSRF-щит: изменяющие запросы браузера обязаны идти с нашего origin.
+   SameSite=Lax уже не пускает куку в кросс-сайтовые POST — это вторая
+   ступень. Запросы без Origin (curl, серверные клиенты) не трогаем —
+   они всё равно проходят авторизацию токеном. */
+if (in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'PATCH', 'DELETE'], true)
+    && isset($_SERVER['HTTP_ORIGIN']) && !$_originAllowed) {
+    header('Content-Type: application/json; charset=utf-8');
+    http_response_code(403);
+    echo json_encode(['error' => 'Запрос с недоверенного origin отклонён']);
     exit;
 }
 
@@ -544,9 +574,21 @@ $stmt->execute([$m[1]]);
     ], 404);
 
 } catch (Throwable $e) {
-    jsonResponse([
-        'error' => $e->getMessage(),
-        'file'  => basename($e->getFile()),
-        'line'  => $e->getLine(),
-    ], 500);
+    // Детали — только в лог: наружу пути/строки/SQL не отдаём (ни хостинг,
+    // ни ИИ-агент не должны узнавать структуру кода по сообщению об ошибке).
+    error_log('[fatal] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    $__debug = false;
+    try {
+        $__cfg = require __DIR__ . '/../config.php';
+        $__debug = !empty($__cfg['debug']);
+    } catch (Throwable $ignored) {
+    }
+    if ($__debug) {
+        jsonResponse([
+            'error' => $e->getMessage(),
+            'file'  => basename($e->getFile()),
+            'line'  => $e->getLine(),
+        ], 500);
+    }
+    jsonResponse(['error' => 'Внутренняя ошибка сервера. Мы уже записали её в журнал.'], 500);
 }
