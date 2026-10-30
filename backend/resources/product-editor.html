@@ -285,7 +285,8 @@ details.help .imh{color:var(--warn);font-weight:600}
       <button class="btn btn-primary" id="btnPickZip">Выбрать ZIP…</button>
       <button class="btn btn-ghost" id="btnPickCsv">Выбрать products.csv…</button>
     </div>
-    <p class="hintline">Работает и без интернета. Правки автоматически сохраняются в черновик браузера.</p>
+    <p class="hintline">Работает и без интернета. Правки автоматически сохраняются в черновик браузера.<br>
+    <b>Chrome / Edge / Яндекс.Браузер:</b> кнопка «Сохранить ZIP» перезапишет <u>тот же файл</u>, который вы открыли — без скачивания копий.</p>
   </div>
 
   <div class="loading" id="loading" style="display:none">
@@ -357,7 +358,7 @@ details.help .imh{color:var(--warn);font-weight:600}
       <li>Перетащите <b>ZIP целиком</b> на эту страницу (распаковывать не обязательно) — либо только products.csv.</li>
       <li>Отредактируйте товары: правьте прямо в таблице или откройте карточку кнопкой ✎. Строку можно <b>продублировать</b> (⧉) или удалить (✕). Новые строки без ID создадутся как новые товары.</li>
       <li><b>Медиа:</b> превью видно прямо в таблице (видео проигрывается без кнопок). Добавляйте файлы <b>перетаскиванием</b> в зоны «Картинки» / «Видео» в карточке товара (jpg/png/webp/gif · mp4/webm/mov) — при «Сохранить ZIP» они войдут в архив. Убрать медиа — ✕ на плитке (на сайте оно удалится при импорте).</li>
-      <li>Нажмите <b>«Сохранить ZIP»</b> — скачается готовый архив с вашим products.csv и всеми медиа. Либо «Скачать CSV» и добавьте его в исходный архив вручную (замените products.csv).</li>
+      <li>Нажмите <b>«Сохранить ZIP»</b> — в Chrome/Edge/Яндекс.Браузере архив <u>перезаписывается на месте</u>: тот же файл, который вы открыли, копии не плодятся (при первом сохранении браузер спросит разрешение — ответьте «Разрешить»). В остальных браузерах скачается готовый архив <b>lakomka-products-edited.zip</b>. Либо «Скачать CSV» и добавьте его в исходный архив вручную (замените products.csv).</li>
       <li>В админке: <b>Товары → Импорт ZIP</b> с сохранённым архивом. Товары с существующим ID/slug обновятся, новые — создадутся.</li>
     </ol>
     <p style="margin-bottom:16px">
@@ -759,6 +760,7 @@ const S = {
   originalCsvText: "", // исходный CSV (для сброса)
   zipName: "", zipSize: 0,
   zipCtx: null,        // {entries, zipBytes, dv}
+  fileHandle: null,    // FileSystemFileHandle открытого файла — «Сохранить ZIP» перезапишет ИМЕННО ЕГО (Chromium)
   mediaIndex: new Map(), // lower(name) -> entry (images/, videos/)
   addedMedia: new Map(), // lower(name) -> {name, kind:'image'|'video', blob, url, ext} — файлы drag&drop
   previewCache: new Map(), // kind+":"+lower(name) -> Promise<objectURL> — ленивые превью
@@ -879,7 +881,7 @@ function setUiLoaded() {
   $("btnReset").disabled = $("btnCsv").disabled = $("btnZip").disabled = false;
 }
 
-async function loadFromZipFile(file) {
+async function loadFromZipFile(file, handle) {
   showLoading("Читаем архив…");
   try {
     const buf = await file.arrayBuffer();
@@ -891,6 +893,7 @@ async function loadFromZipFile(file) {
     const csvText = new TextDecoder("utf-8").decode(csvBytes);
 
     S.zipName = file.name; S.zipSize = file.size; S.zipCtx = ctx;
+    S.fileHandle = handle && typeof handle.createWritable === "function" ? handle : null;
     S.mediaIndex = new Map();
     for (const e of ctx.entries) {
       if (e.isDir || e.isCsv) continue;
@@ -908,11 +911,12 @@ async function loadFromZipFile(file) {
   }
 }
 
-async function loadFromCsvFile(file) {
+async function loadFromCsvFile(file, handle) {
   showLoading("Читаем CSV…");
   try {
     const text = await file.text();
     S.zipName = file.name; S.zipSize = file.size; S.zipCtx = null;
+    S.fileHandle = handle && typeof handle.createWritable === "function" ? handle : null;
     S.mediaIndex = new Map();
     clearAddedMedia();
     acceptCsv(text, `${file.name} · ${fmtInt(Math.round(file.size / 1024))} КБ · только CSV`);
@@ -1201,11 +1205,19 @@ function addRow() {
     show: "1", published: "1", legacy: "",
     _changed: true,
   });
+  const newIdx = S.rows.length - 1;
+  /* новый товар может быть скрыт фильтрами (поиск/тип/изменённые) — снимаем их,
+     иначе строка добавится «куда-то невидимо» и покажется, что кнопка не работает */
+  if (!visibleRows().some(v => v.i === newIdx)) {
+    S.filterText = ""; S.filterType = "all"; S.onlyChanged = false; S.onlyErrors = false;
+    $("search").value = "";
+    for (const c of $("typeChips").children) c.classList.toggle("on", c.dataset.type === "all");
+    $("onlyChanged").checked = false;
+    $("onlyErrors").checked = false;
+  }
   renderAll();
   saveDraft();
-  const vis = visibleRows();
-  const last = vis[vis.length - 1];
-  if (last) openDrawer(last.i);
+  openDrawer(newIdx);
 }
 
 /* ============================ Обработчики таблицы ============================ */
@@ -1337,6 +1349,10 @@ $("btnReset").addEventListener("click", () => {
   acceptCsv(S.originalCsvText, $("fileinfo").textContent.replace(/ · восстановлен черновик$/, ""));
   toast("Правки сброшены", "ok");
 });
+
+/* + Добавить товар: пустая строка без ID (при импорте создастся новый товар),
+   карточка открывается сразу — осталось вписать название и цену */
+$("btnAdd").addEventListener("click", () => addRow());
 
 /* ============================ Боковая панель ============================ */
 
@@ -1692,12 +1708,64 @@ function downloadBlob(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
 }
 
+/* ============ Перезапись исходного файла (File System Access API, Chromium) ============ */
+
+const FS_OK = typeof window.showOpenFilePicker === "function";
+
+/* Открыть файл с сохранением ссылки на него (для перезаписи на месте).
+   Возвращает {file, handle} или null — если API нет/отменено/упало. */
+async function pickFileWithHandle(acceptTypes) {
+  if (!FS_OK) return null;
+  try {
+    const [handle] = await window.showOpenFilePicker({ multiple: false, types: acceptTypes });
+    const file = await handle.getFile();
+    return { file, handle };
+  } catch (e) {
+    if (e && e.name === "AbortError") return null; // пользователь отменил — тихо
+    return null; // API недоступен (напр. политики file://) — фолбэк на <input>
+  }
+}
+
+/* Записать blob в ТОТ ЖЕ файл: браузер пишет во временный файл и подменяет
+   оригинал атомарно на close() — сбой в середине не испортит архив. */
+async function overwriteSameFile(handle, blob) {
+  let perm = "granted";
+  if (handle.queryPermission) perm = await handle.queryPermission({ mode: "readwrite" });
+  if (perm !== "granted" && handle.requestPermission) {
+    perm = await handle.requestPermission({ mode: "readwrite" }); // вызывается из клика — жест есть
+  }
+  if (perm !== "granted") return false;
+  const w = await handle.createWritable();
+  await w.write(blob);
+  await w.close();
+  return true;
+}
+
+/* После успешной записи в файл: правки больше не «несохранённые» */
+function afterInPlaceSave() {
+  for (const p of S.rows) p._changed = false;
+  try { localStorage.removeItem(S.draftKey); } catch (e) {}
+  $("draftbar").classList.remove("show");
+  renderAll();
+}
+
 function invalidCount() { return S.rows.filter(p => rowErrors(p).length).length; }
 
-$("btnCsv").addEventListener("click", () => {
+$("btnCsv").addEventListener("click", async () => {
   const bad = invalidCount();
   if (bad && !confirm(`Строк с ошибками: ${bad}. CSV всё равно скачается, но такие строки импорт отбросит. Продолжить?`)) return;
-  downloadBlob(new Blob([serializeCsv(S.rows)], { type: "text/csv;charset=utf-8" }), "products.csv");
+  const blob = new Blob([serializeCsv(S.rows)], { type: "text/csv;charset=utf-8" });
+  /* в CSV-режиме (без ZIP) при открытии через FS-пикер — перезаписываем тот же csv */
+  if (!S.zipCtx && S.fileHandle && typeof S.fileHandle.createWritable === "function") {
+    let done = false;
+    try { done = await overwriteSameFile(S.fileHandle, blob); } catch (e) { console.error(e); }
+    if (done) {
+      afterInPlaceSave();
+      toast("CSV сохранён в тот же файл: " + (S.fileHandle.name || S.zipName), "ok");
+      return;
+    }
+  }
+  downloadBlob(blob, "products.csv");
   toast("CSV скачан — замените им products.csv в исходном архиве", "ok");
 });
 
@@ -1723,10 +1791,26 @@ $("btnZip").addEventListener("click", async () => {
     const csvBytes = new TextEncoder().encode(serializeCsv(S.rows));
     const blob = buildZip(S.zipCtx.entries, csvBytes, extra);
     const base = (S.zipName || "lakomka-products").replace(/\.zip$/i, "");
-    downloadBlob(blob, base + "-edited.zip");
-    toast(S.addedMedia.size
-      ? `ZIP собран: +${S.addedMedia.size} новых медиа — импортируйте в админке`
-      : "ZIP собран — импортируйте его в админке", "ok");
+
+    /* Главное: перезаписать ТОТ ЖЕ файл, который открыли — без скачивания копии.
+       Не Chromium (Firefox/Safari) или нет ссылки на файл → фолбэк на скачивание. */
+    let savedInPlace = false;
+    if (S.fileHandle && typeof S.fileHandle.createWritable === "function") {
+      try { savedInPlace = await overwriteSameFile(S.fileHandle, blob); }
+      catch (err) { console.error(err); }
+    }
+    if (savedInPlace) {
+      afterInPlaceSave();
+      toast(`Сохранено в тот же файл: ${S.fileHandle.name || S.zipName} — импортируйте его в админке`, "ok");
+    } else {
+      downloadBlob(blob, base + "-edited.zip");
+      toast(S.fileHandle
+        ? "Не удалось перезаписать файл — скачана копия «-edited.zip», импортируйте её"
+        : (S.addedMedia.size
+          ? `ZIP собран: +${S.addedMedia.size} новых медиа — импортируйте его в админке`
+          : "ZIP собран — импортируйте его в админке"),
+        S.fileHandle ? "err" : "ok");
+    }
   } catch (err) {
     console.error(err);
     toast("Не удалось собрать ZIP: " + err.message, "err");
@@ -1738,8 +1822,23 @@ $("btnZip").addEventListener("click", async () => {
 
 /* ============================ Загрузка файлов (drop + picker) ============================ */
 
-$("btnPickZip").addEventListener("click", () => $("inpZip").click());
-$("btnPickCsv").addEventListener("click", () => $("inpCsv").click());
+$("btnPickZip").addEventListener("click", async () => {
+  /* Chromium: FS-пикер — даёт ссылку на файл, «Сохранить ZIP» сможет перезаписать его же */
+  const picked = await pickFileWithHandle([
+    { description: "Архив экспорта (ZIP)", accept: { "application/zip": [".zip"] } },
+  ]);
+  if (picked) { await loadFromZipFile(picked.file, picked.handle); return; }
+  if (FS_OK) return; // пользователь отменил пикер
+  $("inpZip").click(); // браузер без FS API — обычный выбор файла
+});
+$("btnPickCsv").addEventListener("click", async () => {
+  const picked = await pickFileWithHandle([
+    { description: "products.csv", accept: { "text/csv": [".csv"] } },
+  ]);
+  if (picked) { await loadFromCsvFile(picked.file, picked.handle); return; }
+  if (FS_OK) return;
+  $("inpCsv").click();
+});
 $("inpZip").addEventListener("change", (e) => { if (e.target.files[0]) loadFromZipFile(e.target.files[0]); e.target.value = ""; });
 $("inpCsv").addEventListener("change", (e) => { if (e.target.files[0]) loadFromCsvFile(e.target.files[0]); e.target.value = ""; });
 
@@ -1754,19 +1853,28 @@ document.addEventListener("dragleave", (e) => {
   if (--dragDepth <= 0) { dragDepth = 0; $("dropzone").classList.remove("drag"); }
 });
 document.addEventListener("dragover", (e) => e.preventDefault());
-document.addEventListener("drop", (e) => {
+document.addEventListener("drop", async (e) => {
   e.preventDefault();
   dragDepth = 0;
   $("dropzone").classList.remove("drag");
   const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
   if (!files.length) return;
+  /* ссылка на файл для перезаписи на месте (Chromium; в остальных — null и фолбэк) */
+  let droppedHandle = null;
+  try {
+    const item = [...(e.dataTransfer.items || [])].find(it => it.kind === "file");
+    if (item && item.getAsFileSystemHandle) {
+      const h = await item.getAsFileSystemHandle();
+      if (h && h.kind === "file") droppedHandle = h;
+    }
+  } catch (err) { /* нет поддержки — обычный режим */ }
   /* при открытой карточке медиа-файлы добавляются к текущему товару */
   if (S.drawerIdx >= 0) {
     if (splitDrop(files, false) > 0) return;
   }
   const f = files[0];
-  if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") loadFromZipFile(f);
-  else if (/\.csv$/i.test(f.name) || f.type === "text/csv") loadFromCsvFile(f);
+  if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") await loadFromZipFile(f, droppedHandle);
+  else if (/\.csv$/i.test(f.name) || f.type === "text/csv") await loadFromCsvFile(f, droppedHandle);
   else toast("Перетащите ZIP, CSV или медиа-файлы", "err");
 });
 

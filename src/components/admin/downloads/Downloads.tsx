@@ -30,6 +30,7 @@ interface DownloadItem {
   received: number;
   total: number;
   speed: number; // байт/с
+  note?: string; // «6 потоков · докачано после обрывов: 2»
   error?: string;
 }
 
@@ -65,7 +66,7 @@ function stageLabel(item: DownloadItem): string {
     default:
       switch (item.stage) {
         case "downloading":
-          return "Этап 1 · Скачиваем во временное хранилище браузера";
+          return `Этап 1 · Скачиваем во временное хранилище браузера${item.note ? ` · ${item.note}` : ""}`;
         case "assembling":
           return "Собираем файл из внутреннего хранилища…";
         case "saving":
@@ -81,6 +82,10 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
   const idRef = useRef(1);
   const handlesRef = useRef<Map<number, TwoStageHandle>>(new Map());
   const timingsRef = useRef<Map<number, { t: number; received: number }>>(new Map());
+  // Сглаженная скорость (EMA): мгновенное значение за окно 250 мс скачет
+  // вместе с пульсацией канала — индикатор «мерцает». EMA с τ≈1 с держит
+  // цифру ровной, не отставая от реальных изменений полосы.
+  const emaRef = useRef<Map<number, number>>(new Map());
 
   // чистим осиротевшие спулы прошлых сессий (краш/перезагрузка страницы)
   useEffect(() => {
@@ -124,7 +129,10 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
           if (!prev) {
             timingsRef.current.set(id, { t: now, received });
           } else if (now - prev.t >= 250) {
-            speed = (received - prev.received) / ((now - prev.t) / 1000);
+            const instant = (received - prev.received) / ((now - prev.t) / 1000);
+            const ema = (emaRef.current.get(id) ?? instant) * 0.78 + instant * 0.22;
+            emaRef.current.set(id, ema);
+            speed = ema;
             timingsRef.current.set(id, { t: now, received });
           }
           setItems((list) =>
@@ -133,6 +141,13 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         },
         onStage: (stage) => {
           setItems((list) => list.map((it) => (it.id === id ? { ...it, stage } : it)));
+        },
+        onMeta: (m) => {
+          const bits: string[] = [];
+          if (m.workers > 1) bits.push(`${m.workers} потоков`);
+          if (m.resumes > 0) bits.push(`докачано после обрывов: ${m.resumes}`);
+          const note = bits.length > 0 ? bits.join(" · ") : undefined;
+          setItems((list) => list.map((it) => (it.id === id ? { ...it, note } : it)));
         },
       });
       handlesRef.current.set(id, handle);
@@ -168,6 +183,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         .finally(() => {
           handlesRef.current.delete(id);
           timingsRef.current.delete(id);
+          emaRef.current.delete(id);
         });
     },
     [scheduleDismiss],

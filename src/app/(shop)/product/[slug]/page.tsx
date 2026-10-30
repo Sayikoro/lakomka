@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 
-import { getProductBySlug, lookupLegacySlug } from "@/lib/products";
+import { getProductBySlug, getProducts, lookupLegacySlug } from "@/lib/products";
 import { AddToCart } from "@/components/ui/AddToCart";
 import { ProductGallery } from "@/components/ui/ProductGallery";
 import { ProductTabs } from "@/components/ui/ProductTabs";
@@ -11,6 +11,15 @@ import { formatPrice } from "@/lib/utils";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
+}
+
+/* Для статического экспорта (деплой на обычный сервер): список всех
+ * товаров собирается на этапе билда, страницы товаров становятся
+ * готовыми HTML-файлами. В dev-режиме не мешает (нужные slug'и
+ * отрисовываются по требованию). */
+export async function generateStaticParams(): Promise<Array<{ slug: string }>> {
+  const products = await getProducts().catch(() => []);
+  return products.map((p) => ({ slug: p.slug }));
 }
 
 /** Вес в человекочитаемом виде: 520 → «520 г», 1500 → «1,5 кг» */

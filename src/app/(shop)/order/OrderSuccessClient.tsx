@@ -1,16 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
-interface PageProps {
-  params: Promise<{ number: string }>;
-}
-
-export const metadata = {
-  title: "Заказ оформлен — Лакомка",
-};
-
-export default async function OrderSuccessPage({ params }: PageProps) {
-  const { number } = await params;
-  const decoded = decodeURIComponent(number);
+export function OrderSuccessClient() {
+  const number = useSearchParams().get("number") ?? "";
 
   return (
     <div className="mx-auto max-w-[700px] px-4 py-20 text-center">
@@ -24,14 +18,14 @@ export default async function OrderSuccessPage({ params }: PageProps) {
         Номер вашего заказа:
       </p>
       <p className="mb-6 text-2xl font-semibold text-[var(--color-heading)]">
-        {decoded}
+        {number}
       </p>
       <p className="mb-8 text-[var(--color-muted)]">
         Менеджер свяжется с вами в рабочее время для подтверждения заказа
         и согласования доставки.
       </p>
       <Link
-        href="/catalog"
+        href="/catalog/"
         className="inline-flex rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-8 py-3 font-medium text-white transition hover:bg-[var(--color-primary-hover)]"
       >
         Вернуться в каталог

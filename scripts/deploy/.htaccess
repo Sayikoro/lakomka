@@ -1,0 +1,80 @@
+# ============================================================
+#  Лакомка — статика Next.js + PHP API на обычном Apache-хостинге
+#  Положить в КОРЕНЬ сайта (рядом с папками /backend, /_next, /uploads)
+#  Требования: Apache с mod_rewrite и разрешённым .htaccess (AllowOverride All)
+# ============================================================
+
+DirectoryIndex index.html
+Options -Indexes
+
+RewriteEngine On
+
+# ------------------------------------------------------------
+# 1. Защита: наружу отдаётся ТОЛЬКО backend/public/index.php.
+#    База (storage), исходники (src), конфиги — закрыты.
+# ------------------------------------------------------------
+RewriteCond %{REQUEST_URI} ^/backend/
+RewriteCond %{REQUEST_URI} !^/backend/public/index\.php$
+RewriteRule ^ - [F,L]
+
+# ------------------------------------------------------------
+# 2. /api/* → PHP-приложение (фронтконтроллер читает REQUEST_URI,
+#    поэтому видит настоящий адрес /api/... даже после rewrite)
+# ------------------------------------------------------------
+RewriteRule ^api(/.*)?$ backend/public/index.php [QSA,L]
+
+# ------------------------------------------------------------
+# 3. Красивые адреса: экспорт Next.js кладёт страницы в папки
+#    с index.html (/catalog/ и т.д.). Для надёжности — фолбэк
+#    на .html, если файл запрошен без слэша.
+# ------------------------------------------------------------
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.html -f
+RewriteRule ^(.+?)/?$ $1.html [L]
+
+# ------------------------------------------------------------
+# 4. Старые WordPress-адреса → новые страницы (301)
+# ------------------------------------------------------------
+Redirect 301 /shop /catalog/
+Redirect 301 /checkout-2 /checkout/
+Redirect 301 /my-account /
+Redirect 301 /privacy-policy /privacy/
+RewriteRule ^wp-login\.php$ / [R=301,L]
+RewriteRule ^wp-json(/.*)?$ / [R=301,L]
+RewriteRule ^wp-admin(/.*)?$ / [R=301,L]
+RewriteRule ^comments/feed(/.*)?$ / [R=301,L]
+RewriteRule ^feed(/.*)?$ / [R=301,L]
+
+# ------------------------------------------------------------
+# 5. Страница 404 (сгенерирована Next.js)
+# ------------------------------------------------------------
+ErrorDocument 404 /404.html
+
+# ------------------------------------------------------------
+# 6. Сжатие и кэш (модули есть не везде — обёрнуто в IfModule)
+# ------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+<IfModule mod_expires.c>
+  ExpiresActive On
+  # Хэшированные ассеты Next.js — кэш на год
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  # Медиа товаров — месяц
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType video/mp4 "access plus 1 month"
+  # HTML и JSON API — без кэша
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType application/json "access plus 0 seconds"
+</IfModule>
+
+# ------------------------------------------------------------
+# 7. HTTPS: раскомментируйте после выпуска сертификата
+#    (обычно сертификат выпускается в панели хостинга автоматически)
+# ------------------------------------------------------------
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]

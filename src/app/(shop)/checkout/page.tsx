@@ -130,7 +130,7 @@ export default function CheckoutPage() {
       }
 
       clear();
-      router.push(`/order/${encodeURIComponent(json.data.order_number)}`);
+      router.push(`/order/?number=${encodeURIComponent(json.data.order_number)}`);
     } catch {
       setSubmitError("Ошибка сети. Попробуйте ещё раз.");
     } finally {

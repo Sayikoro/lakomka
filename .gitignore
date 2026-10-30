@@ -55,3 +55,21 @@ backend/public/uploads-test/
 # next.js env
 .env.local
 .env*.local
+
+# статическая сборка и деплой-артефакты
+.next-static/
+.deploy-package/
+out/
+download/
+.admin-export-stash/
+
+# деплой-архив (121МБ — GitHub не примет файл >100МБ)
+/deploy/
+
+# служебные артефакты песочницы и отладки (не часть сайта)
+.admin-page.html
+.initial_snapshot.json
+.git-stub/
+.png-backup/
+.png-repair/
+Caddyfile

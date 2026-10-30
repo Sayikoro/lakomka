@@ -1,7 +1,8 @@
 import { ImageResponse } from "next/og";
 import { SITE } from "@/lib/site";
 
-export const runtime = "edge";
+export const runtime = "nodejs"; // edge не поддерживается статическим экспортом (деплой), next/og работает и в Node
+export const dynamic = "force-static"; // требуется для output: export — OG-картинка генерируется один раз при сборке
 export const alt = "Лакомка — новогодние подарки";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

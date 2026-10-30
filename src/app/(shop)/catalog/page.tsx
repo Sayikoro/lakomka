@@ -1,4 +1,4 @@
-import { getCategories, getProducts, getCandyFilters } from "@/lib/products";
+import { getCategories, getProducts } from "@/lib/products";
 import { getPublicSettings } from "@/lib/settings";
 import { tFrom } from "@/lib/page-texts";
 import { CatalogClient } from "./CatalogClient";
@@ -19,11 +19,10 @@ export const metadata: Metadata = {
 };
 
 export default async function CatalogPage() {
-  const [products, categories, cfg, candyFilters] = await Promise.all([
+  const [products, categories, cfg] = await Promise.all([
     getProducts(),
     getCategories(),
     getPublicSettings(),
-    getCandyFilters(),
   ]);
 
   return (
@@ -49,7 +48,6 @@ export default async function CatalogPage() {
           products={products}
           categories={categories}
           template={cfg.product_card_template}
-          candyFilters={candyFilters}
         />
       )}
     </div>

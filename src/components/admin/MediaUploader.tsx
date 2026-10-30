@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
+import { MediaGallery, type GalleryPick } from "@/components/admin/MediaGallery";
 
 export interface MediaItem {
   id: number;
@@ -39,6 +40,8 @@ export function MediaUploader({ productId, initial }: Props) {
   const [urlModalOpen, setUrlModalOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
   const [savingUrl, setSavingUrl] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [attaching, setAttaching] = useState(false);
 
   const imgInputRef = useRef<HTMLInputElement>(null);
   const vidInputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +163,39 @@ export function MediaUploader({ productId, initial }: Props) {
     }
   }
 
+  /* ============ ДОБАВЛЕНИЕ ИЗ МЕДИА-ГАЛЕРЕИ ============
+     Файлы, уже лежащие в public/uploads (раздел «media» файлового
+     менеджера), привязываются к товару без повторной загрузки. */
+  async function attachFromGallery(picked: GalleryPick[]) {
+    if (picked.length === 0) return;
+    setError(null);
+    setAttaching(true);
+    const failed: string[] = [];
+    try {
+      for (const p of picked) {
+        try {
+          const res = await fetch(`${apiUrl}/admin/products/${productId}/media/attach`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ url: p.url }),
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            failed.push(`${p.name}: ${json.error ?? "не удалось добавить"}`);
+            continue;
+          }
+          setItems((list) => reindex([...list, json.data]));
+        } catch {
+          failed.push(`${p.name}: ошибка сети`);
+        }
+      }
+    } finally {
+      setAttaching(false);
+      if (failed.length > 0) setError(failed.join("; "));
+    }
+  }
+
   /* ============ УДАЛЕНИЕ ============ */
   async function removeItem(id: number) {
     if (!confirm("Удалить этот медиа-файл?")) return;
@@ -247,6 +283,15 @@ export function MediaUploader({ productId, initial }: Props) {
           </button>
           <button
             type="button"
+            onClick={() => setGalleryOpen(true)}
+            disabled={attaching}
+            title="Выбрать готовые файлы из медиа-галереи сайта (папка /uploads) — без повторной загрузки"
+            className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-1.5 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)] disabled:opacity-60"
+          >
+            {attaching ? "Добавляем…" : "🖼 Из галереи"}
+          </button>
+          <button
+            type="button"
             onClick={() => setUrlModalOpen(true)}
             className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-1.5 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)]"
           >
@@ -275,6 +320,7 @@ export function MediaUploader({ productId, initial }: Props) {
 
       <p className="text-xs text-[var(--color-muted)]">
         Перетаскивайте элементы, чтобы менять порядок. Первый элемент — обложка товара.
+        Кнопка «Из галереи» позволяет выбрать уже загруженные на сайт файлы.
       </p>
 
       {error && (
@@ -373,6 +419,15 @@ export function MediaUploader({ productId, initial }: Props) {
           })}
         </div>
       )}
+
+      {/* Медиа-галерея (выбор из /uploads) */}
+      <MediaGallery
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        onPick={attachFromGallery}
+        accept="all"
+        apiUrl={apiUrl}
+      />
 
       {/* Модалка URL видео */}
       {urlModalOpen && (

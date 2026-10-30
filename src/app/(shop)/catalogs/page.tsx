@@ -4,6 +4,7 @@ import { CatalogsBrowser } from "./CatalogsBrowser";
 import { getPublicSettings } from "@/lib/settings";
 import { tFrom } from "@/lib/page-texts";
 import type { PdfDocInfo } from "@/components/pdf/PdfButtons";
+import { FETCH_CACHE } from "@/lib/fetch-cache";
 
 export const metadata: Metadata = {
   title: "Скачать каталоги",
@@ -21,7 +22,7 @@ interface DocsMap {
 
 async function getDocs(): Promise<DocsMap> {
   try {
-    const res = await fetch(`${API_URL}/pdfs`, { cache: "no-store" });
+    const res = await fetch(`${API_URL}/pdfs`, { cache: FETCH_CACHE });
     if (!res.ok) return {};
     const json = (await res.json()) as { data?: DocsMap };
     return json.data ?? {};

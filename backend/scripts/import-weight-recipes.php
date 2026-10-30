@@ -1,7 +1,20 @@
 <?php
 require __DIR__ . '/../src/Database.php';
 
-$pdo = Database::get();
+/* Task 62: опциональная песочница БД (argv[3]) — для учений по восстановлению
+   (импорт матрицы в копию БД, не трогая живую). Без аргумента — живая БД. */
+$dbOverride = $argv[3] ?? null;
+if ($dbOverride !== null && $dbOverride !== '') {
+    if (!file_exists($dbOverride)) {
+        fwrite(STDERR, "Sandbox DB not found: $dbOverride\n");
+        exit(1);
+    }
+    $pdo = new PDO('sqlite:' . $dbOverride);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    echo "SANDBOX DB: $dbOverride\n";
+} else {
+    $pdo = Database::get();
+}
 
 /* ============ Автоопределение разделителя ============ */
 function detectDelimiter(string $path): string

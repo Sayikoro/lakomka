@@ -44,15 +44,8 @@ export interface Product {
   media: ProductMedia[];
   images: ProductImage[];
   bundle_items?: BundleItem[];
-  /** Task 50: id конфет состава (для фильтра «Состав» в каталоге) */
+  /** id конфет состава набора (приходит из API, используется подсказками состава) */
   component_ids?: number[];
-}
-
-/** Task 50: кастомный набор конфет, участвующий в фильтре «Состав» каталога */
-export interface CandyFilter {
-  id: number;
-  name: string;
-  product_ids: number[];
 }
 
 export interface CartLine {

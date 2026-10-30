@@ -191,6 +191,74 @@ class AdminImagesController
     }
 
     /* ============================================================
+       ПРИВЯЗКА ГОТОВОГО ФАЙЛА ИЗ МЕДИА-ГАЛЕРЕИ
+       POST /api/admin/products/{id}/media/attach
+       body: { url: "/uploads/products/xxx/photo.jpg" }
+       Файл уже лежит в public/uploads (выбран в медиа-галерее,
+       раздел «media» файлового менеджера) — копирования не требуется,
+       создаётся только запись в product_images. Тип определяется
+       по расширению; дубли URL у одного товара запрещены.
+       ============================================================ */
+    public static function attach(PDO $pdo, int $productId): void
+    {
+        Auth::requireAuth();
+
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true) ?? [];
+        $url = trim((string)($data['url'] ?? ''));
+
+        if ($url === '') jsonResponse(['error' => 'Укажите URL'], 422);
+
+        // только локальные файлы из /uploads/ (никакого traversal)
+        $rel = str_starts_with($url, '/uploads/') ? substr($url, strlen('/uploads/')) : null;
+        if ($rel === null || $rel === '' || str_contains($url, '..')
+            || !preg_match('#^[A-Za-z0-9._\-/]+$#', $rel)) {
+            jsonResponse(['error' => 'Допустимы только файлы из /uploads/'], 422);
+        }
+
+        $uploadsRoot = realpath(__DIR__ . '/../../../public/uploads');
+        $realFile = $uploadsRoot === false ? false : realpath(__DIR__ . '/../../../public' . $url);
+        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
+            || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            jsonResponse(['error' => 'Файл не найден в медиа-галерее'], 404);
+        }
+
+        $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
+        $type = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true) ? 'image'
+              : (in_array($ext, ['mp4', 'webm'], true) ? 'video' : null);
+        if ($type === null) {
+            jsonResponse(['error' => "Формат не поддерживается: .$ext"], 422);
+        }
+
+        $stmt = $pdo->prepare('SELECT id FROM products WHERE id = ?');
+        $stmt->execute([$productId]);
+        if (!$stmt->fetchColumn()) jsonResponse(['error' => 'Товар не найден'], 404);
+
+        $dup = $pdo->prepare('SELECT COUNT(*) FROM product_images WHERE product_id = ? AND url = ?');
+        $dup->execute([$productId, $url]);
+        if ((int)$dup->fetchColumn() > 0) {
+            jsonResponse(['error' => 'Этот файл уже добавлен к товару'], 409);
+        }
+
+        $sort = self::nextSort($pdo, $productId);
+
+        $pdo->prepare(
+            "INSERT INTO product_images (product_id, url, alt, media_type, sort_order)
+             VALUES (?, ?, NULL, ?, ?)"
+        )->execute([$productId, $url, $type, $sort]);
+
+        jsonResponse([
+            'data' => [
+                'id'         => (int)$pdo->lastInsertId(),
+                'type'       => $type,
+                'url'        => $url,
+                'alt'        => null,
+                'sort_order' => $sort,
+            ],
+        ], 201);
+    }
+
+    /* ============================================================
        УДАЛИТЬ ЛЮБОЙ МЕДИА-ЭЛЕМЕНТ
        DELETE /api/admin/products/{id}/media/{mediaId}
        ============================================================ */
@@ -205,7 +273,14 @@ class AdminImagesController
         $url = $stmt->fetchColumn();
         if (!$url) jsonResponse(['error' => 'Медиа не найдено'], 404);
 
-        self::deleteFile($url);
+        // Файл может использоваться несколькими товарами (медиа-галерея
+        // позволяет выбирать одни и те же файлы): удаляем с диска только
+        // если это последний потребитель этого URL.
+        $shared = $pdo->prepare('SELECT COUNT(*) FROM product_images WHERE url = ? AND id != ?');
+        $shared->execute([$url, $mediaId]);
+        if ((int)$shared->fetchColumn() === 0) {
+            self::deleteFile($url);
+        }
         $pdo->prepare('DELETE FROM product_images WHERE id = ?')->execute([$mediaId]);
 
         jsonResponse(['data' => ['ok' => true]]);

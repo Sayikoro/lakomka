@@ -355,6 +355,10 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';
         AdminProductsImportExportController::exportZipDownload($m[1]);
     }
+    if ($path === '/api/admin/products/export-zip-status' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';
+        AdminProductsImportExportController::exportZipStatus();
+    }
     if ($path === '/api/admin/files' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::list();
@@ -407,6 +411,11 @@ $stmt->execute([$m[1]]);
         Auth::requireEditor();
         require_once __DIR__ . '/../src/Controllers/AdminImagesController.php';
         AdminImagesController::addVideoUrl($pdo, (int)$m[1]);
+    }
+    if (preg_match('#^/api/admin/products/(\d+)/media/attach$#', $path, $m) && $method === 'POST') {
+        Auth::requireEditor();
+        require_once __DIR__ . '/../src/Controllers/AdminImagesController.php';
+        AdminImagesController::attach($pdo, (int)$m[1]);
     }
     if (preg_match('#^/api/admin/products/(\d+)/media/reorder$#', $path, $m) && $method === 'POST') {
         Auth::requireEditor();

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { SITE } from "@/lib/site";
 import { getProducts } from "@/lib/products";
 
-export const revalidate = 3600; // пересобирать раз в час
+export const dynamic = "force-static"; // для output: export; данные фиксируются на этапе сборки
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [

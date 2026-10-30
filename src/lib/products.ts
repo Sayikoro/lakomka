@@ -1,4 +1,5 @@
-import type { Product, BundleItem, ProductImage, ProductMedia, CandyFilter } from "./types";
+import type { Product, BundleItem, ProductImage, ProductMedia } from "./types";
+import { FETCH_CACHE } from "./fetch-cache";
 
 const API_URL = process.env.PHP_API_URL ?? "http://localhost:8000/api";
 
@@ -125,7 +126,7 @@ function normalize(p: ApiProduct): Product {
 
 export async function getProducts(): Promise<Product[]> {
   try {
-    const res = await fetch(`${API_URL}/products`, { cache: "no-store" });
+    const res = await fetch(`${API_URL}/products`, { cache: FETCH_CACHE });
     if (!res.ok) { console.error(`[products] API ${res.status}`); return []; }
     const json = (await res.json()) as { data: ApiProduct[] };
     return (json.data ?? []).map(normalize);
@@ -137,12 +138,16 @@ export async function getProducts(): Promise<Product[]> {
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
   try {
-    const res = await fetch(`${API_URL}/products/${slug}`, { cache: "no-store" });
+    const res = await fetch(`${API_URL}/products/${slug}`, { cache: FETCH_CACHE });
     if (res.status === 404) return null;
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[products] by-slug ${slug}: API ${res.status}`);
+      return null;
+    }
     const json = (await res.json()) as { data: ApiProduct };
     return normalize(json.data);
-  } catch {
+  } catch (err) {
+    console.error(`[products] by-slug ${slug}: fetch failed`, err);
     return null;
   }
 }
@@ -151,7 +156,7 @@ export async function lookupLegacySlug(legacySlug: string): Promise<string | nul
   try {
     const res = await fetch(
       `${API_URL}/products/by-legacy/${encodeURIComponent(legacySlug)}`,
-      { cache: "no-store" }
+      { cache: FETCH_CACHE }
     );
     if (!res.ok) return null;
     const json = (await res.json()) as { data: { slug: string } };
@@ -166,20 +171,9 @@ export interface Category {
   sort_order: number;
 }
 
-/** Task 50: кастомные наборы конфет с галочкой «Учитывать как фильтр» — фильтр «Состав» каталога */
-export async function getCandyFilters(): Promise<CandyFilter[]> {
-  try {
-    const res = await fetch(`${API_URL}/candy-filters`, { cache: "no-store" });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data: CandyFilter[] };
-    return (json.data ?? []).filter((s) => s.product_ids.length > 0);
-  } catch { return [];
-  }
-}
-
 export async function getCategories(): Promise<Category[]> {
   try {
-    const res = await fetch(`${API_URL}/categories`, { cache: "no-store" });
+    const res = await fetch(`${API_URL}/categories`, { cache: FETCH_CACHE });
     if (!res.ok) return [];
     const json = (await res.json()) as { data: Category[] };
     return json.data ?? [];

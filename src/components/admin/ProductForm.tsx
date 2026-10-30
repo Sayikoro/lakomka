@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { MediaGallery, type GalleryPick } from "@/components/admin/MediaGallery";
 import type { ProductType } from "@/lib/types";
 
 export interface ProductFormValues {
@@ -72,6 +74,11 @@ export function ProductForm({ mode, initial }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Медиа-галерея: при создании товара можно заранее выбрать картинки/видео —
+  // они привяжутся к товару сразу после создания (файлы НЕ копируются —
+  // в БД пишется только ссылка на уже существующий файл в /uploads).
+  const [picked, setPicked] = useState<GalleryPick[]>([]);
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   function set<K extends keyof ProductFormValues>(k: K, v: ProductFormValues[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -130,7 +137,19 @@ export function ProductForm({ mode, initial }: Props) {
       if (!res.ok) { setError(json.error ?? "Не удалось сохранить"); return; }
 
       if (mode === "create") {
-        router.push(`/admin/products/${json.data.id}`);
+        const newId = Number(json.data?.id);
+        // привязываем выбранные в галерее файлы к новому товару (по очереди)
+        for (const p of picked) {
+          try {
+            await fetch(`${apiUrl}/admin/products/${newId}/media/attach`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ url: p.url }),
+            });
+          } catch { /* не критично: медиа можно привязать и позже на странице товара */ }
+        }
+        router.push(`/admin/products/${newId}`);
       } else {
         setSaved(true);
         router.refresh();
@@ -340,6 +359,60 @@ export function ProductForm({ mode, initial }: Props) {
           Опубликован
         </label>
       </div>
+
+      {mode === "create" && (
+        <div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <label className={label}>Медиа товара (можно выбрать позже)</label>
+            <button
+              type="button"
+              onClick={() => setGalleryOpen(true)}
+              className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-1.5 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)]"
+            >
+              🖼 Выбрать из медиа-галереи
+            </button>
+          </div>
+          <p className="mb-2 text-xs text-[var(--color-muted)]">
+            Картинки и видео, уже загруженные на сайт (в том числе с других товаров).
+            Загрузить новые можно будет на странице товара после создания.
+          </p>
+          {picked.length > 0 && (
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 md:grid-cols-6">
+              {picked.map((p) => (
+                <div
+                  key={p.url}
+                  className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)]"
+                >
+                  {p.kind === "image" ? (
+                    <Image src={p.url} alt={p.name} fill sizes="120px" className="object-cover" />
+                  ) : (
+                    <video src={p.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                  )}
+                  {p.kind === "video" && (
+                    <span className="absolute right-1 top-1 rounded bg-black/60 px-1 py-0.5 text-[9px] font-medium text-white">
+                      видео
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPicked((list) => list.filter((x) => x.url !== p.url))}
+                    title="Убрать из выбора"
+                    className="absolute inset-0 hidden items-center justify-center bg-black/50 text-xl text-white group-hover:flex"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <MediaGallery
+            open={galleryOpen}
+            onClose={() => setGalleryOpen(false)}
+            onPick={(list) => setPicked((prev) => [...prev, ...list.filter((x) => !prev.some((p) => p.url === x.url))])}
+            accept="all"
+          />
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">

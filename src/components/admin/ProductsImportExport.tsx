@@ -6,6 +6,30 @@ import { uploadFileInChunks } from "@/lib/chunked-upload";
 import { FUNNY_PHRASES } from "@/lib/funny-phrases";
 import { useDownloads } from "@/components/admin/downloads/Downloads";
 
+interface ArchiveStatus {
+  exists: boolean;
+  file?: string;
+  download_url?: string;
+  size?: number;
+  updated_at?: string;
+  entries?: number;
+}
+
+interface ExportResult {
+  file: string;
+  download_url: string;
+  first_build: boolean;
+  added: number;
+  updated: number;
+  removed: number;
+  unchanged: number;
+  total_entries: number;
+  media_missing: number;
+  images_downloaded: number;
+  size: number;
+  updated_at: string;
+}
+
 interface ImportResult {
   rows_processed: number;
   created: number;
@@ -18,6 +42,13 @@ interface ImportResult {
   import_errors: string[];
   images_missing: string[];
   videos_missing: string[];
+  archive?: {
+    added: number;
+    updated: number;
+    removed: number;
+    unchanged: number;
+    error?: string;
+  } | null;
 }
 
 export function ProductsImportExport() {
@@ -25,8 +56,9 @@ export function ProductsImportExport() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const downloads = useDownloads();
 
+  const [archive, setArchive] = useState<ArchiveStatus | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [exportDone, setExportDone] = useState<{ url: string; name: string; size: number } | null>(null);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [importPct, setImportPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +66,24 @@ export function ProductsImportExport() {
   const [funnyIndex, setFunnyIndex] = useState(0);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const ARCHIVE_URL = `${apiUrl}/admin/products/export-zip-download/lakomka-products.zip`;
+
+  async function refreshArchive() {
+    try {
+      const res = await fetch(`${apiUrl}/admin/products/export-zip-status`, {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data) setArchive(json.data);
+    } catch {
+      /* статус не критичен */
+    }
+  }
+
+  useEffect(() => {
+    void refreshArchive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!exporting && !importing) {
@@ -50,11 +100,11 @@ export function ProductsImportExport() {
   async function handleExport() {
     setExporting(true);
     setError(null);
-    setExportDone(null);
+    setExportResult(null);
     try {
-      // Как у файловых свалок: сервер ЦЕЛИКОМ готовит архив обычным POST
-      // (без NDJSON-стрима в браузер), в ответе — готовая статическая ссылка.
-      // Скачивание — простой GET уже собранного файла.
+      // «Живой архив»: сервер обновляет lakomka-products.zip на месте —
+      // внутри ZIP заменяются только изменившиеся файлы (CSV, картинки,
+      // видео). В браузер НИЧЕГО не скачивается — копии не плодятся.
       const res = await fetch(`${apiUrl}/admin/products/export-zip`, {
         method: "POST",
         credentials: "include",
@@ -64,23 +114,27 @@ export function ProductsImportExport() {
         setError(json.error ?? `Ошибка ${res.status}`);
         return;
       }
-      const d = json.data;
-      if (!d?.public_url) {
-        setError("Сервер не вернул ссылку на архив");
-        return;
-      }
-      const name = String(d.file ?? "").replace(/^exports\//, "");
-      setExportDone({ url: d.public_url, name, size: Number(d.size) || 0 });
-
-      // Двухэтапное скачивание: этап 1 — файл собирается во внутреннем
-      // хранилище браузера (прогресс в панели загрузок), этап 2 — мгновенное
-      // сохранение на диск стандартным менеджером загрузок.
-      downloads.start({ url: d.public_url, name });
+      const d = json.data as ExportResult;
+      setExportResult(d);
+      setArchive({
+        exists: true,
+        file: d.file,
+        download_url: d.download_url,
+        size: d.size,
+        updated_at: d.updated_at,
+        entries: d.total_entries,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка сети");
     } finally {
       setExporting(false);
     }
+  }
+
+  function handleDownload() {
+    // Скачиваем с одного и того же постоянного адреса — файл всегда
+    // называется одинаково, никакой копии на копии
+    downloads.start({ url: ARCHIVE_URL, name: "lakomka-products.zip" });
   }
 
   async function handleImport(files: FileList | null) {
@@ -109,6 +163,7 @@ export function ProductsImportExport() {
         return;
       }
       setResult(json.data);
+      void refreshArchive();
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
@@ -125,15 +180,24 @@ export function ProductsImportExport() {
           type="button"
           onClick={handleExport}
           disabled={exporting || importing}
+          className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
+        >
+          {exporting ? "Обновляем архив…" : "🔄 Обновить архив"}
+        </button>
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={!archive?.exists || exporting || importing}
+          title="Сервер отдаст файл странице (в 6 потоков, с прогрессом), страница сохранит его на ваш диск уже скачанным"
           className="rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white disabled:opacity-60"
         >
-          {exporting ? "Готовим ZIP…" : "📤 Экспорт"}
+          ⬇️ Скачать ZIP
         </button>
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={importing || exporting}
-          className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
+          className="rounded-[var(--radius-btn)] border-2 border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-body)] hover:bg-[var(--color-bg-soft)] disabled:opacity-60"
         >
           {importing
             ? `Загружаем… ${importPct > 0 && importPct < 100 ? importPct + "%" : ""}`
@@ -148,6 +212,28 @@ export function ProductsImportExport() {
         />
       </div>
 
+      {archive?.exists && !exporting && (
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          📦 <b>lakomka-products.zip</b> — файлов: {archive.entries ?? "—"}
+          {typeof archive.size === "number" && <> · {(archive.size / 1024 / 1024).toFixed(1)} МБ</>}
+          {archive.updated_at && <> · обновлён {archive.updated_at}</>}
+          {" · "}
+          {/* Запасной путь: нативный менеджер браузера — ОДНО медленное
+              соединение, без прогресса в панели и без параллельной
+              докачки. Основной способ — кнопка «Скачать ZIP» выше: она
+              качает файл на страницу в 6 потоков и отдаёт вам уже
+              скачанный. */}
+          <a
+            href={ARCHIVE_URL}
+            download="lakomka-products.zip"
+            title="Запасной медленный способ: обычная загрузка одним соединением без панели прогресса"
+            className="underline decoration-dotted underline-offset-2 hover:text-[var(--color-primary)]"
+          >
+            запасной способ (медленнее)
+          </a>
+        </p>
+      )}
+
       {exporting && (
         <div className="mt-3">
           <div className="mb-1 text-xs text-[var(--color-muted)]">
@@ -159,24 +245,37 @@ export function ProductsImportExport() {
         </div>
       )}
 
-      {exportDone && (
+      {exportResult && (
         <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-          ✓ Архив готов: <b>{exportDone.name}</b> ({(exportDone.size / 1024 / 1024).toFixed(0)} МБ)
-          — скачивание идёт в панели загрузок (справа внизу),{" "}
-          <button
-            type="button"
-            onClick={() => downloads.start({ url: exportDone.url, name: exportDone.name })}
-            className="font-semibold underline"
-          >
-            скачать ещё раз
-          </button>
-          . Ссылка активна 2 часа
+          ✓ {exportResult.first_build ? "Архив собран" : "Архив обновлён"}:{" "}
+          {exportResult.first_build ? (
+            <>файлов: <b>{exportResult.added}</b></>
+          ) : (
+            <>
+              изменено: <b>{exportResult.updated}</b>, добавлено: <b>{exportResult.added}</b>,
+              удалено: <b>{exportResult.removed}</b>, без изменений: <b>{exportResult.unchanged}</b>
+            </>
+          )}
+          . Файлов в архиве: <b>{exportResult.total_entries}</b> (
+          {(exportResult.size / 1024 / 1024).toFixed(1)} МБ)
+          {exportResult.media_missing > 0 && (
+            <div className="mt-1 text-[13px] text-amber-700">
+              ⚠ {exportResult.media_missing} медиафайлов не нашлось на диске — их URL
+              перечислены в CSV, но в архив они не попали.
+            </div>
+          )}
+          <div className="mt-1 text-[13px] text-green-700">
+            Ничего не скачивалось — архив на сервере один и обновился точечно.
+            Нужна копия на компьютер — кнопка «Скачать ZIP».
+          </div>
           <div className="mt-1 text-[13px] text-green-700">
             💡 Внутри архива есть <b>editor.html</b> — откройте его в браузере,
             перетащите архив на страницу, поправьте товары в таблице, добавьте
             медиа перетаскиванием файлов в карточке товара (превью — прямо в
-            таблице) и нажмите «Сохранить ZIP». Полученный архив импортируйте
-            здесь — без ручного редактирования CSV.
+            таблице) и нажмите «Сохранить ZIP»: в Chrome/Edge/Яндекс.Браузере
+            он перезапишет <b>тот же файл</b>, который вы открыли — копии не плодятся.
+            Полученный архив импортируйте
+            здесь — ваши правки автоматически попадут и в архив на сервере.
           </div>
         </div>
       )}
@@ -223,6 +322,17 @@ export function ProductsImportExport() {
               <>, внешних видео-URL: <b>{result.videos_external}</b></>
             )}
           </p>
+
+          {result.archive && !result.archive.error && (
+            <p className="text-green-800">
+              📦 Живой архив синхронизирован: изменено{" "}
+              <b>{result.archive.updated}</b>, добавлено <b>{result.archive.added}</b>,
+              удалено <b>{result.archive.removed}</b>
+            </p>
+          )}
+          {result.archive?.error && (
+            <p className="text-amber-700">📦 {result.archive.error}</p>
+          )}
 
           {result.parse_errors.length > 0 && (
             <details className="mt-2">

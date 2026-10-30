@@ -104,6 +104,15 @@ class AdminProductsImportExportController
         self::cleanupTmp($tmpDir);
         ChunkedUpload::removeFile($fileName);
 
+        // «Живой архив» (Task 63): правки пользователя сразу попадают
+        // в lakomka-products.zip — отдельный экспорт не нужен
+        $archiveSync = null;
+        try {
+            $archiveSync = self::syncLivingArchive($pdo);
+        } catch (Throwable $e) {
+            $archiveSync = ['error' => 'Не удалось синхронизировать архив: ' . $e->getMessage()];
+        }
+
         jsonResponse([
             'data' => [
                 'rows_processed' => $parsed['rows_processed'],
@@ -116,15 +125,21 @@ class AdminProductsImportExportController
                 'import_errors' => $stats['errors'],
                 'images_missing' => array_values(array_unique($stats['images_missing'])),
                 'videos_missing' => array_values(array_unique($stats['videos_missing'])),
+                'archive' => $archiveSync,
             ],
         ]);
     }
 
     /* ============================================================
-       ЭКСПОРТ — как у файловых свалок: один POST целиком готовит архив
-       и в ответе отдаёт готовую статическую ссылку. Браузер НЕ участвует
-       в подготовке (никаких NDJSON-стримов, которые рвал прокси с 502):
-       сначала файл собирается на сервере, потом просто скачивается GET-ом.
+       ЭКСПОРТ — «живой архив» (Task 63).
+       Один постоянный файл: public/exports/lakomka-products.zip.
+       POST /api/admin/products/export-zip — ОБНОВЛЯЕТ архив на месте:
+       внутри ZIP переписываются только изменившиеся файлы (CSV,
+       картинки, видео, editor.html), ничего в браузер не скачивается.
+       Скачивание — отдельная кнопка: GET /export-zip-download/<файл>.
+       Изменения определяются по CRC32 записей (ZIP хранит CRC каждой
+       записи), поэтому манифест-файл не нужен и рассинхрон невозможен:
+       CRC считается из фактического содержимого архива.
        ============================================================ */
     public static function exportZip(PDO $pdo): void
     {
@@ -135,27 +150,109 @@ class AdminProductsImportExportController
             jsonResponse(['error' => 'Расширение zip не установлено'], 500);
         }
 
-        $exportsDir = __DIR__ . '/../../../public/exports'; // внутри public/ — ZIP отдаётся статикой
+        jsonResponse(['data' => self::syncLivingArchive($pdo)]);
+    }
+
+    /* Статус живого архива для UI: GET /api/admin/products/export-zip-status */
+    public static function exportZipStatus(): void
+    {
+        Auth::requireEditor();
+
+        $path = self::archivePath();
+        if (!is_file($path)) {
+            jsonResponse(['data' => ['exists' => false, 'file' => 'exports/lakomka-products.zip']]);
+        }
+
+        jsonResponse(['data' => [
+            'exists' => true,
+            'file' => 'exports/lakomka-products.zip',
+            'download_url' => '/api/admin/products/export-zip-download/lakomka-products.zip',
+            'size' => filesize($path),
+            'updated_at' => date('Y-m-d H:i', (int)filemtime($path)),
+            'entries' => self::countZipEntries($path),
+        ]]);
+    }
+
+    private static function archivePath(): string
+    {
+        return __DIR__ . '/../../../public/exports/lakomka-products.zip';
+    }
+
+    private static function countZipEntries(string $path): int
+    {
+        if (!class_exists('ZipArchive') || !is_file($path)) return 0;
+        $z = new ZipArchive();
+        if (@$z->open($path) !== true) return 0;
+        $n = 0;
+        for ($i = 0; $i < $z->numFiles; $i++) {
+            $name = $z->getNameIndex($i);
+            if ($name !== false && !str_ends_with($name, '/')) $n++;
+        }
+        $z->close();
+        return $n;
+    }
+
+    /* Ядро «живого архива»: приводит lakomka-products.zip к текущему состоянию
+       БД, переписывая ТОЛЬКО изменившиеся записи. Также вызывается после
+       импорта ZIP — правки пользователя сразу попадают в архив. */
+    private static function syncLivingArchive(PDO $pdo): array
+    {
+        $exportsDir = __DIR__ . '/../../../public/exports';
         if (!is_dir($exportsDir) && !@mkdir($exportsDir, 0755, true)) {
             jsonResponse(['error' => 'Не удалось создать папку для экспорта'], 500);
         }
-        foreach (glob($exportsDir . '/*.zip') as $old) {
-            if (is_file($old) && filemtime($old) < time() - 7200) @unlink($old);
+
+        // Уборка старых копий с датой в имени — остаётся один постоянный архив
+        foreach (glob($exportsDir . '/lakomka-*.zip') ?: [] as $old) {
+            $base = basename((string)$old);
+            if ($base !== 'lakomka-products.zip' && is_file($old)) @unlink($old);
         }
 
-        $ts = date('Y-m-d-H-i-s');
-        $filename = "lakomka-products-$ts.zip";
-        $finalPath = $exportsDir . '/' . $filename;
-        $tmpPath = tempnam(sys_get_temp_dir(), 'lakomka-exp-');
+        $archivePath = self::archivePath();
+        $firstBuild = !is_file($archivePath);
+
+        // Работаем над временной копией и подменяем атомарно:
+        // сбой в середине не оставит битый ZIP
+        $tmpPath = tempnam(sys_get_temp_dir(), 'lakomka-arc-');
         if ($tmpPath === false) {
             jsonResponse(['error' => 'Не удалось создать temp'], 500);
         }
 
         $zip = new ZipArchive();
-        if ($zip->open($tmpPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-            @unlink($tmpPath);
-            jsonResponse(['error' => 'Не удалось открыть ZIP'], 500);
+        $currentCrc = [];
+        if ($firstBuild) {
+            @unlink($tmpPath); // tempnam создаёт пустой файл — это не ZIP
+            $openOk = $zip->open($tmpPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        } else {
+            if (!@copy($archivePath, $tmpPath)) {
+                @unlink($tmpPath);
+                jsonResponse(['error' => 'Не удалось скопировать текущий архив'], 500);
+            }
+            $openOk = @$zip->open($tmpPath);
+            if ($openOk !== true) {
+                // Архив повреждён — молча пересобираем с нуля
+                @unlink($tmpPath);
+                $firstBuild = true;
+                $openOk = $zip->open($tmpPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+            }
         }
+        if ($openOk !== true) {
+            @unlink($tmpPath);
+            jsonResponse(['error' => 'Не удалось открыть ZIP для обновления'], 500);
+        }
+
+        // CRC32 (hex) всех записей текущего архива — по ним решаем, менять ли файл
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if ($name === false || str_ends_with($name, '/')) continue;
+            $st = $zip->statIndex($i);
+            $currentCrc[$name] = is_array($st) && isset($st['crc'])
+                ? sprintf('%08x', $st['crc'])
+                : null;
+        }
+
+        $cnt = ['added' => 0, 'updated' => 0, 'removed' => 0, 'unchanged' => 0];
+        $desired = [];
 
         try {
             $catMap = [];
@@ -245,8 +342,7 @@ class AdminProductsImportExportController
                             }
                             $ext = strtolower(pathinfo($srcPath, PATHINFO_EXTENSION)) ?: 'mp4';
                             $zipName = $p['id'] . '-v' . $videoCounter . '.' . $ext;
-                            $zip->addFile($srcPath, 'videos/' . $zipName);
-                            $zip->setCompressionName('videos/' . $zipName, ZipArchive::CM_STORE); // mp4 уже сжат, STORE — в разы быстрее
+                            self::zipUpsert($zip, $currentCrc, $desired, 'videos/' . $zipName, $srcPath, null, $cnt, true); // mp4 уже сжат, STORE — в разы быстрее
                             $videoNames[] = $zipName;
                             $videoCounter++;
                             $stats['videos_packed']++;
@@ -266,8 +362,7 @@ class AdminProductsImportExportController
                         $ext = strtolower(pathinfo($srcPath, PATHINFO_EXTENSION)) ?: 'jpg';
                         if ($ext === 'jpeg') $ext = 'jpg';
                         $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
-                        $zip->addFile($srcPath, 'images/' . $zipName);
-                        $zip->setCompressionName('images/' . $zipName, ZipArchive::CM_STORE); // jpg/png не сжимаются повторно — скорость
+                        self::zipUpsert($zip, $currentCrc, $desired, 'images/' . $zipName, $srcPath, null, $cnt, true); // jpg/png не сжимаются повторно — скорость
                         $imageNames[] = $zipName;
                         $imageCounter++;
                         $stats['images_packed']++;
@@ -279,8 +374,7 @@ class AdminProductsImportExportController
                             $ext = strtolower(pathinfo($localFile, PATHINFO_EXTENSION)) ?: 'jpg';
                             if ($ext === 'jpeg') $ext = 'jpg';
                             $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
-                            $zip->addFile($localFile, 'images/' . $zipName);
-                            $zip->setCompressionName('images/' . $zipName, ZipArchive::CM_STORE);
+                            self::zipUpsert($zip, $currentCrc, $desired, 'images/' . $zipName, $localFile, null, $cnt, true);
                             $imageNames[] = $zipName;
                             $imageCounter++;
                             $stats['images_packed']++;
@@ -305,7 +399,7 @@ class AdminProductsImportExportController
                         if ($ext === 'jpeg') $ext = 'jpg';
                         if (!in_array($ext, self::COVER_EXT, true)) $ext = 'jpg';
                         $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
-                        $zip->addFromString('images/' . $zipName, $blob);
+                        self::zipUpsert($zip, $currentCrc, $desired, 'images/' . $zipName, null, $blob, $cnt);
                         $imageNames[] = $zipName;
                         $imageCounter++;
                         $stats['images_downloaded']++;
@@ -330,7 +424,7 @@ class AdminProductsImportExportController
                 $csv .= implode(';', array_map([self::class, 'csvEscape'], $row)) . "\n";
             }
 
-            $zip->addFromString('products.csv', $csv);
+            self::zipUpsert($zip, $currentCrc, $desired, 'products.csv', null, $csv, $cnt);
 
             // Task 51: офлайн-редактор каталога внутри архива.
             // Пользователь открывает editor.html, перетаскивает ZIP (или products.csv),
@@ -338,32 +432,103 @@ class AdminProductsImportExportController
             // __DIR__ = backend/src/Controllers → ../../resources = backend/resources
             $editorPath = __DIR__ . '/../../resources/product-editor.html';
             if (is_file($editorPath)) {
-                $zip->addFromString('editor.html', (string)file_get_contents($editorPath));
+                self::zipUpsert($zip, $currentCrc, $desired, 'editor.html', $editorPath, null, $cnt);
+            }
+
+            // Записи, которых больше нет в БД (удалённые/заменённые медиа), убираем
+            foreach (array_keys($currentCrc) as $name) {
+                if (isset($desired[$name])) continue;
+                // deleteName вместо deleteEntry: в сборке PHP на хостинге нет deleteEntry
+                while (@$zip->locateName((string)$name) !== false) {
+                    if (!@$zip->deleteName((string)$name)) break;
+                    $cnt['removed']++;
+                }
             }
 
             $zip->close();
 
-            if (!@rename($tmpPath, $finalPath)) {
-                if (!@copy($tmpPath, $finalPath)) {
+            // Ничего не изменилось — не переписываем архив: mtime (и «обновлён»
+            // в UI) остаются честными, лишней записи на диск нет
+            if ($cnt['added'] + $cnt['updated'] + $cnt['removed'] > 0) {
+                if (!@rename($tmpPath, $archivePath)) {
+                    if (!@copy($tmpPath, $archivePath)) {
+                        @unlink($tmpPath);
+                        jsonResponse(['error' => 'Не удалось сохранить ZIP'], 500);
+                    }
                     @unlink($tmpPath);
-                    jsonResponse(['error' => 'Не удалось сохранить ZIP'], 500);
                 }
+                @chmod($archivePath, 0644);
+            } else {
                 @unlink($tmpPath);
             }
+            clearstatcache();
 
-            jsonResponse([
-                'data' => [
-                    'file' => 'exports/' . $filename,
-                    'public_url' => '/exports/' . $filename, // готовая статическая ссылка — браузер просто скачивает файл
-                    'size' => filesize($finalPath),
-                    'stats' => $stats,
-                ],
-            ]);
+            return [
+                'file' => 'exports/lakomka-products.zip',
+                'download_url' => '/api/admin/products/export-zip-download/lakomka-products.zip',
+                'first_build' => $firstBuild,
+                'added' => $cnt['added'],
+                'updated' => $cnt['updated'],
+                'removed' => $cnt['removed'],
+                'unchanged' => $cnt['unchanged'],
+                'total_entries' => count($desired),
+                'media_missing' => (int)$stats['images_skipped'] + (int)$stats['videos_skipped'],
+                'images_downloaded' => (int)$stats['images_downloaded'],
+                'size' => filesize($archivePath),
+                'updated_at' => date('Y-m-d H:i', (int)@filemtime($archivePath)),
+            ];
         } catch (Throwable $e) {
             @$zip->close();
             @unlink($tmpPath);
             jsonResponse(['error' => $e->getMessage()], 500);
         }
+    }
+
+    /* Добавить/заменить запись в ZIP, только если содержимое изменилось.
+       $currentCrc — карта «имя => CRC32 (hex)» существующих записей архива,
+       $desired — имена, которые должны остаться в архиве после сборки. */
+    private static function zipUpsert(
+        ZipArchive $zip,
+        array &$currentCrc,
+        array &$desired,
+        string $name,
+        ?string $srcPath,
+        ?string $content,
+        array &$cnt,
+        bool $store = false
+    ): void {
+        $desired[$name] = true;
+
+        if ($srcPath !== null) {
+            $crc = @hash_file('crc32b', $srcPath); // стриминг — большие видео не грузим в память
+            if ($crc === false) $crc = null;
+        } else {
+            $crc = hash('crc32b', (string)$content);
+        }
+
+        if ($crc !== null && isset($currentCrc[$name]) && $currentCrc[$name] === $crc) {
+            $cnt['unchanged']++; // запись уже актуальна — не трогаем
+            return;
+        }
+
+        if (isset($currentCrc[$name])) {
+            // deleteName вместо deleteEntry: в сборке PHP на хостинге нет deleteEntry;
+            // удаляем все записи с этим именем (дубликаты тоже)
+            while (@$zip->locateName($name) !== false) {
+                if (!@$zip->deleteName($name)) break;
+            }
+            $cnt['updated']++;
+        } else {
+            $cnt['added']++;
+        }
+
+        if ($srcPath !== null) {
+            $zip->addFile($srcPath, $name);
+        } else {
+            $zip->addFromString($name, (string)$content);
+        }
+        if ($store) $zip->setCompressionName($name, ZipArchive::CM_STORE);
+        $currentCrc[$name] = $crc;
     }
 
     public static function exportZipDownload(string $fileName): void
@@ -383,8 +548,66 @@ class AdminProductsImportExportController
         header_remove('Content-Type');
         header('Content-Type: application/zip');
         header("Content-Disposition: attachment; filename=\"$fileName\"");
-        header('Content-Length: ' . filesize($path));
         header('Cache-Control: no-store');
+        header('Accept-Ranges: bytes'); // нативная докачка браузером + будущая параллельная загрузка
+
+        $size = filesize($path);
+        if ($size === false) {
+            jsonResponse(['error' => 'Не удалось прочитать файл'], 500);
+        }
+
+        // ── Range-запрос (один диапазон) → 206: докачка/перемотка ──
+        // Учение Task 66: без Range прерванное скачивание 75МБ начиналось с нуля.
+        $range = $_SERVER['HTTP_RANGE'] ?? '';
+        if ($range !== '' && preg_match('/^bytes=(\d*)-(\d*)$/i', trim($range), $m) === 1
+            && ($m[1] !== '' || $m[2] !== '')) {
+            $start = $m[1] === '' ? null : (int) $m[1];
+            $end = $m[2] === '' ? null : (int) $m[2];
+
+            if ($start === null) {
+                // суффиксный формат bytes=-N: последние N байт
+                $len = min((int) $m[2], $size);
+                $start = $size - $len;
+                $end = $size - 1;
+            } else {
+                if ($start >= $size) {
+                    http_response_code(416);
+                    header('Content-Range: bytes */' . $size);
+                    exit;
+                }
+                $end = ($end === null || $end >= $size) ? $size - 1 : $end;
+            }
+
+            $length = $end - $start + 1;
+            http_response_code(206);
+            header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
+            header('Content-Length: ' . $length);
+
+            // readfile не умеет seek — отдаём слайс кусками по 8МБ
+            $fh = fopen($path, 'rb');
+            if ($fh === false) {
+                jsonResponse(['error' => 'Не удалось открыть файл'], 500);
+            }
+            try {
+                fseek($fh, $start);
+                $chunkSize = 8 * 1024 * 1024;
+                $remaining = $length;
+                while ($remaining > 0 && !feof($fh)) {
+                    $chunk = fread($fh, (int) min($chunkSize, $remaining));
+                    if ($chunk === false || $chunk === '') {
+                        break;
+                    }
+                    echo $chunk;
+                    $remaining -= strlen($chunk);
+                    flush();
+                }
+            } finally {
+                fclose($fh);
+            }
+            exit;
+        }
+
+        header('Content-Length: ' . $size);
 
         readfile($path);
         exit;

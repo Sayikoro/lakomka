@@ -107,27 +107,6 @@ export function CandiesManager() {
     return () => { alive = false; };
   }, [loadCandies, loadSets]);
 
-  async function toggleSetFilter(s: CandySet, next: boolean) {
-    setError(null);
-    setSets((list) => list.map((x) => (x.id === s.id ? { ...x, is_filter: next ? 1 : 0 } : x)));
-    try {
-      const res = await fetch(`${apiUrl}/admin/candy-sets/${s.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ is_filter: next ? 1 : 0 }),
-      });
-      if (!res.ok) {
-        const json = (await res.json()) as { error?: string };
-        setError(json.error ?? "Не удалось сохранить");
-        setSets((list) => list.map((x) => (x.id === s.id ? { ...x, is_filter: s.is_filter } : x)));
-      }
-    } catch {
-      setError("Ошибка сети");
-      setSets((list) => list.map((x) => (x.id === s.id ? { ...x, is_filter: s.is_filter } : x)));
-    }
-  }
-
   return (
     <div>
       {/* Табы */}
@@ -191,7 +170,6 @@ export function CandiesManager() {
       ) : (
         <SetsList
           sets={sets}
-          onToggle={toggleSetFilter}
           onEdit={(s) => setSetModal({ mode: "edit", set: s })}
           onDelete={(s) => setDeleteSetTarget(s)}
         />
@@ -527,12 +505,10 @@ function DeleteCandyModal({
 
 function SetsList({
   sets,
-  onToggle,
   onEdit,
   onDelete,
 }: {
   sets: CandySet[];
-  onToggle: (s: CandySet, next: boolean) => void;
   onEdit: (s: CandySet) => void;
   onDelete: (s: CandySet) => void;
 }) {
@@ -541,9 +517,8 @@ function SetsList({
       <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-10 text-center">
         <p className="mb-1 font-medium text-[var(--color-heading)]">Кастомных наборов пока нет</p>
         <p className="mx-auto max-w-lg text-sm text-[var(--color-muted)]">
-          Кастомный набор — это именованная подборка конфет. С галочкой «Учитывать как фильтр»
-          он появится в фильтре «Состав» каталога: покупатель сможет искать подарки по конфетам из набора.
-          Без галочки набор нигде не участвует — только внутренний справочник.
+          Кастомный набор — это именованная подборка конфет: удобный внутренний справочник,
+          чтобы быстро смотреть, из каких конфет состоит та или иная подборка.
         </p>
       </div>
     );
@@ -557,11 +532,6 @@ function SetsList({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium text-[var(--color-heading)]">{s.name}</span>
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  s.is_filter === 1 ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
-                }`}>
-                  {s.is_filter === 1 ? "учитывается как фильтр" : "не учитывается в поиске"}
-                </span>
               </div>
               <p className="mt-1 text-sm text-[var(--color-muted)]">
                 Конфет: {s.items.length}
@@ -574,15 +544,6 @@ function SetsList({
               </p>
             </div>
             <div className="flex items-center gap-3 whitespace-nowrap">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={s.is_filter === 1}
-                  onChange={(e) => onToggle(s, e.target.checked)}
-                  className="accent-[var(--color-primary)]"
-                />
-                Учитывать как фильтр
-              </label>
               <button onClick={() => onEdit(s)} className="text-xs text-[var(--color-primary)] hover:underline">
                 ред.
               </button>
@@ -609,7 +570,6 @@ function SetModal({
   onSaved: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
-  const [isFilter, setIsFilter] = useState(initial ? initial.is_filter === 1 : false);
   const [items, setItems] = useState<{ product_id: number; quantity: number; product_name: string }[]>(
     initial ? initial.items.map((i) => ({ product_id: i.product_id, quantity: i.quantity, product_name: i.product_name })) : []
   );
@@ -660,7 +620,6 @@ function SetModal({
     try {
       const payload = {
         name: name.trim(),
-        is_filter: isFilter ? 1 : 0,
         items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
       };
       const url = initial ? `${apiUrl}/admin/candy-sets/${initial.id}` : `${apiUrl}/admin/candy-sets`;
@@ -694,19 +653,6 @@ function SetModal({
             <input required value={name} onChange={(e) => setName(e.target.value)}
               placeholder="Например: Шоколадные фавориты" className={inputCls} />
           </div>
-
-          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-3 text-sm">
-            <input type="checkbox" checked={isFilter} onChange={(e) => setIsFilter(e.target.checked)}
-              className="mt-0.5 accent-[var(--color-primary)]" />
-            <span>
-              <b>Учитывать как фильтр</b>
-              <span className="block text-xs text-[var(--color-muted)]">
-                Включено — в каталоге появится фильтр «Состав»: по конфетам этого набора будут искаться
-                подарки, в которые они входят. Выключено — набор нигде не участвует в поиске, только
-                внутренний справочник.
-              </span>
-            </span>
-          </label>
 
           {/* Выбранные конфеты */}
           <div>
@@ -832,9 +778,7 @@ function DeleteSetModal({
       >
         <h2 className="mb-2 text-lg font-medium text-[var(--color-heading)]">Удалить набор «{set.name}»?</h2>
         <p className="text-sm text-[var(--color-body)]">
-          {set.is_filter === 1
-            ? "Набор используется как фильтр каталога — после удаления фильтр «Состав» исчезнет с витрины."
-            : "Набор не учитывается в поиске. Сами конфеты при этом не удаляются."}
+          Сами конфеты при этом не удаляются — только справочник набора.
         </p>
         {error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>

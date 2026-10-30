@@ -3,6 +3,8 @@ import type { Product } from "./types";
 
 const API_URL = process.env.PHP_API_URL ?? "http://localhost:8000/api";
 
+import { FETCH_CACHE } from "./fetch-cache";
+
 /* ============================================================
    Витринные настройки (управляются в админке → Настройки)
    ============================================================ */
@@ -120,7 +122,7 @@ function parseTexts(d: Record<string, unknown> | undefined): Record<string, stri
    дедупликация no-store fetch в рамках одного HTTP-запроса Next */
 export const getPublicSettings = cache(async function (): Promise<ShopFrontSettings> {
   try {
-    const res = await fetch(`${API_URL}/settings/public`, { cache: "no-store" });
+    const res = await fetch(`${API_URL}/settings/public`, { cache: FETCH_CACHE });
     if (!res.ok) return DEFAULT_FRONT_SETTINGS;
     const json = (await res.json()) as { data: ApiPublicSettings };
     const d = json.data ?? {};
