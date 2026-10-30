@@ -160,7 +160,7 @@ export function SettingsForm({ initial }: Props) {
              ошибкой «hero_slider_enabled: 0 | 1» */
           hero_slider_enabled: form.hero_slider_enabled === "1" ? "1" : "0",
           hero_slides: JSON.stringify(slides.filter((s) => s.url)),
-          product_card_template: form.product_card_template || "classic",
+          product_card_template: form.product_card_template || "new",
           snow_enabled: form.snow_enabled === "1" ? "1" : "0",
           snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
           snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),

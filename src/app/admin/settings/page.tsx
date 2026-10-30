@@ -47,7 +47,10 @@ const DEFAULTS: AdminSettings = {
   hero_image: "",
   hero_slider_enabled: "0",
   hero_slides: "",
-  product_card_template: "classic",
+  /* «new» — карточка с каруселью (клик по картинке переключает слайд).
+     Если ключа ещё нет в БД, форма и первое сохранение дают «new»,
+     а не отключают карусель дефолтом «classic» (регресс галереи). */
+  product_card_template: "new",
   snow_enabled: "0",
   snow_count: "110",
   snow_count_mobile: "60",

@@ -145,6 +145,31 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
   const [page, setPage] = useState(1);
   const gridTopRef = useRef<HTMLDivElement | null>(null);
 
+  /* ── Живой шаблон карточки ──
+     template запекается в статику при сборке (серверный fetch настроек
+     с force-cache), поэтому смена шаблона в админке на развёрнутом
+     сайте сама по себе не видна. После монтирования подтягиваем свежий
+     product_card_template с /api/settings/public (no-store) — карточки
+     переключаются на новый шаблон по F5, без пересборки. */
+  const [cardTemplate, setCardTemplate] = useState<"classic" | "new">(template);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/public", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled || !json) return;
+        const t = json?.data?.product_card_template;
+        if ((t === "classic" || t === "new") && t !== cardTemplate) {
+          setCardTemplate(t);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ── Живые данные витрины ──
      Стартуем с запечённых при сборке товаров (мгновенный рендер, SEO),
      после монтирования подтягиваем свежий каталог с /api/products:
@@ -551,7 +576,7 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
             {pageItems.map((p) =>
-              template === "new" ? (
+              cardTemplate === "new" ? (
                 <ProductCardNew key={p.id} product={p} />
               ) : (
                 <ProductCard key={p.id} product={p} />

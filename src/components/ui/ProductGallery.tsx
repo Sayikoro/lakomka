@@ -58,7 +58,17 @@ export function ProductGallery({ media, productName }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="relative aspect-square overflow-hidden rounded-[var(--radius-card)] bg-white">
+      {/* Клик по главному фото — следующий слайд (как в карточках каталога);
+          точечно слайды переключаются миниатюрами ниже */}
+      <div
+        className={
+          "relative aspect-square overflow-hidden rounded-[var(--radius-card)] bg-white " +
+          (sorted.length > 1 ? "cursor-pointer" : "")
+        }
+        onClick={() => {
+          if (sorted.length > 1) setActive((a) => (a + 1) % sorted.length);
+        }}
+      >
         {current.type === "video" ? (
           <MainVideo key={current.url} url={current.url} poster={posterUrl} />
         ) : (
