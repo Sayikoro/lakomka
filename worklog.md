@@ -1409,3 +1409,32 @@ Work Log:
 - worklog синхронизирован в клон (cp), один коммит + пуш origin/master.
 Stage Summary:
 - Всё накопленное несмёрженное (инструменты обновления сайта, прямая загрузка медиа в хранилище, фиксы карточки товара/лого, сборка архивов) закоммичено ОДНИМ коммитом вместе с деплой-архивом lakomka-deploy-static.zip в виде сплит-частей release/ + инструкция склейки README-RELEASE.md. Пуш на GitHub выполнен.
+
+---
+Task ID: 74
+Agent: main (Z.ai)
+Task: «Сделай ссылку на скачивание lakomka-deploy-static.zip в админке».
+
+Work Log:
+- БЭКЕНД: AdminSiteUpdateController + deployArchive() (GET /api/admin/site-update/deploy-archive: exists/name/size/mtime/sha256; sha256 кешируется в backend/storage/deploy-archive-meta.json по size+mtime — 116МБ не пересчитывается зря) и deployArchiveDownload() (GET …/download): requireEditor, application/zip + attachment, Accept-Ranges, один диапазон Range → 206 (включая суффикс bytes=-N), 8МБ-слайсы с flush, 416 при выходе за размер; поиск архива по кандидатам: download/, download/for-deploy/, lakomka/deploy/ — первый существующий. Роуты в index.php. В деплой-пакет фича не попадает (админки в пакете нет) — это инструмент песочницы.
+- ФРОНТ: SiteUpdateTab — карточка «Деплой-архив (полный пакет)»: описание (для первого деплоя; для обновлений — архив выше), файл/размер/собран/sha256 (короткий + полный в title), зелёная кнопка «⬇️ Скачать ZIP» через useDownloads (глобальная панель загрузок: 6 потоков, самодокачка после обрывов, двухэтапное сохранение) + ссылка «запасной способ (медленнее)»; если архива нет — подсказка MODE=full bash scripts/build-static.sh.
+- ТЕСТЫ: php -l ×2 OK, tsc 0; curl: статус (size 116241183, sha256 6c4eaa70…), Range bytes=0-1023 → 206 и байты совпали с оригиналом (cmp), суффикс -100 → 206/100Б, без куки → 401; полное скачивание curl → sha256 6c4eaa7008a118221e35543e663e6445823f69679c0a2b9ede538af7708633f9 (байт-в-байт). Браузером (agent-browser, кука admin_token): /admin/settings → вкладка «Обновление» → карточка (110.9 МБ, собран 30.10.2026 02:55) → «Скачать ZIP» → панель: «Сохранено в папке „Загрузки“», размер 110.9 МБ; в network все запросы download → 206; ошибок консоли нет.
+- Синхронизация в клон (AdminSiteUpdateController.php, index.php, SiteUpdateTab.tsx + worklog). Коммит не делался — ждёт явной команды.
+Stage Summary:
+- В админке (Настройки → «Обновление») появился блок «Деплой-архив (полный пакет)»: имя/размер/дата/sha256 lakomka-deploy-static.zip, кнопка «⬇️ Скачать ZIP» (живучая панель, 6 потоков) и медленный запасной способ. Архив отдаётся с диска песочницы защищённым эндпоинтом с поддержкой Range; целостность скачанного подтверждена sha256.
+
+---
+Task ID: 75
+Agent: main (Z.ai)
+Task: «давай сделаем обновление из гита? пускай кнопка проверить обновления ГИТ, чтобы ты туда деплоил а я с сайта проверял».
+
+Work Log:
+- ИДЕЯ: обновления доставляются через GitHub Releases. Я публикую релиз с ассетом lakomka-update-<версия>.zip (scripts/gh-release.sh), сайт сам его находит, скачивает и применяет. Репозиторий Sayikoro/lakomka публичный → токен на сайте не нужен.
+- БЭКЕНД: AdminSiteUpdateController + githubCheck() (GET /api/admin/site-update/github-check: api.github.com/releases/latest, ассет lakomka-update-*.zip, сравнение версий «2026.10.30-1530» через нормализацию в 4 сегмента + version_compare; кеш 60с в backend/storage/github-release-cache.json; при сбое API — устаревший кеш с warning; 404 → «на GitHub ещё нет релизов»; 403 → понятный лимит-API; requireEditor) и githubDownload() (POST github-download: {tag, asset, sha256?}; URL github.com/…/releases/download/<tag>/<asset> МИМО API — без rate-limit; repo захардкожен, tag/asset regex [A-Za-z0-9._-] без «..»; cURL FOLLOWLOCATION с fallback на stream; проверка: sha256 из digest ассета, ZipArchive открывается, update-manifest.json с ожидаемой версией; сохраняется в хранилище чанков как github-<версия>.zip → дальше штатный apply(); requireSuperAdmin). ChunkedUpload::storageDir() публичный. Роуты в index.php.
+- ФРОНТ: SiteUpdateTab — карточка «Обновление с GitHub»: кнопка «Проверить обновления (ГИТ)», бейдж «Доступна новая версия»/«Установлена последняя версия», версия/размер/дата, заметки релиза, ссылка на релиз, кнопка «Скачать и установить <версия>» (download → apply, confirm как у ручного обновления), индикаторы, ошибки, результат применения. scripts/deploy/update.html — та же карточка на ванильном JS (главное место для развёрнутого сайта, где админки нет): indeterminate-полоса анимацией, gh-бейджи, esc() для всех полей.
+- ДЕПЛОЙ-ИНСТРУМЕНТ: scripts/gh-release.sh — релиз v<версия> на master + ассет через uploads.github.com; повторный деплой той же версии удаляет старый релиз+тег и создаёт заново; sha256 ассета печатается. scripts/gh-api.sh — аутентифицированный вызов GitHub API (токен из .secrets, никогда не печатается).
+- ПУШ: коммит (задачи 74+75: деплой-архив в админке + обновление с GitHub) отправлен на origin/master.
+- РЕЛИЗ: v2026.10.30-0354 с ассетом lakomka-update-2026.10.30-0354.zip (17 698 047 б, sha256 см. gh-release) — ПЕРВЫЙ релиз с новой механикой. ДЛЯ ПОЛЬЗОВАТЕЛЯ: первый раз применить вручную (вкладка «Обновление» → файл, или /update), после этого кнопка «Проверить обновления (ГИТ)» работает на сайте.
+- ТЕСТЫ: php -l ×3 OK, tsc 0; github-check до релиза → «На GitHub ещё нет релизов» (404-ветка), валидации download (кривые имена → 422); e2e scripts/test-github-update.mjs против РЕАЛЬНОГО релиза (401/403/422/502 + полный цикл check→download→apply→check на стенде UPDATE_ROOT) — см. результат ниже.
+Stage Summary:
+- Обновление сайта из GitHub: кнопка «Проверить обновления (ГИТ)» в админке и на /update. Сайт проверяет последний релиз репозитория, скачивает архив обновления (мимо API, без rate-limit, с проверкой sha256 и манифеста) и применяет штатным механизмом без медиа и БД. Публикация обновлений теперь — bash scripts/gh-release.sh download/lakomka-update-<версия>.zip [notes.md].

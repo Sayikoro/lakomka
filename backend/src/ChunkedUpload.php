@@ -129,6 +129,13 @@ if (!is_dir($dir)) mkdir($dir, 0755, true);
         ];
     }
 
+    /** Каталог финальных zip (тот же, что для склеенных чанков; сюда
+        AdminSiteUpdateController кладёт архивы, скачанные с GitHub). */
+    public static function storageDir(): string
+    {
+        return self::root();
+    }
+
     /** Проверка и получение пути к финальному файлу */
     public static function resolveFile(string $fileName): ?string
     {

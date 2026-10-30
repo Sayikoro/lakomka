@@ -281,6 +281,22 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
         AdminSiteUpdateController::apply();
     }
+    if ($path === '/api/admin/site-update/deploy-archive' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::deployArchive();
+    }
+    if ($path === '/api/admin/site-update/deploy-archive/download' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::deployArchiveDownload();
+    }
+    if ($path === '/api/admin/site-update/github-check' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::githubCheck();
+    }
+    if ($path === '/api/admin/site-update/github-download' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::githubDownload();
+    }
 
     /* ========== ADMIN: WEIGHT RECIPES ========== */
     if ($path === '/api/admin/weight-recipes' && $method === 'GET') {
