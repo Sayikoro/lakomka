@@ -37,6 +37,11 @@ class Bootstrap
         try {
             self::ensureSchema($pdo);
             self::ensureSuperAdmin($pdo);
+            /* Миграции схемы (с автоматическим дампом БД перед ними) —
+               см. DbMigrations: пакет обновлений базу не трогает, поэтому
+               изменения структуры доезжают до работающих сайтов кодом. */
+            require_once __DIR__ . '/DbMigrations.php';
+            DbMigrations::run($pdo);
         } catch (Throwable $e) {
             // Первый запуск не должен ломать работу API — ошибки только в лог
             error_log('[bootstrap] ' . $e->getMessage());

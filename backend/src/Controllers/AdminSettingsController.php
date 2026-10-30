@@ -21,6 +21,8 @@ class AdminSettingsController
         'hero_slider_enabled',
         'hero_slides',
         'product_card_template',
+        /* медиа-галерея: папка поиска видео (пусто = искать везде) */
+        'gallery_video_folder',
         /* витрина: снегопад */
         'snow_enabled',
         'snow_count',
@@ -239,6 +241,17 @@ class AdminSettingsController
             if ($flake !== '' && !preg_match('#^(https?://|/)#i', $flake)) {
                 jsonResponse(['error' => 'snow_flake: локальный путь (/…) или URL'], 422);
             }
+        }
+        /* Папка видео для медиа-галереи: относительный путь внутри /uploads.
+           Пользователь вводит имя папки руками — не душим символами (скобки,
+           тире и т.п. допустимы), запрещаем только «..» (traversal): реальную
+           защиту даёт realpath-проверка в AdminFilesController::videos. */
+        if (isset($data['gallery_video_folder'])) {
+            $gvf = trim(str_replace('\\', '/', (string)$data['gallery_video_folder']), " /\t\n\r\0\x0B");
+            if ($gvf !== '' && preg_match('#(^|/)\.\.(/|$)#', $gvf)) {
+                jsonResponse(['error' => 'gallery_video_folder: путь внутри /uploads, без «..»'], 422);
+            }
+            $data['gallery_video_folder'] = preg_replace('#/+#', '/', $gvf);
         }
         if (isset($data['hero_slides']) && (string)$data['hero_slides'] !== '') {
             $decoded = json_decode((string)$data['hero_slides'], true);

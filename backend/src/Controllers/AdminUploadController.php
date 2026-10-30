@@ -54,7 +54,11 @@ class AdminUploadController
             jsonResponse(['error' => 'Картинка больше 32 MB'], 422);
         }
         $mime = mime_content_type($file['tmp_name']);
-        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        if ($mime === 'image/heic' || $mime === 'image/heif') {
+            jsonResponse(['error' => 'Это фото в формате iPhone (HEIC) — сайт его не поймёт. '
+                . 'Откройте фото и сохраните/экспортируйте как JPG, затем загрузите снова.'], 422);
+        }
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/avif'], true)) {
             jsonResponse(['error' => "Формат не поддерживается: $mime (нужен JPG/PNG/WebP)"], 422);
         }
 
@@ -62,6 +66,7 @@ class AdminUploadController
             'image/jpeg' => 'jpg',
             'image/png'  => 'png',
             'image/webp' => 'webp',
+            'image/avif' => 'avif',
             default      => 'bin',
         };
         $filename = time() . '-' . bin2hex(random_bytes(4)) . '.' . $ext;

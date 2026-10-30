@@ -45,6 +45,13 @@ class AdminFilesController
                 'deletable' => false,
                 'hint' => 'Картинки и видео товаров. Нужны сайту — удаление сломает карточки. Только контроль объёма.',
             ],
+            'backups' => [
+                'title' => 'Дампы базы данных',
+                'dir' => Paths::backupsDir(),
+                'public' => null,
+                'deletable' => true,
+                'hint' => 'Автоматические копии базы SQLite: снимок создаётся перед каждой миграцией схемы. Скачивайте кнопкой «Скачать», старые можно удалять — хранятся последние 10.',
+            ],
         ];
     }
 
@@ -167,6 +174,68 @@ class AdminFilesController
             'entries' => $entries,
             'total_size' => $totalSize,
             'files_count' => $totalFiles,
+        ]]);
+    }
+
+    /* ── ПОИСК ВСЕХ ВИДЕО (медиа-галерея, режим «Видео») ──
+       GET /api/admin/files/videos[?folder=видео/май]
+       Рекурсивно ищет видео (mp4/webm/mov/m4v) под /uploads — или только
+       в заданной подпапке. Папка берётся из ?folder= (мгновенный отклик
+       в UI) или из настройки gallery_video_folder (пусто = искать везде).
+       Плоский список, новее сверху. Ошибок «папка не найдена» НЕТ:
+       нет папки — просто пустой список; при пустой настройке видео
+       ищутся по всему /uploads в любом случае. */
+    public static function videos(PDO $pdo): void
+    {
+        Auth::requireEditor();
+
+        $param = $_GET['folder'] ?? null;
+        if ($param === null) {
+            $stmt = $pdo->prepare("SELECT value FROM settings WHERE key = 'gallery_video_folder'");
+            $stmt->execute();
+            $param = (string)($stmt->fetchColumn() ?: '');
+        }
+        $folder = trim(str_replace('\\', '/', (string)$param), " /\t\n\r\0\x0B");
+        $folder = preg_replace('#/+#', '/', $folder) ?? '';
+        if ($folder !== '' && preg_match('#(^|/)\.\.(/|$)#', $folder)) {
+            jsonResponse(['error' => 'Путь к папке видео: внутри /uploads, без «..»'], 422);
+        }
+
+        $root = realpath(Paths::uploadsRoot());
+        $base = $root === false ? false : ($folder === '' ? $root : realpath($root . '/' . $folder));
+        $entries = [];
+        if ($root !== false && $base !== false && is_dir($base)
+            && ($base === $root || str_starts_with($base, $root . DIRECTORY_SEPARATOR))) {
+            $exts = ['mp4', 'webm', 'mov', 'm4v'];
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator(
+                    $base,
+                    FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME
+                ),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $file) {
+                $ext = strtolower(pathinfo((string)$file, PATHINFO_EXTENSION));
+                if (!in_array($ext, $exts, true)) continue;
+                $rel = ltrim(substr((string)$file, strlen($root)), '/\\');
+                $dir = dirname($rel);
+                $entries[] = [
+                    'name'   => basename((string)$file),
+                    'folder' => $dir === '.' ? '' : $dir,
+                    'path'   => 'media/' . $rel,
+                    'url'    => '/uploads/' . $rel,
+                    'size'   => @filesize((string)$file) ?: 0,
+                    'mtime'  => @filemtime((string)$file) ?: 0,
+                ];
+            }
+            usort($entries, static fn (array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
+            if (count($entries) > 1000) $entries = array_slice($entries, 0, 1000);
+        }
+
+        jsonResponse(['data' => [
+            'folder'  => $folder,
+            'count'   => count($entries),
+            'entries' => $entries,
         ]]);
     }
 

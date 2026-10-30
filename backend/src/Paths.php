@@ -44,6 +44,14 @@ class Paths
         return self::ensureDir(self::publicRoot() . '/exports');
     }
 
+    /** Каталог автоматических дампов БД: backend/storage/backups.
+     *  Вне publicRoot намеренно: копии базы не должны быть доступны
+     *  веб-серверу напрямую (только через проводник админки). */
+    public static function backupsDir(): string
+    {
+        return self::ensureDir(dirname(__DIR__) . '/storage/backups');
+    }
+
     /** mkdir рекурсивно, без ошибок в вывод (права проверяет вызывающий код). */
     public static function ensureDir(string $dir): string
     {

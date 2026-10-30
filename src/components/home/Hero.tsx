@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Snowfall } from "./Snowfall";
 import { useT } from "@/components/texts/TextsProvider";
 import type { SnowSettings } from "@/lib/settings";
+import { DEFAULT_FRONT_SETTINGS } from "@/lib/settings";
 import { DEFAULT_SNOW_SETTINGS, parseSnowConfig } from "@/lib/snow";
 import { SmartImage } from "@/components/ui/SmartImg";
 
@@ -23,9 +24,19 @@ const AUTOPLAY_MS = 5000;
 
 export function Hero({ image, slides, slider, snow }: HeroProps) {
   const t = useT();
-  const list = (slider && slides.length > 1 ? slides : [image]).filter(Boolean);
   const [active, setActive] = useState(0);
   const touchX = useRef<number | null>(null);
+
+  /* Живые настройки витрины: при статическом деплое hero (картинка/слайды/
+     слайдер) и снег ЗАПЕКАЮТСЯ в HTML при сборке. После монтирования
+     подтягиваем свежий конфиг с /api/settings/public: загрузили картинку
+     hero в админке → обновили главную (F5) → картинка на месте, пересборка
+     сайта не нужна. */
+  const [heroLive, setHeroLive] = useState<{
+    image: string;
+    slides: string[];
+    slider: boolean;
+  } | null>(null);
 
   /* Снегопад: серверный конфиг может быть запечён при сборке (статический
      деплой) — после монтирования подтягиваем свежие настройки с API, чтобы
@@ -33,22 +44,43 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
   const [snowLive, setSnowLive] = useState<SnowSettings>(snow ?? DEFAULT_SNOW_SETTINGS);
   useEffect(() => {
     setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
+    setHeroLive(null);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
     let cancelled = false;
     fetch(`${apiUrl}/settings/public`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
-        if (!cancelled && json?.data?.snow) {
+        if (cancelled || !json?.data) return;
+        if (json.data.snow) {
           setSnowLive(parseSnowConfig(json.data.snow));
         }
+        const d = json.data;
+        setHeroLive({
+          image: typeof d.hero_image === "string" ? d.hero_image : "",
+          slides: Array.isArray(d.hero_slides)
+            ? (d.hero_slides as Array<{ url?: string } | string>)
+                .map((s) => (typeof s === "string" ? s : (s?.url ?? "")))
+                .filter((u: string) => !!u)
+            : [],
+          slider: Boolean(d.hero_slider_enabled),
+        });
       })
       .catch(() => {
-        /* сеть недоступна — остаётся запечённый конфиг */
+        /* сеть недоступна — остаются запечённые конфиги */
       });
     return () => {
       cancelled = true;
     };
-  }, [snow]);
+  }, [snow, image, slides, slider]);
+
+  /* Эффективный hero: пока API не ответил — запечённые пропсы;
+     после — живые значения (пустая картинка = дефолтная). */
+  const effImage = heroLive
+    ? heroLive.image || DEFAULT_FRONT_SETTINGS.hero_image
+    : image;
+  const effSlides = heroLive ? heroLive.slides : slides;
+  const effSlider = heroLive ? heroLive.slider : slider;
+  const list = (effSlider && effSlides.length > 1 ? effSlides : [effImage]).filter(Boolean);
 
   const go = useCallback(
     (i: number) => {

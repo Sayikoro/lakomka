@@ -29,11 +29,15 @@ export interface GalleryPick {
 
 interface Entry {
   name: string;
-  type: "dir" | "file";
+  type?: "dir" | "file";
   size: number;
   mtime: number;
   ext?: string;
   public_url: string | null;
+  /* только в режиме «Видео» (плоский рекурсивный список): */
+  url?: string;
+  folder?: string;
+  path?: string;
 }
 
 interface FolderData {
@@ -82,6 +86,13 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
   const [selected, setSelected] = useState<GalleryPick[]>([]);
   const [filter, setFilter] = useState<"all" | "image" | "video">(accept);
   const [search, setSearch] = useState("");
+  /* Режим «Видео»: плоский рекурсивный поиск по всем папкам /uploads
+     (или по папке из настройки gallery_video_folder — задать можно прямо
+     здесь, кнопка «Запомнить и искать» сохраняет её в настройках сайта). */
+  const [videos, setVideos] = useState<Entry[] | null>(null);
+  const [videoRoot, setVideoRoot] = useState("");   // текст в поле ввода
+  const [videoFolder, setVideoFolder] = useState(""); // применённая папка
+  const [savingFolder, setSavingFolder] = useState(false);
 
   const load = useCallback(
     async (p: string) => {
@@ -107,7 +118,60 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     [apiUrl],
   );
 
-  // при каждом открытии — с корня раздела media, чистый выбор
+  /* Рекурсивный поиск всех видео. folder = null → сервер возьмёт
+     сохранённую настройку gallery_video_folder (пусто = искать везде). */
+  const loadVideos = useCallback(
+    async (folder: string | null) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const qs = folder === null ? "" : `?folder=${encodeURIComponent(folder)}`;
+        const res = await fetch(`${apiUrl}/admin/files/videos${qs}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(json.error ?? `Ошибка ${res.status}`);
+          return;
+        }
+        setVideos(json.data.entries ?? []);
+        setVideoFolder(json.data.folder ?? "");
+        setVideoRoot(json.data.folder ?? "");
+      } catch {
+        setError("Ошибка сети");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiUrl],
+  );
+
+  /* Запомнить папку видео в настройках сайта и искать в ней */
+  async function saveVideoFolder(folder: string) {
+    setSavingFolder(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ gallery_video_folder: folder.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        return;
+      }
+      await loadVideos(folder.trim());
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setSavingFolder(false);
+    }
+  }
+
+  // при открытии: видео — рекурсивный поиск, остальное — с корня media
   useEffect(() => {
     if (open) {
       setPath("media");
@@ -115,9 +179,14 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
       setSearch("");
       setFilter(accept);
       setError(null);
-      load("media");
+      setVideos(null);
+      if (accept === "video") {
+        void loadVideos(null);
+      } else {
+        load("media");
+      }
     }
-  }, [open, accept, load]);
+  }, [open, accept, load, loadVideos]);
 
   const toggle = (pick: GalleryPick) => {
     setSelected((list) =>
@@ -125,10 +194,13 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     );
   };
 
-  /* Загрузка своих файлов в открытую папку галереи */
+  /* Загрузка своих файлов: в режиме видео — в папку видео (или корень media),
+     в обычном — в открытую папку галереи */
   async function uploadFiles(list: FileList | File[]) {
     const files = Array.from(list);
     if (files.length === 0) return;
+    const inVideoMode = filter === "video";
+    const target = inVideoMode ? (videoFolder ? `media/${videoFolder}` : "media") : path;
     setUpError(null);
     setUpOpt([]);
     setUpPct(0);
@@ -136,7 +208,7 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     const notes: string[] = [];
     for (const f of files) {
       try {
-        const r = await uploadToStorage(f, path, (pct) => setUpPct(pct), apiUrl);
+        const r = await uploadToStorage(f, target, (pct) => setUpPct(pct), apiUrl);
         if (r?.optimized) notes.push(r.optimized);
       } catch (e) {
         errors.push(`${f.name}: ${e instanceof Error ? e.message : "ошибка"}`);
@@ -149,7 +221,12 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     if (notes.length) {
       setUpOpt(notes);
     }
-    await load(path); // обновить список (загруженное видно сразу)
+    // обновить список (загруженное видно сразу)
+    if (inVideoMode) {
+      await loadVideos(videoFolder);
+    } else {
+      await load(path);
+    }
   }
 
   const crumbs = useMemo(() => {
@@ -159,6 +236,15 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
+    /* Режим «Видео»: плоский список всех найденных видео + поиск по имени/папке */
+    if (filter === "video" && videos !== null) {
+      return videos.filter(
+        (e) =>
+          !q ||
+          e.name.toLowerCase().includes(q) ||
+          (e.folder ?? "").toLowerCase().includes(q),
+      );
+    }
     return (folder?.entries ?? []).filter((e) => {
       if (e.type === "dir") return !q || e.name.toLowerCase().includes(q);
       const kind = extKind(e.name);
@@ -167,10 +253,10 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
       if (q && !e.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [folder, filter, search]);
+  }, [folder, filter, search, videos]);
 
-  const dirs = visible.filter((e) => e.type === "dir");
-  const files = visible.filter((e) => e.type === "file" && e.public_url);
+  const dirs = filter === "video" ? [] : visible.filter((e) => e.type === "dir");
+  const files = visible.filter((e) => e.type !== "dir" && (e.public_url ?? e.url));
 
   if (!open) return null;
 
@@ -196,24 +282,54 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
-              {crumbs.map((c, i) => (
-                <span key={c.path} className="flex items-center gap-1">
-                  {i > 0 && <span className="text-[var(--color-muted)]">/</span>}
-                  <button
-                    type="button"
-                    onClick={() => { setPath(c.path); load(c.path); }}
-                    className={`max-w-[180px] truncate rounded px-1.5 py-0.5 hover:bg-[var(--color-bg-soft)] ${
-                      i === crumbs.length - 1
-                        ? "font-medium text-[var(--color-heading)]"
-                        : "text-[var(--color-primary)] hover:underline"
-                    }`}
-                  >
-                    {c.name}
-                  </button>
+            {filter === "video" ? (
+              /* Режим «Видео»: рекурсивный поиск по всем папкам /uploads.
+                 Поле «папка видео» сохраняется в настройках сайта — при
+                 следующих открытиях галереи видео снова ищутся в ней. */
+              <>
+                <span className="text-sm text-[var(--color-muted)]">
+                  Все видео сайта{videoFolder ? ` · папка «${videoFolder}»` : " · во всех папках"}
+                  {!loading && videos !== null ? ` · найдено: ${videos.length}` : ""}
                 </span>
-              ))}
-            </div>
+                <input
+                  value={videoRoot}
+                  onChange={(e) => setVideoRoot(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveVideoFolder(videoRoot);
+                  }}
+                  placeholder="папка внутри /uploads (пусто = везде)"
+                  className="w-56 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs focus:border-[var(--color-primary)] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveVideoFolder(videoRoot)}
+                  disabled={savingFolder}
+                  title="Сохранить папку в настройках и показать видео из неё (пусто — искать везде)"
+                  className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-40"
+                >
+                  {savingFolder ? "Сохраняем…" : "Запомнить и искать"}
+                </button>
+              </>
+            ) : (
+              <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
+                {crumbs.map((c, i) => (
+                  <span key={c.path} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-[var(--color-muted)]">/</span>}
+                    <button
+                      type="button"
+                      onClick={() => { setPath(c.path); load(c.path); }}
+                      className={`max-w-[180px] truncate rounded px-1.5 py-0.5 hover:bg-[var(--color-bg-soft)] ${
+                        i === crumbs.length - 1
+                          ? "font-medium text-[var(--color-heading)]"
+                          : "text-[var(--color-primary)] hover:underline"
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {/* Загрузить свои файлы в открытую папку галереи */}
               <input
@@ -231,7 +347,13 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
                 type="button"
                 onClick={() => galleryInputRef.current?.click()}
                 disabled={upPct !== null}
-                title={`Загрузить файлы в «${path}»`}
+                title={
+                  filter === "video"
+                    ? videoFolder
+                      ? `Загрузить видео в «${videoFolder}»`
+                      : "Загрузить файлы в раздел «media»"
+                    : `Загрузить файлы в «${path}»`
+                }
                 className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -246,7 +368,10 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
                     <button
                       key={k}
                       type="button"
-                      onClick={() => setFilter(k)}
+                      onClick={() => {
+                        setFilter(k);
+                        if (k === "video") void loadVideos(null); // сервер отдаст сохранённую папку
+                      }}
                       className={`px-2.5 py-1.5 transition ${
                         filter === k
                           ? "bg-[var(--color-primary)] text-white"
@@ -262,7 +387,7 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Поиск в папке…"
+                placeholder={filter === "video" ? "Поиск по имени…" : "Поиск в папке…"}
                 className="w-40 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm placeholder:text-xs focus:border-[var(--color-primary)] focus:outline-none"
               />
             </div>
@@ -275,7 +400,13 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
-              <button type="button" onClick={() => load(path)} className="ml-2 underline">повторить</button>
+              <button
+                type="button"
+                onClick={() => (filter === "video" ? void loadVideos(videoFolder) : void load(path))}
+                className="ml-2 underline"
+              >
+                повторить
+              </button>
             </div>
           )}
           {upOpt.length > 0 && (
@@ -292,7 +423,11 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
           )}
           {!loading && !error && visible.length === 0 && (
             <p className="py-10 text-center text-sm text-[var(--color-muted)]">
-              {folder?.hint ?? "В этой папке нет картинок и видео"}
+              {filter === "video"
+                ? videoFolder
+                  ? `В папке «${videoFolder}» видео не найдено. Очистите поле папки, чтобы искать по всем папкам.`
+                  : "Видео не найдены — загрузите их кнопкой «Загрузить» или переместите файлы в /uploads"
+                : folder?.hint ?? "В этой папке нет картинок и видео"}
             </p>
           )}
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
@@ -310,12 +445,12 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
               </button>
             ))}
             {files.map((f) => {
-              const kind = extKind(f.name)!;
-              const url = f.public_url!;
+              const kind = extKind(f.name) ?? "image";
+              const url = (f.public_url ?? f.url)!;
               const isSel = selected.some((x) => x.url === url);
               return (
                 <button
-                  key={f.name}
+                  key={f.path ?? f.name}
                   type="button"
                   onClick={() => toggle({ url, kind, name: f.name })}
                   title={`${f.name} — клик, чтобы ${isSel ? "снять выбор" : "выбрать"}`}
@@ -354,7 +489,7 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
                     </span>
                   )}
                   <span className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-1 py-0.5 text-[9px] text-white opacity-0 transition group-hover:opacity-100">
-                    {f.name}
+                    {filter === "video" && f.folder ? `${f.folder}/${f.name}` : f.name}
                   </span>
                 </button>
               );

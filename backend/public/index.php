@@ -428,6 +428,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::list();
     }
+    /* Рекурсивный поиск всех видео под /uploads (медиа-галерея, «Видео») */
+    if ($path === '/api/admin/files/videos' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::videos($pdo);
+    }
     if ($path === '/api/admin/files/upload' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::upload();

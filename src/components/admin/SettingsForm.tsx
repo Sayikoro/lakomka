@@ -393,6 +393,7 @@ export function SettingsForm({ initial }: Props) {
               />
               <p className="text-xs text-[var(--color-muted)]">
                 Пусто = картинка по умолчанию (/hero-bg.jpg). Картинка сжимается перед загрузкой автоматически.
+                На сайте появится после обновления главной страницы (F5) — пересборка сайта не нужна.
               </p>
             </div>
           </div>

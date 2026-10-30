@@ -67,6 +67,8 @@ cp -a "$ROOT/backend" "$PKG/backend"
 # журналы, рантайм-артефакты и песочница-специфичное в пакеты не идут
 rm -f "$PKG/backend/storage/"*.log "$PKG/backend/storage/"*-wal "$PKG/backend/storage/"*-shm 2>/dev/null || true
 rm -rf "$PKG/backend/storage/chunked-uploads"
+# авто-дампы БД песочницы в пакет не идут (на сервере создаются свои)
+rm -rf "$PKG/backend/storage/backups"
 rm -f "$PKG/backend/storage/last-update.json"
 # секреты и приватные артефакты песочницы: на сервере создаются заново
 # (jwt/encryption — автогенерация при первом запуске, см. config.php)
