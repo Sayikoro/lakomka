@@ -85,7 +85,13 @@ cp "$ROOT/scripts/deploy/update.html" "$PKG/update.html"
 # Дефолтный суперадмин (admin@lakomka.local / Lakomka2026!) — сразу в БД
 # пакета: админка на хостинге открывается без ручных настроек; подсказку
 # с кредами показывает страница входа до смены пароля.
-PHP_BIN="$(command -v php || echo "$ROOT/.ztools/php")"
+PHP_BIN="$(command -v php || true)"
+if [ -z "$PHP_BIN" ]; then
+  for cand in "$ROOT/.ztools/php" "$ROOT/../.ztools/php"; do
+    [ -x "$cand" ] && PHP_BIN="$cand" && break
+  done
+fi
+[ -x "$PHP_BIN" ] || { echo "php не найден (нужен в PATH, \$ROOT/.ztools/php или \$ROOT/../.ztools/php)"; exit 1; }
 "$PHP_BIN" "$ROOT/scripts/seed-default-admin.php" "$PKG/backend/storage/database.sqlite"
 # Рантайм-мусор песочницы (попытки входа, анти-флуд, тестовые заказы) —
 # наружу не едем: иначе отравленный рейт-лимит и чужие заказы в пакете.

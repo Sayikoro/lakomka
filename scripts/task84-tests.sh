@@ -3,8 +3,13 @@
 # mov/m4v → mp4 (remux/перекодирование) + mp4 → перекодирование,
 # обновление привязок product_images / products.video_url.
 set -u
-cd /home/z/my-project
-PHP=/home/z/my-project/.ztools/php
+# корень репо — по положению самого скрипта (scripts/..), не по старому абсолютному пути
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+PHP="$(command -v php || true)"
+[ -z "$PHP" ] && [ -x "$ROOT/.ztools/php" ] && PHP="$ROOT/.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/../.ztools/php" ] && PHP="$ROOT/../.ztools/php"
+[ -n "$PHP" ] || { echo "php не найден"; exit 1; }
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  OK  $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "FAIL  $1"; }

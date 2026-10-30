@@ -125,11 +125,24 @@ class MediaOptimizer
 
     /* ─────────────────────────── ВИДЕО ─────────────────────────── */
 
+    /** Кодеки, которые играют во всех современных браузерах внутри mp4 */
+    private const WEB_SAFE_CODECS = ['h264', 'vp8', 'vp9', 'av1'];
+
     /**
-     * mov/m4v → mp4. Сначала пробуем БЕСПЛАТНУЮ пересборку контейнера
-     * (-c copy, мгновенно и без потери качества); если внутри кодек,
-     * несовместимый с mp4 (HEVC, ProRes и т.п.) — перекодируем в H.264.
-     * mp4/webm не трогаем. Без ffmpeg на сервере файл остаётся как есть.
+     * mov/m4v → mp4. КАСКАД МЕТОДОВ — от самого быстрого/бережного
+     * к самому тяжёлому, первый успешный побеждает:
+     *   1) пересборка контейнера без перекодирования (-c copy);
+     *   2) пересборка только видео+звук (iPhone-файлы часто содержат
+     *      timecode/data-дорожки, из-за которых mp4-муксер отказывается
+     *      писать контейнер — «Could not find tag for codec tmcd»);
+     *   3) перекодирование в H.264/AAC (HEVC, ProRes, 10-bit, нечётные
+     *      размеры — с добивкой размеров до чётных, иначе x264 не возьмёт);
+     *   4) перекодирование без звука (когда мешает только аудиодорожка).
+     * Результат ремукса дополнительно проверяется на web-совместимый
+     * кодек: ffmpeg молча кладёт ProRes/HEVC в mp4, но браузеры такое
+     * не воспроизводят — тогда идём дальше по каскаду.
+     * При полном провале в note попадает РЕАЛЬНАЯ причина от ffmpeg.
+     * mp4/webm не трогаем. Без ffmpeg файл остаётся как есть.
      *
      * @return array{converted:bool, name:string, before:int, after:int, note:string}
      */
@@ -149,6 +162,13 @@ class MediaOptimizer
                     'note' => 'ffmpeg на сервере недоступен — видео оставлено в исходном формате'];
         }
 
+        // Место на диске: транскод требует буфер ~1.2× размера исходника
+        $free = @disk_free_space(dirname($path));
+        if ($free !== false && $before > 0 && $free < $before * 1.2) {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'на диске мало места (свободно ' . self::fmt((int)$free) . ') — сжатие отменено'];
+        }
+
         $newName = preg_replace('/\.(mov|m4v)$/i', '', $name) . '.mp4';
         $dst = dirname($path) . '/' . $newName;
         $i = 1;
@@ -158,38 +178,70 @@ class MediaOptimizer
             $i++;
         }
 
-        if (function_exists('set_time_limit')) { @set_time_limit(300); }
+        if (function_exists('set_time_limit')) { @set_time_limit(600); }
         if (function_exists('ini_set')) { @ini_set('memory_limit', '512M'); }
 
         $escapedSrc = escapeshellarg($path);
         $escapedDst = escapeshellarg($dst);
+        // только видео+звук: без timecode/data-дорожек (спеки в кавычках — «?» и «*»
+        // в фильтрах для sh спецсимволы, без экранирования команды падают)
+        $map = '-map ' . escapeshellarg('0:v:0') . ' -map ' . escapeshellarg('0:a:0?');
+        $pad = '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2'); // чётные размеры (требование x264/браузеров)
 
-        // Шаг 1: быстрая пересборка контейнера (h264/aac внутри mov → mp4 без перекодирования)
-        $cmd = "$bin -y -loglevel error -i $escapedSrc -c copy -movflags +faststart -f mp4 $escapedDst 2>&1";
-        @exec($cmd, $out1, $code1);
-        if ($code1 !== 0 || !is_file($dst) || @filesize($dst) === 0) {
+        // [перекодировать?, аргументы ffmpeg, подпись метода]
+        $attempts = [
+            [false, '-c copy', 'контейнер mov → mp4 (без потери качества)'],
+            [false, "$map -c copy", 'контейнер mov → mp4 (без потери качества)'],
+            [true,  "$map -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad -c:a aac -b:a 128k", 'перекодировано в H.264'],
+            [true,  "$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", 'перекодировано в H.264 (без звука)'],
+        ];
+
+        $method = null;
+        $isRemux = false;
+        $lastErr = '';
+        foreach ($attempts as [$transcode, $args, $label]) {
             @unlink($dst);
-            // Шаг 2: перекодирование (HEVC/ProRes/редкие кодеки → H.264/AAC, все браузеры)
-            $cmd = "$bin -y -loglevel error -i $escapedSrc"
-                 . " -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p"
-                 . " -c:a aac -b:a 128k -movflags +faststart -f mp4 $escapedDst 2>&1";
-            @exec($cmd, $out2, $code2);
-            if ($code2 !== 0 || !is_file($dst) || @filesize($dst) === 0) {
+            $cmd = "$bin -y -loglevel error -i $escapedSrc $args -movflags +faststart -f mp4 $escapedDst 2>&1";
+            unset($out);
+            @exec($cmd, $out, $code);
+            $lastErr = self::ffmpegError((array)($out ?? []));
+            if ($code !== 0 || !is_file($dst) || @filesize($dst) === 0) {
                 @unlink($dst);
-                return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
-                        'note' => 'не удалось перекодировать видео — оставлен исходный файл'];
+                continue;
             }
-            $method = 'перекодировано в H.264';
-        } else {
-            $method = 'контейнер mov → mp4 (без потери качества)';
+            if (!$transcode) {
+                // Контейнер сменился, но кодек мог остаться неиграбельным
+                // для браузеров (ProRes/HEVC ffmpeg кладёт в mp4 молча)
+                $codec = self::videoCodec($bin, $dst);
+                if ($codec === null || !in_array($codec, self::WEB_SAFE_CODECS, true)) {
+                    @unlink($dst);
+                    continue;
+                }
+            }
+            $method = $label;
+            $isRemux = !$transcode;
+            break;
+        }
+
+        if ($method === null) {
+            $reason = $lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '';
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
         }
 
         $after = @filesize($dst) ?: 0;
-        // Если «сжатие» неожиданно сильно раздуло файл (редко) — оставляем оригинал
-        if ($before > 0 && $after > $before) {
+        /* Порог роста. Ремуксу разрешаем только контейнерные накладные расходы
+           (2% или 128 КБ — у мелких файлов moov/faststart смещают вес на сотни байт).
+           Перекодированию mov/m4v разрешаем до +50%: исходный mov браузеры вообще
+           НЕ воспроизводят, так что играемый mp4 ценой даже заметно большего
+           размера — это выигрыш, а не потеря (лёгкие короткие клипы после
+           CRF26 нередко выходят тяжелее сверхлёгкого HEVC-исходника).
+           Защита нужна только от патологического раздувания. */
+        $overhead = $isRemux ? max($before * 0.02, 128 * 1024) : $before * 0.5;
+        if ($before > 0 && $after > $before + $overhead) {
             @unlink($dst);
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
-                    'note' => 'mp4 вышел тяжелее оригинала — оставлен исходный файл'];
+                    'note' => 'mp4 вышел заметно тяжелее оригинала — оставлен исходный файл'];
         }
         @chmod($dst, 0644);
         @unlink($path);
@@ -235,16 +287,37 @@ class MediaOptimizer
         if (function_exists('ini_set')) { @ini_set('memory_limit', '512M'); }
 
         // Кодируем во временный файл рядом: оригинал не пострадает при сбое,
-        // замена — атомарный rename
+        // замена — атомарный rename. Каскад из двух попыток: со звуком и без.
         $tmp = dirname($path) . '/.min-tmp-' . bin2hex(random_bytes(4)) . '.mp4';
-        $cmd = "$bin -y -loglevel error -i " . escapeshellarg($path)
-             . " -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p"
-             . " -c:a aac -b:a 128k -movflags +faststart -f mp4 " . escapeshellarg($tmp) . " 2>&1";
-        @exec($cmd, $out, $code);
-        if ($code !== 0 || !is_file($tmp) || @filesize($tmp) === 0) {
+        $escapedSrc = escapeshellarg($path);
+        $escapedTmp = escapeshellarg($tmp);
+        $map = '-map ' . escapeshellarg('0:v:0') . ' -map ' . escapeshellarg('0:a:0?');
+        $pad = '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2');
+        $attempts = [
+            ["$map -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad -c:a aac -b:a 128k", ''],
+            ["$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", ' (без звука)'],
+        ];
+
+        $lastErr = '';
+        $audioNote = '';
+        $done = false;
+        foreach ($attempts as [$args, $suffix]) {
             @unlink($tmp);
+            $cmd = "$bin -y -loglevel error -i $escapedSrc $args -movflags +faststart -f mp4 $escapedTmp 2>&1";
+            unset($out);
+            @exec($cmd, $out, $code);
+            $lastErr = self::ffmpegError((array)($out ?? []));
+            if ($code === 0 && is_file($tmp) && @filesize($tmp) > 0) {
+                $done = true;
+                $audioNote = $suffix;
+                break;
+            }
+            @unlink($tmp);
+        }
+        if (!$done) {
+            $reason = $lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '';
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
-                    'note' => 'не удалось перекодировать видео — оставлен исходный файл'];
+                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
         }
 
         $after = @filesize($tmp) ?: 0;
@@ -265,11 +338,51 @@ class MediaOptimizer
             'name'      => $name,
             'before'    => $before,
             'after'     => $after,
-            'note'      => sprintf('%s: перекодировано в H.264 (%s → %s)', $name, self::fmt($before), self::fmt($after)),
+            'note'      => sprintf('%s: перекодировано в H.264%s (%s → %s)', $name, $audioNote, self::fmt($before), self::fmt($after)),
         ];
     }
 
     /* ─────────────────────────── ВНУТРЕННЕЕ ─────────────────────────── */
+    /** Кодек первой видео-дорожки файла (по stderr «ffmpeg -i»); null — не разобрать */
+    private static function videoCodec(string $bin, string $file): ?string
+    {
+        $out = [];
+        @exec(escapeshellarg($bin) . ' -hide_banner -i ' . escapeshellarg($file) . ' 2>&1', $out, $code);
+        foreach ($out as $line) {
+            if (preg_match('/Stream #\d+:\d+.*?: Video: ([a-zA-Z0-9_]+)/', $line, $m)) {
+                return strtolower($m[1]);
+            }
+        }
+        return null;
+    }
+
+    /** Вытащить корневую причину из вывода ffmpeg (loglevel error):
+     *  последняя строка часто лишь обёртка («Conversion failed!»),
+     *  настоящая причина — выше. Берём первую содержательную. */
+    private static function ffmpegError(array $out): string
+    {
+        $lines = [];
+        foreach ($out as $l) {
+            $l = trim(preg_replace('/[\x00-\x1F\x7F]/', '', (string)$l));
+            if ($l !== '') $lines[] = $l;
+        }
+        if ($lines === []) return '';
+        if (count($lines) === 1) $pick = $lines[0];
+        else {
+            $pick = '';
+            foreach ($lines as $l) {
+                // типовые обёртки-итоги — пропускаем, ищем первопричину
+                if (preg_match('/^(Could not write header|Conversion failed|Output file is empty|Stream mapping:)/i', $l)) continue;
+                $pick = $l;
+                break;
+            }
+            if ($pick === '') $pick = $lines[0];
+        }
+        // срезаем техношум «[mov,mp4,m4a,3gp,3g2,mj2 @ 0x5641…]» — оставляем суть
+        $pick = preg_replace('/^\[[^\]]*@0x[0-9a-f]+\]\s*/i', '', $pick) ?? $pick;
+        return mb_substr($pick, 0, 180);
+    }
+
     /** Найти ffmpeg на сервере; null — если недоступен (exec выключен и т.п.) */
     private static function ffmpeg(): ?string
     {
