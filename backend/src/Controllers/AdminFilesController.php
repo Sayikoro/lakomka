@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../ChunkedUpload.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminFilesController
 {
@@ -21,21 +22,24 @@ class AdminFilesController
         return [
             'exports' => [
                 'title' => 'Экспортные архивы (ZIP)',
-                'dir' => __DIR__ . '/../../../public/exports',
+                // Paths сам разбирается с раскладкой (dev public/ vs деплой-пакет)
+                // и создаёт папку при отсутствии — иначе «Раздел недоступен».
+                'dir' => Paths::exportsDir(),
                 'public' => '/exports',
                 'deletable' => true,
                 'hint' => 'Готовые ZIP из экспорта товаров. Старше 2 часов чистятся автоматически — удаляйте смело, новый соберётся заново.',
             ],
             'imports' => [
                 'title' => 'Импортные архивы (загрузки)',
-                'dir' => __DIR__ . '/../../storage/chunked-uploads',
+                // тот же каталог, куда chunked-загрузки склеивают ZIP (создаётся сам)
+                'dir' => ChunkedUpload::storageDir(),
                 'public' => null,
                 'deletable' => true,
                 'hint' => 'ZIP, загруженные для импорта. Брошенные загрузки старше 24 часов чистятся автоматически.',
             ],
             'media' => [
                 'title' => 'Медиа товаров',
-                'dir' => __DIR__ . '/../../../public/uploads',
+                'dir' => Paths::uploadsRoot(),
                 'public' => '/uploads',
                 'deletable' => false,
                 'hint' => 'Картинки и видео товаров. Нужны сайту — удаление сломает карточки. Только контроль объёма.',

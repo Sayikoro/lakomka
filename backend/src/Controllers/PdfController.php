@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Paths.php';
 
 /**
  * Печатные PDF-документы сайта: каталоги и сертификат соответствия.
@@ -33,7 +34,7 @@ class PdfController
 
     public static function dir(): string
     {
-        return __DIR__ . '/../../../public/uploads/pdfs';
+        return Paths::ensureDir(Paths::uploadsRoot() . '/pdfs');
     }
 
     /* ============================================================

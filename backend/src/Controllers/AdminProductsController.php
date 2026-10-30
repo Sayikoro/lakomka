@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminProductsController
 {
@@ -484,7 +485,7 @@ class AdminProductsController
         $img->execute([$id]);
         foreach ($img->fetchAll() as $r) {
             if (str_starts_with($r['url'], '/uploads/')) {
-                $path = __DIR__ . '/../../../public' . $r['url'];
+                $path = Paths::publicRoot() . $r['url'];
                 if (is_file($path)) @unlink($path);
             }
         }

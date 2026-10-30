@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../ProductCsvParser.php';
 require_once __DIR__ . '/../ChunkedUpload.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminProductsImportExportController
 {
@@ -175,7 +176,7 @@ class AdminProductsImportExportController
 
     private static function archivePath(): string
     {
-        return __DIR__ . '/../../../public/exports/lakomka-products.zip';
+        return Paths::exportsDir() . '/lakomka-products.zip';
     }
 
     private static function countZipEntries(string $path): int
@@ -197,7 +198,7 @@ class AdminProductsImportExportController
        импорта ZIP — правки пользователя сразу попадают в архив. */
     private static function syncLivingArchive(PDO $pdo): array
     {
-        $exportsDir = __DIR__ . '/../../../public/exports';
+        $exportsDir = Paths::exportsDir();
         if (!is_dir($exportsDir) && !@mkdir($exportsDir, 0755, true)) {
             jsonResponse(['error' => 'Не удалось создать папку для экспорта'], 500);
         }
@@ -280,7 +281,7 @@ class AdminProductsImportExportController
 
             /* Локальные копии картинок из импорта: public/uploads/products/{slug}/.
                Если копия есть на диске — берём её мгновенно, сеть не трогаем. */
-            $productsRoot = __DIR__ . '/../../../public/uploads/products';
+            $productsRoot = Paths::uploadsRoot() . '/products';
             $localImagesFor = function (array $prod) use ($productsRoot): array {
                 $dir = $productsRoot . '/' . (preg_replace('/[^a-z0-9\-]/', '', strtolower((string)$prod['slug'])) ?: 'p' . $prod['id']);
                 if (!is_dir($dir)) return [];
@@ -330,7 +331,7 @@ class AdminProductsImportExportController
                     if ($m['media_type'] === 'video') {
                         if (str_starts_with($url, '/uploads/')) {
                             // локальное — упаковать файл в videos/
-                            $srcPath = __DIR__ . '/../../../public' . $url;
+                            $srcPath = Paths::publicRoot() . $url;
                             if (!is_file($srcPath)) {
                                 // Файл пропал — всё равно перечисляем ссылку в CSV,
                                 // чтобы экспорт учитывал все медиа товара
@@ -357,7 +358,7 @@ class AdminProductsImportExportController
 
                     // картинка
                     if (str_starts_with($url, '/uploads/')) {
-                        $srcPath = __DIR__ . '/../../../public' . $url;
+                        $srcPath = Paths::publicRoot() . $url;
                         if (!is_file($srcPath)) { $stats['images_skipped']++; $counter++; continue; }
                         $ext = strtolower(pathinfo($srcPath, PATHINFO_EXTENSION)) ?: 'jpg';
                         if ($ext === 'jpeg') $ext = 'jpg';
@@ -540,7 +541,7 @@ class AdminProductsImportExportController
             jsonResponse(['error' => 'Некорректное имя файла'], 400);
         }
 
-        $path = __DIR__ . '/../../../public/exports/' . $fileName;
+        $path = Paths::exportsDir() . '/' . $fileName;
         if (!is_file($path)) {
             jsonResponse(['error' => 'Файл не найден (возможно истёк срок хранения)'], 404);
         }
@@ -743,7 +744,7 @@ class AdminProductsImportExportController
                     // так round-trip экспорт→импорт не меняет порядок на сайте.
                     $clearMedia->execute([$productId]);
                     $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($slug)) ?: "p$productId";
-                    $fsRoot = $uploadsRoot ?? (__DIR__ . '/../../../public');
+                    $fsRoot = $uploadsRoot ?? Paths::publicRoot();
                     $dir = $fsRoot . '/uploads/products/' . $safeSlug;
                     if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
                         $stats['errors'][] = "Строка {$r['_row_number']}: не удалось создать папку";

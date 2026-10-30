@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../RecipeCsvParser.php';
 require_once __DIR__ . '/../ChunkedUpload.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminWeightRecipeController
 {
@@ -195,7 +196,7 @@ class AdminWeightRecipeController
         $ext = $extMap[$mime];
 
         $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($product['slug'])) ?: "p$productId";
-        $dir = __DIR__ . '/../../../public/uploads/products/' . $safeSlug;
+        $dir = Paths::uploadsRoot() . '/products/' . $safeSlug;
         if (!is_dir($dir)) mkdir($dir, 0755, true);
 
         foreach (glob($dir . '/cover.*') as $old) @unlink($old);
@@ -354,7 +355,7 @@ class AdminWeightRecipeController
                     if (!$p) continue;
 
                     $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($p['slug'])) ?: "p$pid";
-                                        $dir = __DIR__ . '/../../../public/uploads/products/' . $safeSlug;
+                    $dir = Paths::uploadsRoot() . '/products/' . $safeSlug;
                     if (!is_dir($dir) && !@mkdir($dir, 0755, true)) continue;
 
                     foreach (glob($dir . '/cover.*') as $old) @unlink($old);

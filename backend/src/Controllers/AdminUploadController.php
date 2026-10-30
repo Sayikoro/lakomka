@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../ChunkedUpload.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminUploadController
 {
@@ -39,7 +40,7 @@ class AdminUploadController
     {
         Auth::requireEditor();
 
-        $dir = __DIR__ . '/../../../public/uploads/hero';
+        $dir = Paths::uploadsRoot() . '/hero';
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
@@ -81,7 +82,7 @@ class AdminUploadController
     {
         Auth::requireEditor();
 
-        $dir = __DIR__ . '/../../../public/uploads/snowflake';
+        $dir = Paths::uploadsRoot() . '/snowflake';
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }

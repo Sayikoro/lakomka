@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../Paths.php';
 
 class AdminImagesController
 {
@@ -18,8 +19,8 @@ class AdminImagesController
         if (!$slug) jsonResponse(['error' => 'Товар не найден'], 404);
 
         $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower($slug)) ?: "p$productId";
-        // Правильный путь — в корень Next.js (три уровня вверх от src/Controllers/)
-        $dir = __DIR__ . '/../../../public/uploads/products/' . $safeSlug;
+        // Пути к медиа — через Paths (работает и в dev, и в деплой-пакете)
+        $dir = Paths::uploadsRoot() . '/products/' . $safeSlug;
         if (!is_dir($dir)) mkdir($dir, 0755, true);
 
         return $dir;
@@ -35,7 +36,7 @@ class AdminImagesController
     private static function deleteFile(string $url): void
     {
         if (str_starts_with($url, '/uploads/')) {
-            $path = __DIR__ . '/../../../public' . $url;
+            $path = Paths::publicRoot() . $url;
             if (is_file($path)) @unlink($path);
         }
     }
@@ -216,8 +217,8 @@ class AdminImagesController
             jsonResponse(['error' => 'Допустимы только файлы из /uploads/'], 422);
         }
 
-        $uploadsRoot = realpath(__DIR__ . '/../../../public/uploads');
-        $realFile = $uploadsRoot === false ? false : realpath(__DIR__ . '/../../../public' . $url);
+        $uploadsRoot = realpath(Paths::uploadsRoot());
+        $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
         if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
             || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
             jsonResponse(['error' => 'Файл не найден в медиа-галерее'], 404);
