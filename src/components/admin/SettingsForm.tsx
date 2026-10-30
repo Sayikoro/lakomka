@@ -155,10 +155,13 @@ export function SettingsForm({ initial }: Props) {
           smtp_pass: form.smtp_pass, // пустая строка = не менять
           smtp_secure: form.smtp_secure,
           hero_image: form.hero_image,
-          hero_slider_enabled: form.hero_slider_enabled,
+          /* Всегда строки «0»/«1»: если в поле попало что-то другое (пусто,
+             boolean из старого кэша) — приводим сами, чтобы бэкенд не отвечал
+             ошибкой «hero_slider_enabled: 0 | 1» */
+          hero_slider_enabled: form.hero_slider_enabled === "1" ? "1" : "0",
           hero_slides: JSON.stringify(slides.filter((s) => s.url)),
           product_card_template: form.product_card_template || "classic",
-          snow_enabled: form.snow_enabled,
+          snow_enabled: form.snow_enabled === "1" ? "1" : "0",
           snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
           snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),
           snow_speed: String(Math.max(0.1, Math.min(20, parseFloat(form.snow_speed || "0.5") || 0.5))),

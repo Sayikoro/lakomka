@@ -2,13 +2,14 @@
 
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../Paths.php';
+require_once __DIR__ . '/../MediaOptimizer.php';
 
 class AdminImagesController
 {
-    private const MAX_IMAGE = 8 * 1024 * 1024;   // 8 MB
-    private const MAX_VIDEO = 50 * 1024 * 1024;  // 50 MB
-    private const IMG_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    private const VID_MIME = ['video/mp4', 'video/webm'];
+    private const MAX_IMAGE = 32 * 1024 * 1024;   // 32 MB (на сервере всё равно сожмётся в WebP)
+    private const MAX_VIDEO = 200 * 1024 * 1024;  // 200 MB
+    private const IMG_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    private const VID_MIME = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'];
 
     /* ---------- helpers ---------- */
     private static function ensureProductDir(PDO $pdo, int $productId): string
@@ -68,6 +69,7 @@ class AdminImagesController
             'image/png'  => 'png',
             'image/webp' => 'webp',
             'image/gif'  => 'gif',
+            'image/avif' => 'avif',
             default      => 'bin',
         };
         $filename = time() . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
@@ -75,6 +77,14 @@ class AdminImagesController
 
         if (!move_uploaded_file($file['tmp_name'], $dest)) {
             jsonResponse(['error' => 'Не удалось сохранить файл'], 500);
+        }
+
+        /* ОПТИМИЗАТОР: картинка → WebP (сжатие + уменьшение до 2000px).
+           При неудаче файл остаётся как есть — загрузка не падает. */
+        $opt = MediaOptimizer::optimizeImageFile($dest);
+        if ($opt['converted']) {
+            $filename = $opt['name'];
+            $dest = $dir . '/' . $filename;
         }
 
         $relDir = basename($dir);
@@ -93,6 +103,7 @@ class AdminImagesController
                 'url'        => $url,
                 'alt'        => null,
                 'sort_order' => $sort,
+                'optimized'  => $opt['note'],
             ],
         ], 201);
     }
@@ -113,20 +124,33 @@ class AdminImagesController
         }
         $file = $_FILES['file'];
         if ($file['size'] > self::MAX_VIDEO) {
-            jsonResponse(['error' => 'Видео больше 50 MB. Для больших — YouTube/VK.'], 422);
+            jsonResponse(['error' => 'Видео больше 200 MB. Для больших — YouTube/VK.'], 422);
         }
         $mime = mime_content_type($file['tmp_name']);
         if (!in_array($mime, self::VID_MIME, true)) {
             jsonResponse([
-                'error' => "Формат не поддерживается: $mime. Только .mp4 или .webm (H.264).",
+                'error' => "Формат не поддерживается: $mime. Можно mp4, webm, mov, m4v.",
             ], 422);
         }
-        $ext = $mime === 'video/mp4' ? 'mp4' : 'webm';
+        $ext = match ($mime) {
+            'video/mp4'  => 'mp4',
+            'video/webm' => 'webm',
+            'video/x-m4v' => 'm4v',
+            default      => 'mov', // video/quicktime
+        };
         $filename = 'video-' . time() . '-' . bin2hex(random_bytes(3)) . '.' . $ext;
         $dest = $dir . '/' . $filename;
 
         if (!move_uploaded_file($file['tmp_name'], $dest)) {
             jsonResponse(['error' => 'Не удалось сохранить файл'], 500);
+        }
+
+        /* ОПТИМИЗАТОР: mov/m4v → mp4 (пересборка контейнера или H.264).
+           Без ffmpeg на сервере файл остаётся как есть. */
+        $opt = MediaOptimizer::optimizeVideoFile($dest);
+        if ($opt['converted']) {
+            $filename = $opt['name'];
+            $dest = $dir . '/' . $filename;
         }
 
         $relDir = basename($dir);
@@ -145,6 +169,7 @@ class AdminImagesController
                 'url'        => $url,
                 'alt'        => null,
                 'sort_order' => $sort,
+                'optimized'  => $opt['note'],
             ],
         ], 201);
     }
@@ -210,10 +235,12 @@ class AdminImagesController
 
         if ($url === '') jsonResponse(['error' => 'Укажите URL'], 422);
 
-        // только локальные файлы из /uploads/ (никакого traversal)
+        // только локальные файлы из /uploads/ (никакого traversal).
+        // Имена в файловом менеджере проходят санитайз с unicode-буквами
+        // и пробелами («фото галереи.webp») — attach должен принимать их же.
         $rel = str_starts_with($url, '/uploads/') ? substr($url, strlen('/uploads/')) : null;
         if ($rel === null || $rel === '' || str_contains($url, '..')
-            || !preg_match('#^[A-Za-z0-9._\-/]+$#', $rel)) {
+            || !preg_match('#^[\p{L}\p{N}._\-/ ]+$#u', $rel)) {
             jsonResponse(['error' => 'Допустимы только файлы из /uploads/'], 422);
         }
 
@@ -225,10 +252,33 @@ class AdminImagesController
         }
 
         $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
-        $type = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true) ? 'image'
-              : (in_array($ext, ['mp4', 'webm'], true) ? 'video' : null);
+        $type = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'], true) ? 'image'
+              : (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true) ? 'video' : null);
         if ($type === null) {
             jsonResponse(['error' => "Формат не поддерживается: .$ext"], 422);
+        }
+
+        /* ОПТИМИЗАТОР для attach: mov/m4v из медиа-галереи → mp4, тяжёлые
+           jpg/png → webp. Только если файл ещё НИКУДА не привязан (иначе
+           сменился бы URL у уже подключённых товаров). */
+        $inUse = $pdo->prepare('SELECT COUNT(*) FROM product_images WHERE url = ?');
+        $inUse->execute([$url]);
+        $optNote = '';
+        if ((int)$inUse->fetchColumn() === 0 && !str_contains($url, '..')) {
+            if ($type === 'video' && in_array($ext, ['mov', 'm4v'], true)) {
+                $opt = MediaOptimizer::optimizeVideoFile($realFile);
+                if ($opt['converted']) {
+                    $url = dirname($url) . '/' . $opt['name']; // имя могло смениться с суффиксом
+                    $ext = 'mp4';
+                    $optNote = $opt['note'];
+                }
+            } elseif ($type === 'image' && in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
+                $opt = MediaOptimizer::optimizeImageFile($realFile);
+                if ($opt['converted']) {
+                    $url = dirname($url) . '/' . $opt['name'];
+                    $optNote = $opt['note'];
+                }
+            }
         }
 
         $stmt = $pdo->prepare('SELECT id FROM products WHERE id = ?');
@@ -255,6 +305,7 @@ class AdminImagesController
                 'url'        => $url,
                 'alt'        => null,
                 'sort_order' => $sort,
+                'optimized'  => $optNote,
             ],
         ], 201);
     }

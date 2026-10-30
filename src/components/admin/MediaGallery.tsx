@@ -74,6 +74,8 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const [upPct, setUpPct] = useState<number | null>(null);
   const [upError, setUpError] = useState<string | null>(null);
+  /* Заметки оптимизатора по загруженным файлам (webp/mp4) */
+  const [upOpt, setUpOpt] = useState<string[]>([]);
   const [folder, setFolder] = useState<FolderData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,11 +130,14 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     const files = Array.from(list);
     if (files.length === 0) return;
     setUpError(null);
+    setUpOpt([]);
     setUpPct(0);
     const errors: string[] = [];
+    const notes: string[] = [];
     for (const f of files) {
       try {
-        await uploadToStorage(f, path, (pct) => setUpPct(pct), apiUrl);
+        const r = await uploadToStorage(f, path, (pct) => setUpPct(pct), apiUrl);
+        if (r?.optimized) notes.push(r.optimized);
       } catch (e) {
         errors.push(`${f.name}: ${e instanceof Error ? e.message : "ошибка"}`);
       }
@@ -140,6 +145,9 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
     setUpPct(null);
     if (errors.length) {
       setUpError(errors.join("; "));
+    }
+    if (notes.length) {
+      setUpOpt(notes);
     }
     await load(path); // обновить список (загруженное видно сразу)
   }
@@ -268,6 +276,12 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
               <button type="button" onClick={() => load(path)} className="ml-2 underline">повторить</button>
+            </div>
+          )}
+          {upOpt.length > 0 && (
+            <div className="mb-3 flex items-start justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              <span className="min-w-0 flex-1">✓ Сжато: {upOpt.join("; ")}</span>
+              <button type="button" onClick={() => setUpOpt([])} className="ml-2 shrink-0 text-xs underline">закрыть</button>
             </div>
           )}
           {upError && (

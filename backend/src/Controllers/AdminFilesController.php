@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../ChunkedUpload.php';
 require_once __DIR__ . '/../Paths.php';
+require_once __DIR__ . '/../MediaOptimizer.php';
 
 class AdminFilesController
 {
@@ -266,11 +267,34 @@ class AdminFilesController
         }
         @chmod($dest, 0644);
 
+        /* 8) ОПТИМИЗАТОР: картинки jpg/png → webp, видео mov/m4v → mp4.
+            При любой ошибке файл остаётся как есть. Имя может смениться
+            (расширение/суффикс) — ответ отдаёт итоговые значения. */
+        $optNote = '';
+        if ($key === 'media') {
+            if (in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
+                $opt = MediaOptimizer::optimizeImageFile($dest);
+                if ($opt['converted']) {
+                    $name = $opt['name'];
+                    $dest = dirname($dest) . '/' . $name;
+                    $optNote = $opt['note'];
+                }
+            } elseif (in_array($ext, ['mov', 'm4v'], true)) {
+                $opt = MediaOptimizer::optimizeVideoFile($dest);
+                if ($opt['converted']) {
+                    $name = $opt['name'];
+                    $dest = dirname($dest) . '/' . $name;
+                    $optNote = $opt['note'];
+                }
+            }
+        }
+
         jsonResponse(['data' => [
             'name'   => $name,
             'path'   => $key . ($rel === '' ? '' : '/' . $rel) . '/' . $name,
             'url'    => $cfg['public'] ? $cfg['public'] . '/' . ($rel === '' ? $name : $rel . '/' . $name) : null,
             'size'   => @filesize($dest) ?: 0,
+            'optimized' => $optNote,
         ]]);
     }
 

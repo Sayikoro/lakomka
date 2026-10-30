@@ -176,6 +176,23 @@ class AdminSettingsController
         }
 
         // Валидация
+        /* Булеаны (hero_slider_enabled, snow_enabled) принимаем в любом виде:
+           true/false, "true"/"false", "on"/"off", "да"/"нет" — иначе старый
+           кэш браузера или другой клиент ловит 422 «…: 0 | 1» и настройки
+           не сохраняются вовсе. null = ключ не менять. */
+        foreach (['hero_slider_enabled', 'snow_enabled'] as $bk) {
+            if (!array_key_exists($bk, $data)) continue;
+            $v = $data[$bk];
+            if (is_bool($v)) {
+                $data[$bk] = $v ? '1' : '0';
+            } elseif (is_null($v)) {
+                unset($data[$bk]);
+            } else {
+                $s = strtolower(trim((string)$v));
+                if (in_array($s, ['true', 'on', 'yes', 'да', 'вкл'], true)) $data[$bk] = '1';
+                elseif (in_array($s, ['false', 'off', 'no', '', 'нет', 'выкл'], true)) $data[$bk] = '0';
+            }
+        }
         if (isset($data['mail_driver']) && !in_array($data['mail_driver'], ['log', 'smtp'], true)) {
             jsonResponse(['error' => 'mail_driver: log | smtp'], 422);
         }

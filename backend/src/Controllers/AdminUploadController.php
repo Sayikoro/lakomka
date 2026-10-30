@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../ChunkedUpload.php';
 require_once __DIR__ . '/../Paths.php';
+require_once __DIR__ . '/../MediaOptimizer.php';
 
 class AdminUploadController
 {
@@ -49,8 +50,8 @@ class AdminUploadController
             jsonResponse(['error' => 'Файл не загружен'], 422);
         }
         $file = $_FILES['file'];
-        if ($file['size'] > 8 * 1024 * 1024) {
-            jsonResponse(['error' => 'Картинка больше 8 MB'], 422);
+        if ($file['size'] > 32 * 1024 * 1024) {
+            jsonResponse(['error' => 'Картинка больше 32 MB'], 422);
         }
         $mime = mime_content_type($file['tmp_name']);
         if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
@@ -70,7 +71,14 @@ class AdminUploadController
             jsonResponse(['error' => 'Не удалось сохранить файл'], 500);
         }
 
-        jsonResponse(['data' => ['url' => '/uploads/hero/' . $filename]]);
+        /* ОПТИМИЗАТОР: hero-фоны бывают по 5–10 МБ — жмём в WebP (до 2400px).
+           При неудаче остаётся оригинал. */
+        $opt = MediaOptimizer::optimizeImageFile($dest, 2400, 82);
+        if ($opt['converted']) {
+            $filename = $opt['name'];
+        }
+
+        jsonResponse(['data' => ['url' => '/uploads/hero/' . $filename, 'optimized' => $opt['note']]]);
     }
 
     /* ============================================================

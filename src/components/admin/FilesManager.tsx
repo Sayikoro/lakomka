@@ -369,10 +369,12 @@ export function FilesManager() {
     setUploadPct(0);
     const errors: string[] = [];
     const ok: string[] = [];
+    const optNotes: string[] = [];
     for (const f of files) {
       try {
         const r = await uploadToStorage(f, path, (pct) => setUploadPct(pct), apiUrl);
         ok.push(r.name);
+        if (r?.optimized) optNotes.push(r.optimized);
       } catch (e) {
         errors.push(`${f.name}: ${e instanceof Error ? e.message : "ошибка"}`);
       }
@@ -386,9 +388,10 @@ export function FilesManager() {
     if (errors.length) {
       setUploadNote({ ok: false, text: `Не загружено: ${errors.join("; ")}` });
     } else {
+      const base = files.length === 1 ? `Файл «${ok[0]}» загружен` : `Загружено файлов: ${ok.length}`;
       setUploadNote({
         ok: true,
-        text: files.length === 1 ? `Файл «${ok[0]}» загружен` : `Загружено файлов: ${ok.length}`,
+        text: optNotes.length ? `${base}. Сжато: ${optNotes.join("; ")}` : base,
       });
     }
   }

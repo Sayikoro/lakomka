@@ -34,6 +34,8 @@ export function MediaUploader({ productId, initial }: Props) {
   const [uploadingVid, setUploadingVid] = useState(false);
   const [vidPct, setVidPct] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /* Заметка оптимизатора: «photo.jpg → photo.webp (2.1 МБ → 340 КБ)» */
+  const [optNote, setOptNote] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
@@ -89,6 +91,7 @@ export function MediaUploader({ productId, initial }: Props) {
           setError(json.error ?? "Не удалось загрузить картинку");
           continue;
         }
+        if (json.data?.optimized) setOptNote(json.data.optimized);
         setItems((list) => reindex([...list, json.data]));
       }
     } finally {
@@ -128,6 +131,7 @@ export function MediaUploader({ productId, initial }: Props) {
         setError(res.body?.error ?? `Ошибка загрузки (${res.status})`);
         return;
       }
+      if (res.body?.data?.optimized) setOptNote(res.body.data.optimized);
       setItems((list) => reindex([...list, res.body.data]));
     } catch {
       setError("Ошибка сети при загрузке видео");
@@ -185,6 +189,7 @@ export function MediaUploader({ productId, initial }: Props) {
             failed.push(`${p.name}: ${json.error ?? "не удалось добавить"}`);
             continue;
           }
+          if (json.data?.optimized) setOptNote(json.data.optimized);
           setItems((list) => reindex([...list, json.data]));
         } catch {
           failed.push(`${p.name}: ошибка сети`);
@@ -300,7 +305,7 @@ export function MediaUploader({ productId, initial }: Props) {
           <input
             ref={imgInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
             multiple
             onChange={(e) => handleImages(e.target.files)}
             className="hidden"
@@ -308,7 +313,7 @@ export function MediaUploader({ productId, initial }: Props) {
           <input
             ref={vidInputRef}
             type="file"
-            accept="video/mp4,video/webm"
+            accept="video/mp4,video/webm,video/quicktime,.mov,.m4v"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) uploadVideoFile(f);
@@ -323,6 +328,12 @@ export function MediaUploader({ productId, initial }: Props) {
         Кнопка «Из галереи» позволяет выбрать уже загруженные на сайт файлы.
       </p>
 
+      {optNote && (
+        <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+          <span className="min-w-0 flex-1">✓ Сжато: {optNote}</span>
+          <button onClick={() => setOptNote(null)} className="ml-2 shrink-0 underline">закрыть</button>
+        </div>
+      )}
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
           {error}

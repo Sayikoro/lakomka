@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Snowfall } from "./Snowfall";
 import { useT } from "@/components/texts/TextsProvider";
 import type { SnowSettings } from "@/lib/settings";
+import { DEFAULT_SNOW_SETTINGS, parseSnowConfig } from "@/lib/snow";
 import { SmartImage } from "@/components/ui/SmartImg";
 
 interface HeroProps {
@@ -14,7 +15,7 @@ interface HeroProps {
   slides: string[];
   /** Слайдер включён в настройках */
   slider: boolean;
-  /** Снегопад в Hero-блоке (настройки из админки) */
+  /** Снегопад в Hero-блоке (настройки из админки, запечённые при рендере) */
   snow?: SnowSettings;
 }
 
@@ -25,6 +26,29 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
   const list = (slider && slides.length > 1 ? slides : [image]).filter(Boolean);
   const [active, setActive] = useState(0);
   const touchX = useRef<number | null>(null);
+
+  /* Снегопад: серверный конфиг может быть запечён при сборке (статический
+     деплой) — после монтирования подтягиваем свежие настройки с API, чтобы
+     включение снега в админке работало без пересборки сайта. */
+  const [snowLive, setSnowLive] = useState<SnowSettings>(snow ?? DEFAULT_SNOW_SETTINGS);
+  useEffect(() => {
+    setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    let cancelled = false;
+    fetch(`${apiUrl}/settings/public`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && json?.data?.snow) {
+          setSnowLive(parseSnowConfig(json.data.snow));
+        }
+      })
+      .catch(() => {
+        /* сеть недоступна — остаётся запечённый конфиг */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [snow]);
 
   const go = useCallback(
     (i: number) => {
@@ -137,15 +161,16 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
       )}
 
       {/* Снегопад — только внутри Hero-блока (canvas обрезается overflow-hidden).
-          Идёт последним: рисуется поверх текста, но под кнопкой и точками (z-10). */}
-      {snow?.enabled && (
+          Идёт последним: рисуется поверх текста, но под кнопкой и точками (z-10).
+          Конфиг — живой (snowLive): на статическом сайте подтягивается с API. */}
+      {snowLive.enabled && (
         <Snowfall
-          count={snow.count}
-          countMobile={snow.count_mobile}
-          speed={snow.speed}
-          size={snow.size}
-          color={snow.color}
-          flake={snow.flake}
+          count={snowLive.count}
+          countMobile={snowLive.count_mobile}
+          speed={snowLive.speed}
+          size={snowLive.size}
+          color={snowLive.color}
+          flake={snowLive.flake}
         />
       )}
     </section>

@@ -16,6 +16,8 @@ export interface StorageUploadResult {
   /** публичный адрес (для media: /uploads/...), у служебных разделов null */
   url: string | null;
   size: number;
+  /** заметка оптимизатора («photo.jpg → photo.webp (2.1 МБ → 340 КБ)»), если сработал */
+  optimized?: string;
 }
 
 /** Подсказка для <input type="file">: всё, что принимает хранилище */
