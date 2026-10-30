@@ -3,14 +3,15 @@
 import { useState } from "react";
 import { SettingsForm } from "./SettingsForm";
 import { PageTextsEditor } from "./PageTextsEditor";
+import { SiteUpdateTab } from "./SiteUpdateTab";
 import type { AdminSettings } from "@/app/admin/settings/page";
 
 /**
- * Настройки с вкладками: «Основные» (почта/витрина/снегопад) и
- * «Текст на страницах» — все тексты витрины в полях ввода.
+ * Настройки с вкладками: «Основные» (почта/витрина/снегопад),
+ * «Текст на страницах» и «Обновление» (загрузка архива обновления сайта).
  */
 export function SettingsTabs({ settings }: { settings: AdminSettings }) {
-  const [tab, setTab] = useState<"main" | "texts">("main");
+  const [tab, setTab] = useState<"main" | "texts" | "update">("main");
 
   const tabCls = (active: boolean) =>
     `rounded-full px-5 py-2 text-sm font-medium transition ${
@@ -28,12 +29,17 @@ export function SettingsTabs({ settings }: { settings: AdminSettings }) {
         <button type="button" onClick={() => setTab("texts")} className={tabCls(tab === "texts")}>
           Текст на страницах
         </button>
+        <button type="button" onClick={() => setTab("update")} className={tabCls(tab === "update")}>
+          Обновление
+        </button>
       </div>
 
       {tab === "main" ? (
         <SettingsForm initial={settings} />
-      ) : (
+      ) : tab === "texts" ? (
         <PageTextsEditor />
+      ) : (
+        <SiteUpdateTab />
       )}
     </div>
   );

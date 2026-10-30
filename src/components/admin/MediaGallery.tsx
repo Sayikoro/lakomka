@@ -2,14 +2,21 @@
 
 /* Медиа-галерея — выбор картинок/видео из файлов сайта.
  * Основа: раздел «media» файлового менеджера (GET /api/admin/files?path=media[/sub/dir]),
- * тот же бэкенд, что у проводника админки. Галерея только для ВЫБОРА —
- * удаление/загрузка остаются в проводнике.
+ * тот же бэкенд, что у проводника админки. Галерея для ВЫБОРА + ЗАГРУЗКИ:
+ * свои файлы можно закачать прямо сюда (кнопка «Загрузить», летят в открытую
+ * папку раздела media) — и тут же отметить и добавить к товару.
  * Клик по плитке — отметить/снять отметку; «Добавить выбранные» —
  * возвращает массив {url, kind} вызывающему коду (форма товара).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import {
+  STORAGE_ACCEPT,
+  STORAGE_ACCEPT_IMAGES,
+  STORAGE_ACCEPT_VIDEO,
+  uploadToStorage,
+} from "@/lib/file-storage";
 
 export type GalleryKind = "image" | "video";
 
@@ -37,7 +44,13 @@ interface FolderData {
 }
 
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
-const VIDEO_EXTS = new Set(["mp4", "webm"]);
+const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "m4v"]);
+
+const ACCEPT_MAP = {
+  all: STORAGE_ACCEPT,
+  image: STORAGE_ACCEPT_IMAGES,
+  video: STORAGE_ACCEPT_VIDEO,
+} as const;
 
 function extKind(name: string): GalleryKind | null {
   const ext = (name.split(".").pop() ?? "").toLowerCase();
@@ -58,6 +71,9 @@ interface Props {
 
 export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "/api" }: Props) {
   const [path, setPath] = useState("media");
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const [upPct, setUpPct] = useState<number | null>(null);
+  const [upError, setUpError] = useState<string | null>(null);
   const [folder, setFolder] = useState<FolderData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +122,27 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
       list.some((x) => x.url === pick.url) ? list.filter((x) => x.url !== pick.url) : [...list, pick],
     );
   };
+
+  /* Загрузка своих файлов в открытую папку галереи */
+  async function uploadFiles(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (files.length === 0) return;
+    setUpError(null);
+    setUpPct(0);
+    const errors: string[] = [];
+    for (const f of files) {
+      try {
+        await uploadToStorage(f, path, (pct) => setUpPct(pct), apiUrl);
+      } catch (e) {
+        errors.push(`${f.name}: ${e instanceof Error ? e.message : "ошибка"}`);
+      }
+    }
+    setUpPct(null);
+    if (errors.length) {
+      setUpError(errors.join("; "));
+    }
+    await load(path); // обновить список (загруженное видно сразу)
+  }
 
   const crumbs = useMemo(() => {
     const parts = path.split("/").filter(Boolean);
@@ -170,6 +207,31 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
               ))}
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-2">
+              {/* Загрузить свои файлы в открытую папку галереи */}
+              <input
+                ref={galleryInputRef}
+                type="file"
+                multiple
+                accept={ACCEPT_MAP[accept]}
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) void uploadFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={upPct !== null}
+                title={`Загрузить файлы в «${path}»`}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 16V4M6.5 9.5 12 4l5.5 5.5" />
+                  <path d="M4 20h16" />
+                </svg>
+                {upPct !== null ? `Загрузка… ${upPct}%` : "Загрузить"}
+              </button>
               {accept === "all" && (
                 <div className="flex overflow-hidden rounded-lg border border-[var(--color-border)] text-xs">
                   {([["all", "Все"], ["image", "Картинки"], ["video", "Видео"]] as const).map(([k, label]) => (
@@ -206,6 +268,12 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
               <button type="button" onClick={() => load(path)} className="ml-2 underline">повторить</button>
+            </div>
+          )}
+          {upError && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <span className="min-w-0 flex-1 truncate" title={upError}>{upError}</span>
+              <button type="button" onClick={() => setUpError(null)} className="ml-2 shrink-0 text-xs underline">закрыть</button>
             </div>
           )}
           {!loading && !error && visible.length === 0 && (

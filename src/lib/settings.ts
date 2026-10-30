@@ -62,7 +62,7 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   hero_image: "/hero-bg.jpg",
   hero_slider_enabled: false,
   hero_slides: [],
-  product_card_template: "classic",
+  product_card_template: "new",
   snow: DEFAULT_SNOW_SETTINGS,
   texts: {},
 };
@@ -126,8 +126,11 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
     if (!res.ok) return DEFAULT_FRONT_SETTINGS;
     const json = (await res.json()) as { data: ApiPublicSettings };
     const d = json.data ?? {};
+    /* Дефолт — «new» (карточка с кнопками «Перейти»+«В корзину»): так предпочитает
+       владелец; классический шаблон включается явным выбором в админке. Если ключ
+       в БД потерялся (пересоздание контейнера и т.п.) — витрина не деградирует. */
     const template =
-      d.product_card_template === "new" ? "new" as const : "classic" as const;
+      d.product_card_template === "classic" ? "classic" as const : "new" as const;
     return {
       hero_image: d.hero_image || DEFAULT_FRONT_SETTINGS.hero_image,
       hero_slider_enabled: Boolean(d.hero_slider_enabled),

@@ -6,11 +6,13 @@
  *  - вид «подробности» (таблица) и «значки» (плитка),
  *  - сортировка по имени/дате/размеру, поиск по текущей папке,
  *  - скачивание в два этапа (прогресс в панели загрузок),
- *  - удаление файлов и папок (media — только просмотр).
+ *  - удаление файлов и папок (media — только просмотр),
+ *  - ЗАГРУЗКА своих файлов в открытую папку (кнопка + drag&drop).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDownloads } from "@/components/admin/downloads/Downloads";
+import { STORAGE_ACCEPT, uploadToStorage } from "@/lib/file-storage";
 
 interface Entry {
   name: string;
@@ -101,6 +103,12 @@ export function FilesManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  /* Загрузка своих файлов в открытую папку (кнопка «Загрузить» + drag&drop) */
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [uploadNote, setUploadNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const [backStack, setBackStack] = useState<string[]>([]);
   const [fwdStack, setFwdStack] = useState<string[]>([]);
@@ -271,6 +279,47 @@ export function FilesManager() {
     }
   }
 
+  /* ── Загрузка файлов в хранилище (текущая папка) ── */
+
+  async function uploadFiles(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (!path) {
+      setUploadNote({
+        ok: false,
+        text: "Сначала откройте папку (например «Медиа товаров»), файлы загружаются в открытую папку.",
+      });
+      return;
+    }
+    if (files.length === 0) return;
+
+    setUploadNote(null);
+    setUploadPct(0);
+    const errors: string[] = [];
+    const ok: string[] = [];
+    for (const f of files) {
+      try {
+        const r = await uploadToStorage(f, path, (pct) => setUploadPct(pct), apiUrl);
+        ok.push(r.name);
+      } catch (e) {
+        errors.push(`${f.name}: ${e instanceof Error ? e.message : "ошибка"}`);
+      }
+    }
+    setUploadPct(null);
+    if (ok.length) {
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(path, { force: true });
+    }
+    if (errors.length) {
+      setUploadNote({ ok: false, text: `Не загружено: ${errors.join("; ")}` });
+    } else {
+      setUploadNote({
+        ok: true,
+        text: files.length === 1 ? `Файл «${ok[0]}» загружен` : `Загружено файлов: ${ok.length}`,
+      });
+    }
+  }
+
   /* ── Сортировка / фильтр ── */
 
   const visible = useMemo(() => {
@@ -374,6 +423,36 @@ export function FilesManager() {
               </ToolButton>
             </div>
 
+            {/* Загрузить свои файлы в открытую папку (медиа и т.д.) */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!path || uploadPct !== null}
+              title={
+                path
+                  ? `Загрузить файлы в «${folder?.title ?? path}»`
+                  : "Откройте папку, чтобы загрузить файлы"
+              }
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 16V4M6.5 9.5 12 4l5.5 5.5" />
+                <path d="M4 20h16" />
+              </svg>
+              Загрузить
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={STORAGE_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) void uploadFiles(e.target.files);
+                e.target.value = ""; // повторный выбор того же файла срабатывает
+              }}
+            />
+
             <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] px-2.5 py-1.5 text-sm">
               {crumbs.map((c, i) => (
                 <span key={c.path || "root"} className="flex min-w-0 items-center gap-1">
@@ -409,6 +488,32 @@ export function FilesManager() {
             </div>
           </div>
 
+          {/* Прогресс загрузки файлов */}
+          {uploadPct !== null && (
+            <div className="h-1 w-full bg-[var(--color-bg-soft)]">
+              <div
+                className="h-full bg-[var(--color-primary)] transition-[width] duration-200"
+                style={{ width: `${uploadPct}%` }}
+              />
+            </div>
+          )}
+
+          {/* Итог загрузки: что загружено / какие файлы не приняты */}
+          {uploadNote && (
+            <div
+              className={`flex items-center justify-between border-b px-4 py-2 text-sm ${
+                uploadNote.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate" title={uploadNote.text}>{uploadNote.text}</span>
+              <button onClick={() => setUploadNote(null)} className="ml-3 shrink-0 text-xs underline">
+                закрыть
+              </button>
+            </div>
+          )}
+
           {/* Подсказка раздела */}
           {folder?.hint && path.split("/").length <= 1 && (
             <p className="border-b border-[var(--color-border)] bg-[#fffbea] px-4 py-1.5 text-xs text-[#8a6d1d]">
@@ -416,8 +521,32 @@ export function FilesManager() {
             </p>
           )}
 
-          {/* Содержимое */}
-          <div className="min-h-[380px] flex-1 overflow-auto">
+          {/* Содержимое (сюда же можно перетащить файлы с диска) */}
+          <div
+            data-dropzone="files"
+            className={`relative min-h-[380px] flex-1 overflow-auto ${dragOver ? "z-10 outline-2 -outline-offset-2 outline-dashed outline-[var(--color-primary)]" : ""}`}
+            onDragOver={(e) => {
+              if (!path || uploadPct !== null) return;
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget === e.target) setDragOver(false);
+            }}
+            onDrop={(e) => {
+              if (!path) return;
+              e.preventDefault();
+              setDragOver(false);
+              if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
+            }}
+          >
+            {dragOver && (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-primary)]/5">
+                <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[var(--color-primary)] shadow-md">
+                  Отпустите, чтобы загрузить файлы в эту папку
+                </p>
+              </div>
+            )}
             {loading ? (
               <p className="px-4 py-10 text-center text-sm text-[var(--color-muted)]">
                 Загрузка…

@@ -272,6 +272,16 @@ $stmt->execute([$m[1]]);
         AdminUploadController::saveSnowflakeSvg();
     }
 
+    /* ========== ADMIN: SITE UPDATE (Настройки → «Обновление») ========== */
+    if ($path === '/api/admin/site-update' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::status();
+    }
+    if ($path === '/api/admin/site-update/apply' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::apply();
+    }
+
     /* ========== ADMIN: WEIGHT RECIPES ========== */
     if ($path === '/api/admin/weight-recipes' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
@@ -362,6 +372,10 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/files' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::list();
+    }
+    if ($path === '/api/admin/files/upload' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::upload();
     }
     if ($path === '/api/admin/files/delete' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';

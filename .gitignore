@@ -46,11 +46,16 @@ next-env.d.ts
 
 # backend: секреты, БД и рантайм-файлы
 backend/config.local.php
+backend/UPDATE_ROOT
 backend/storage/*
 !backend/storage/database.sqlite
 backend/storage/database.sqlite-*
 backend/public/uploads-test/
 /public/exports/
+
+# тестовый стенд обновлений (песочница)
+.update-staging/
+.update-tmp-*/
 
 # next.js env
 .env.local

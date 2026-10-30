@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Обновление сайта — Лакомка</title>
+<style>
+  :root { --primary:#1f7a4d; --primary-dark:#17603b; --border:#e5e7eb; --heading:#1f2937; --muted:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:#f6f7f8; color:var(--heading); }
+  .wrap { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:24px; font-weight:600; margin:24px 0 4px; }
+  .sub { color:var(--muted); font-size:14px; margin-bottom:24px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
+  .badge { display:inline-block; border-radius:999px; padding:4px 12px; font-size:12px; font-weight:500; border:1px solid; margin-bottom:12px; }
+  .badge.green { background:#dcfce7; color:#166534; border-color:#bbf7d0; }
+  .badge.amber { background:#fef3c7; color:#92400e; border-color:#fde68a; }
+  .badge.red   { background:#fee2e2; color:#991b1b; border-color:#fecaca; }
+  label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
+  input[type=email], input[type=password] {
+    width:100%; padding:10px 12px; font-size:15px; border:1px solid var(--border); border-radius:8px;
+  }
+  button { background:var(--primary); color:#fff; border:0; border-radius:8px; padding:11px 22px; font-size:15px; font-weight:500; cursor:pointer; }
+  button:hover { background:var(--primary-dark); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .file input[type=file] { font-size:14px; }
+  .btnrow { margin-top:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .bar { height:8px; background:var(--border); border-radius:999px; overflow:hidden; margin-top:16px; display:none; }
+  .bar > div { height:100%; width:0; background:var(--primary); transition:width .2s; }
+  .msg { border-radius:12px; padding:14px 16px; font-size:14px; margin-top:16px; display:none; }
+  .msg.error { background:#fee2e2; color:#991b1b; display:block; }
+  .msg.info { background:#eff6ff; color:#1e3a8a; display:block; }
+  .msg.success { background:#dcfce7; color:#14532d; display:block; }
+  dl { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; margin:12px 0 0; }
+  dt { font-size:13px; color:var(--muted); }
+  dd { font-size:14px; font-weight:500; margin:0; }
+  .hint { font-size:13px; color:var(--muted); line-height:1.5; }
+  code { background:#f3f4f6; border-radius:4px; padding:1px 5px; font-size:12.5px; }
+  .hidden { display:none; }
+  #logout { background:none; color:var(--muted); text-decoration:underline; padding:0; font-size:13px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Обновление сайта</h1>
+  <p class="sub">Лакомка — загрузка архива обновления. Обновляет функционал сайта (страницы, стили, скрипты, PHP), не трогает медиа и базу данных.</p>
+
+  <!-- ВХОД -->
+  <div class="card" id="loginCard">
+    <p class="hint" style="margin-top:0">Войдите с учёткой администратора сайта.</p>
+    <label for="email">Email</label>
+    <input type="email" id="email" autocomplete="username">
+    <label for="password">Пароль</label>
+    <input type="password" id="password" autocomplete="current-password">
+    <div class="btnrow"><button id="loginBtn">Войти</button></div>
+  </div>
+
+  <!-- ОБНОВЛЕНИЕ -->
+  <div id="updateArea" class="hidden">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <strong>Текущий сайт</strong>
+        <button id="logout" type="button">выйти</button>
+      </div>
+      <div id="modeBadge" class="badge amber">проверяем…</div>
+      <dl>
+        <dt>Версия пакета</dt><dd id="vVersion">—</dd>
+        <dt>Собран</dt><dd id="vBuilt">—</dd>
+        <dt>Последнее обновление</dt><dd id="vLast">—</dd>
+        <dt>Сборка (git)</dt><dd id="vGit">—</dd>
+      </dl>
+    </div>
+
+    <div class="card file">
+      <strong>Архив обновления</strong>
+      <p class="hint" style="margin:6px 0 12px">
+        Файл <code>.zip</code> от разработчика (например, <code>lakomka-update-2026.01.01-1200.zip</code>).
+        Загружается по частям — лимиты хостинга на размер запроса не важны.
+        Обновит страницы, стили, скрипты и PHP; <b>не тронет</b> <code>uploads/</code> и базу данных (заказы).
+      </p>
+      <input type="file" id="zipFile" accept=".zip,application/zip">
+      <div class="btnrow">
+        <button id="applyBtn" disabled>Обновить сайт</button>
+      </div>
+      <div class="bar" id="bar"><div id="barFill"></div></div>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var API = "/api";
+  var TOKEN_KEY = "lakomka_update_token";
+  var CHUNK = 512 * 1024;
+  var token = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var msgBox = $("msg");
+
+  function showMsg(kind, html) {
+    msgBox.className = "msg " + kind;
+    msgBox.innerHTML = html;
+  }
+  function hideMsg() { msgBox.className = "msg"; msgBox.textContent = ""; }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function fmtDate(v) {
+    if (!v) return "—";
+    var d = new Date(v);
+    return isNaN(d.getTime()) ? esc(v) : d.toLocaleString("ru-RU");
+  }
+  function authHeaders(extra) {
+    var h = extra || {};
+    if (token) h["Authorization"] = "Bearer " + token;
+    return h;
+  }
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = authHeaders(opts.headers || {});
+    opts.credentials = "include";
+    return fetch(API + path, opts);
+  }
+
+  function bufferToBase64(bytes) {
+    var binary = "", len = bytes.byteLength, step = 0x8000;
+    for (var i = 0; i < len; i += step) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + step, len)));
+    }
+    return btoa(binary);
+  }
+
+  /* ---------- вход ---------- */
+  function enterApp() {
+    $("loginCard").classList.add("hidden");
+    $("updateArea").classList.remove("hidden");
+    loadStatus();
+  }
+  $("loginBtn").addEventListener("click", function () {
+    var email = $("email").value.trim(), password = $("password").value;
+    if (!email || !password) { showMsg("error", "Введите email и пароль."); return; }
+    $("loginBtn").disabled = true;
+    fetch(API + "/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email: email, password: password })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        $("loginBtn").disabled = false;
+        if (!res.ok) { showMsg("error", esc(res.j.error || "Не удалось войти")); return; }
+        token = res.j.data && res.j.data.token ? res.j.data.token : null;
+        try { localStorage.setItem(TOKEN_KEY, token || ""); } catch (e) {}
+        hideMsg();
+        enterApp();
+      })
+      .catch(function () { $("loginBtn").disabled = false; showMsg("error", "Ошибка сети."); });
+  });
+  $("password").addEventListener("keydown", function (e) { if (e.key === "Enter") $("loginBtn").click(); });
+  $("logout").addEventListener("click", function () {
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    api("/auth/logout", { method: "POST" }).catch(function () {});
+    location.reload();
+  });
+
+  /* ---------- статус ---------- */
+  function setBadge(mode) {
+    var b = $("modeBadge");
+    if (mode === "deployed") { b.className = "badge green"; b.textContent = "Развёрнутый сайт — обновление применится здесь"; }
+    else if (mode === "staging") { b.className = "badge amber"; b.textContent = "Тестовый стенд песочницы"; }
+    else { b.className = "badge red"; b.textContent = "Статический сайт не обнаружен — обновление недоступно"; }
+  }
+  function loadStatus() {
+    api("/admin/site-update")
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.j.data) {
+          var d = res.j.data;
+          setBadge(d.mode);
+          $("vVersion").textContent = (d.version && d.version.version) ? d.version.version : "неизвестна";
+          $("vBuilt").textContent = fmtDate(d.version && d.version.built_at);
+          $("vGit").textContent = (d.version && d.version.git) || "—";
+          $("vLast").textContent = d.last_update
+            ? fmtDate(d.last_update.applied_at) + " · файлов: " + (d.last_update.files != null ? d.last_update.files : "?")
+            : "обновлений ещё не было";
+          $("applyBtn").disabled = false;
+        } else {
+          setBadge("none");
+          showMsg("error", esc(res.j.error || "Не удалось получить статус."));
+        }
+      })
+      .catch(function () { setBadge("none"); showMsg("error", "Ошибка сети — сервер не отвечает."); });
+  }
+
+  /* ---------- загрузка по частям ---------- */
+  function uploadInChunks(file, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var total = Math.ceil(file.size / CHUNK);
+      var uploadId = "up-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+      var i = 0;
+      function next() {
+        if (i >= total) { reject(new Error("Загрузка не завершилась")); return; }
+        var start = i * CHUNK;
+        file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer()
+          .then(function (buf) {
+            return api("/admin/upload/chunk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                upload_id: uploadId,
+                chunk_index: i,
+                total_chunks: total,
+                filename: file.name,
+                chunk_base64: bufferToBase64(new Uint8Array(buf))
+              })
+            });
+          })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (res) {
+            if (!res.ok) { reject(new Error(res.j.error || ("Ошибка чанка " + (i + 1) + "/" + total))); return; }
+            i++;
+            onProgress(Math.round((i / total) * 100));
+            if (res.j.data && res.j.data.done) {
+              resolve(res.j.data.file_name);
+            } else if (i >= total) {
+              reject(new Error("Загрузка не завершилась"));
+            } else {
+              next();
+            }
+          })
+          .catch(function (e) { reject(e instanceof Error ? e : new Error("Ошибка сети при загрузке чанка")); });
+      }
+      next();
+    });
+  }
+
+  /* ---------- применение ---------- */
+  $("zipFile").addEventListener("change", function () {
+    $("applyBtn").disabled = !this.files || !this.files.length;
+    hideMsg();
+  });
+
+  $("applyBtn").addEventListener("click", function () {
+    var file = $("zipFile").files && $("zipFile").files[0];
+    if (!file) return;
+    if (!confirm("Применить обновление сайта?\n\nФайлы сайта будут перезаписаны. Медиа и база данных (заказы) останутся без изменений.")) return;
+
+    var btn = $("applyBtn");
+    btn.disabled = true;
+    $("bar").style.display = "block";
+    $("barFill").style.width = "0%";
+    hideMsg();
+
+    uploadInChunks(file, function (pct) {
+      $("barFill").style.width = pct + "%";
+    })
+      .then(function (fileName) {
+        showMsg("info", "Архив загружен. Распаковываем и применяем обновление…");
+        return api("/admin/site-update/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_name: fileName })
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); });
+      })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { showMsg("error", esc(res.j.error || "Не удалось применить обновление")); return; }
+        var d = res.j.data;
+        var lines = ["Сайт обновлён.", "Файлов обновлено: " + d.files];
+        if (d.version) lines.push("Версия: " + esc(d.version));
+        lines.push("Медиа пропущено: " + d.skipped_media + " · защищённых файлов пропущено: " + d.skipped_protected);
+        if (d.failed > 0) lines.push("Не удалось обновить: " + d.failed + (d.failed_list && d.failed_list.length ? " (" + esc(d.failed_list.join(", ")) + ")" : ""));
+        showMsg("success", lines.join("<br>"));
+        $("zipFile").value = "";
+        loadStatus();
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        showMsg("error", esc(e instanceof Error ? e.message : "Ошибка сети."));
+      });
+  });
+
+  /* ---------- автологин по сохранённому токену ---------- */
+  try { token = localStorage.getItem(TOKEN_KEY) || null; } catch (e) {}
+  if (token) {
+    api("/auth/me")
+      .then(function (r) { if (r.ok) enterApp(); else { token = null; } })
+      .catch(function () { token = null; });
+  }
+})();
+</script>
+</body>
+</html>

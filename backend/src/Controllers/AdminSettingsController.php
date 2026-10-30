@@ -139,9 +139,12 @@ class AdminSettingsController
             }
         }
 
-        $template = $map['product_card_template'] ?? 'classic';
+        /* Дефолт «new» — карточка с кнопками «Перейти»+«В корзину» (предпочтение
+           владельца). Если ключ в settings потерялся (восстановление БД и т.п.),
+           витрина не деградирует до классики. */
+        $template = $map['product_card_template'] ?? 'new';
         if (!in_array($template, ['classic', 'new'], true)) {
-            $template = 'classic';
+            $template = 'new';
         }
 
         /* Тексты страниц: ключи text_* отдаются без префикса */

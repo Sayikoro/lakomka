@@ -483,7 +483,7 @@ export function SettingsForm({ initial }: Props) {
         <div>
           <label className={label}>Карточка товара в каталоге</label>
           <select
-            value={form.product_card_template || "classic"}
+            value={form.product_card_template || "new"}
             onChange={(e) => setField("product_card_template", e.target.value)}
             className={input}
           >

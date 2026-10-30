@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ChunkedUpload.php';
+
 class AdminFilesController
 {
     /* ============================================================
@@ -160,6 +162,113 @@ class AdminFilesController
             'entries' => $entries,
             'total_size' => $totalSize,
             'files_count' => $totalFiles,
+        ]]);
+    }
+
+    /* ── ЗАГРУЗКА ФАЙЛА В ХРАНИЛИЩЕ (медиа и др. разделы) ──
+       POST /api/admin/files/upload  JSON:
+         { file_path: "up-xxxx.zip" (собранный chunk-файл из storage/chunked-uploads),
+           original_name: "фото.jpg", target: "media[/подпапка]" }
+       Файл переезжает из chunked-хранилища в целевую папку раздела:
+       санитайз имени, дедупликация (name-1.ext), whitelist расширений,
+       проверка MIME по содержимому. Ответ: {name, path, url, size}. */
+
+    /** Разрешённые расширения → допустимые MIME (finfo) / семейства */
+    private static function allowedExts(): array
+    {
+        return [
+            'jpg'  => ['image/jpeg'],
+            'jpeg' => ['image/jpeg'],
+            'png'  => ['image/png'],
+            'webp' => ['image/webp'],
+            'gif'  => ['image/gif'],
+            'avif' => ['image/avif', 'image/heif'],
+            'mp4'  => ['video/mp4'],
+            'webm' => ['video/webm'],
+            'mov'  => ['video/quicktime', 'video/mp4'],
+            'm4v'  => ['video/x-m4v', 'video/mp4'],
+            'pdf'  => ['application/pdf'],
+        ];
+    }
+
+    private static function maxBytesFor(string $ext): int
+    {
+        if (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true)) return 512 * 1024 * 1024;
+        if ($ext === 'pdf') return 64 * 1024 * 1024;
+        return 32 * 1024 * 1024; // картинки
+    }
+
+    public static function upload(): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $filePath     = (string)($data['file_path'] ?? '');
+        $originalName = (string)($data['original_name'] ?? '');
+        $target       = (string)($data['target'] ?? '');
+
+        // 1) источник — собранный chunk-файл
+        $src = ChunkedUpload::resolveFile($filePath);
+        if (!$src) {
+            jsonResponse(['error' => 'Загруженный файл не найден (сессия загрузки истекла?)'], 422);
+        }
+
+        // 2) целевая папка (любой раздел, корень раздела разрешён)
+        if ($target === '') jsonResponse(['error' => 'Не указана папка назначения'], 400);
+        [$cfg, $key, $root, $abs, $rel] = self::resolve($target);
+        if (!is_dir($abs)) jsonResponse(['error' => 'Папка назначения не найдена'], 404);
+
+        // 3) расширение и лимит
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowed = self::allowedExts();
+        if ($ext === '' || !isset($allowed[$ext])) {
+            jsonResponse(['error' => 'Формат не поддерживается: .' . $ext . ' (можно: '
+                . implode(', ', array_keys($allowed)) . ')'], 422);
+        }
+        $size = @filesize($src) ?: 0;
+        $max = self::maxBytesFor($ext);
+        if ($size > $max) {
+            jsonResponse(['error' => 'Файл больше ' . round($max / 1024 / 1024) . ' МБ'], 422);
+        }
+
+        // 4) MIME по содержимому (доверяем файлу, а не имени)
+        $mime = @mime_content_type($src) ?: '';
+        if (!in_array($mime, $allowed[$ext], true)) {
+            jsonResponse(['error' => "Содержимое файла не похоже на .$ext (определено: $mime)"], 422);
+        }
+
+        // 5) санитайз имени: буквы/цифры/точка/дефис/пробел/подчёркивание (unicode)
+        $base = pathinfo($originalName, PATHINFO_FILENAME);
+        $base = trim(preg_replace('/[^\p{L}\p{N}._\- ]+/u', '_', $base) ?? '', " ._");
+        $base = mb_substr($base, 0, 100);
+        if ($base === '' || $base === '_') $base = 'file';
+        $name = $base . '.' . $ext;
+
+        // 6) дедупликация: photo.jpg → photo-1.jpg → photo-2.jpg …
+        $dest = $abs . '/' . $name;
+        if (is_file($dest)) {
+            $n = 1;
+            do {
+                $name = $base . '-' . $n . '.' . $ext;
+                $dest = $abs . '/' . $name;
+                $n++;
+            } while (is_file($dest) && $n < 1000);
+        }
+
+        // 7) переезд (тот же диск → rename; на всякий случай — копия)
+        if (!@rename($src, $dest)) {
+            if (!@copy($src, $dest)) {
+                jsonResponse(['error' => 'Не удалось сохранить файл в хранилище'], 500);
+            }
+            @unlink($src);
+        }
+        @chmod($dest, 0644);
+
+        jsonResponse(['data' => [
+            'name'   => $name,
+            'path'   => $key . ($rel === '' ? '' : '/' . $rel) . '/' . $name,
+            'url'    => $cfg['public'] ? $cfg['public'] . '/' . ($rel === '' ? $name : $rel . '/' . $name) : null,
+            'size'   => @filesize($dest) ?: 0,
         ]]);
     }
 
