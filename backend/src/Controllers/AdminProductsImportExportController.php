@@ -122,6 +122,8 @@ class AdminProductsImportExportController
                 'images_copied' => $stats['images_copied'],
                 'videos_copied' => $stats['videos_copied'],
                 'videos_external' => $stats['videos_external'],
+                'images_attached' => $stats['images_attached'],
+                'videos_attached' => $stats['videos_attached'],
                 'parse_errors' => $parsed['errors'],
                 'import_errors' => $stats['errors'],
                 'images_missing' => array_values(array_unique($stats['images_missing'])),
@@ -630,10 +632,17 @@ class AdminProductsImportExportController
             'videos_copied' => 0,
             'videos_external' => 0,
             'images_external' => 0,
+            'images_attached' => 0,
+            'videos_attached' => 0,
             'images_missing' => [],
             'videos_missing' => [],
             'errors' => [],
         ];
+
+        /* Индекс файлов на сервере (ленивый): basename (ниж. регистр) → [абс. пути].
+           Строится один раз за импорт при ПЕРВОМ промахе по ZIP — если в архиве
+           есть все файлы, сканирования не будет вовсе. */
+        $serverIndex = null;
 
         $pdo->exec('BEGIN IMMEDIATE');
         try {
@@ -750,70 +759,99 @@ class AdminProductsImportExportController
                         $stats['errors'][] = "Строка {$r['_row_number']}: не удалось создать папку";
                         continue;
                     }
-                    // Удаляем старые файлы
-                    foreach (glob($dir . '/cover.*') as $old) @unlink($old);
-                    foreach (glob($dir . '/[0-9]*.*') as $old) @unlink($old);
-                    foreach (glob($dir . '/ext-*.*') as $old) @unlink($old);
-                    foreach (glob($dir . '/video-*.*') as $old) @unlink($old);
 
-                    // Видео (через запятую: URL или имена файлов из ZIP)
+                    /* ФАЙЛ, КОТОРОГО НЕТ В ZIP, ИЩЕМ НА СЕРВЕРЕ (Task 85).
+                     * План составляется ДО удаления старых файлов: если ссылка
+                     * указывает на файл в СВОЕЙ папке товара (напр. «лёгкий» архив
+                     * без папок media) — файл защищается от удаления и просто
+                     * перепривязывается. Иначе файл был бы стёрт глобами ниже
+                     * до того, как мы успели бы его найти. */
+                    if ($serverIndex === null) {
+                        $serverIndex = self::buildUploadsIndex($fsRoot . '/uploads');
+                    }
+                    $videoPlan = self::resolveMediaPlan(
+                        $r['video_items'], $videoFiles, $serverIndex,
+                        $fsRoot . '/uploads', $dir, self::VIDEO_EXT, true
+                    );
+                    $imagePlan = self::resolveMediaPlan(
+                        $r['image_files'], $imageFiles, $serverIndex,
+                        $fsRoot . '/uploads', $dir, self::COVER_EXT, false
+                    );
+
+                    $protect = [];
+                    $dirReal = realpath($dir) ?: $dir;
+                    foreach ([$videoPlan, $imagePlan] as $pl) {
+                        foreach ($pl as $p) {
+                            if (($p['kind'] ?? '') === 'server'
+                                && str_starts_with($p['abs'], rtrim($dirReal, '/') . '/')) {
+                                $protect[$p['abs']] = true;
+                            }
+                        }
+                    }
+
+                    // Удаляем старые файлы (кроме защищённых — они перепривязываются)
+                    foreach (['cover.*', '[0-9]*.*', 'ext-*.*', 'video-*.*'] as $pattern) {
+                        foreach (glob($dir . '/' . $pattern) as $old) {
+                            $real = realpath($old) ?: $old;
+                            if (isset($protect[$real])) continue;
+                            @unlink($old);
+                        }
+                    }
+
+                    // Видео: план (external | zip | server | missing)
                     $vidSort = 0;
-                    foreach ($r['video_items'] as $item) {
-                        if (str_starts_with($item, 'http://') || str_starts_with($item, 'https://')) {
-                            // внешний URL
-                            $insertMedia->execute([$productId, $item, 'Видео', 'video', $vidSort]);
+                    foreach ($videoPlan as $p) {
+                        if ($p['kind'] === 'external') {
+                            $insertMedia->execute([$productId, $p['url'], 'Видео', 'video', $vidSort]);
                             $vidSort++;
                             $stats['videos_external']++;
-                        } else {
-                            // файл из ZIP
-                            $key = strtolower(basename($item));
-                            if (!isset($videoFiles[$key])) {
-                                $stats['videos_missing'][] = $item;
-                                continue;
-                            }
-                            $src = $videoFiles[$key];
-                            $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION)) ?: 'mp4';
+                        } elseif ($p['kind'] === 'zip') {
+                            $ext = $p['ext'];
                             if (!in_array($ext, self::VIDEO_EXT, true)) continue;
-
                             $destName = 'video-' . $vidSort . '.' . $ext;
                             $dest = $dir . '/' . $destName;
-                            if (!@copy($src, $dest)) continue;
+                            if (!@copy($p['src'], $dest)) continue;
 
                             $relUrl = '/uploads/products/' . $safeSlug . '/' . $destName;
                             $insertMedia->execute([$productId, $relUrl, 'Видео', 'video', $vidSort]);
                             $vidSort++;
                             $stats['videos_copied']++;
+                        } elseif ($p['kind'] === 'server') {
+                            // файл уже лежит на сервере (/uploads/video и т.п.) —
+                            // привязываем его существующий URL, без копии
+                            $insertMedia->execute([$productId, $p['url'], 'Видео', 'video', $vidSort]);
+                            $vidSort++;
+                            $stats['videos_attached']++;
+                        } else {
+                            $stats['videos_missing'][] = $p['item'];
                         }
                     }
 
-                    // Картинки (через запятую: имена файлов из ZIP или полные URL)
+                    // Картинки: план (external | zip | server | missing)
                     $imgSort = $vidSort; // продолжаем сортировку после видео
-                    foreach ($r['image_files'] as $fileName) {
-                        if (preg_match('#^https?://#i', $fileName)) {
-                            // внешний URL — регистрируем как есть
-                            $insertMedia->execute([$productId, $fileName, $r['name'], 'image', $imgSort]);
+                    foreach ($imagePlan as $p) {
+                        if ($p['kind'] === 'external') {
+                            $insertMedia->execute([$productId, $p['url'], $r['name'], 'image', $imgSort]);
                             $imgSort++;
                             $stats['images_external']++;
-                            continue;
-                        }
-                        $key = strtolower(basename($fileName));
-                        if (!isset($imageFiles[$key])) {
-                            $stats['images_missing'][] = $fileName;
-                            continue;
-                        }
-                        $src = $imageFiles[$key];
-                        $ext = strtolower(pathinfo($src, PATHINFO_EXTENSION));
-                        if ($ext === 'jpeg') $ext = 'jpg';
-                        if (!in_array($ext, self::COVER_EXT, true)) continue;
+                        } elseif ($p['kind'] === 'zip') {
+                            $ext = $p['ext'];
+                            if (!in_array($ext, self::COVER_EXT, true)) continue;
+                            $destName = $imgSort . '.' . $ext;
+                            $dest = $dir . '/' . $destName;
+                            if (!@copy($p['src'], $dest)) continue;
 
-                        $destName = $imgSort . '.' . $ext;
-                        $dest = $dir . '/' . $destName;
-                        if (!@copy($src, $dest)) continue;
-
-                        $relUrl = '/uploads/products/' . $safeSlug . '/' . $destName;
-                        $insertMedia->execute([$productId, $relUrl, $r['name'], 'image', $imgSort]);
-                        $imgSort++;
-                        $stats['images_copied']++;
+                            $relUrl = '/uploads/products/' . $safeSlug . '/' . $destName;
+                            $insertMedia->execute([$productId, $relUrl, $r['name'], 'image', $imgSort]);
+                            $imgSort++;
+                            $stats['images_copied']++;
+                        } elseif ($p['kind'] === 'server') {
+                            $insertMedia->execute([$productId, $p['url'], $r['name'], 'image', $imgSort]);
+                            $imgSort++;
+                            $stats['images_attached']++;
+                        } else {
+                            $stats['images_missing'][] = $p['item'];
+                        }
                     }
                 } catch (Throwable $e) {
                     $stats['errors'][] = "Строка {$r['_row_number']}: " . $e->getMessage();
@@ -827,6 +865,139 @@ class AdminProductsImportExportController
         }
 
         return $stats;
+    }
+
+    /* ──────────────────────────────────────────────────────────────
+       ПОИСК МЕДИА НА СЕРВЕРЕ (Task 85)
+       В ZIP файла нет → ищем в /uploads (видео — в первую очередь в
+       /uploads/video). Нашли — привязываем существующий файл без
+       копии; не нашли нигде — только тогда «не найдено».
+       ────────────────────────────────────────────────────────────── */
+
+    /** Индекс всех файлов /uploads: basename (ниж. регистр) → [абс. пути]. */
+    private static function buildUploadsIndex(string $uploadsBase): array
+    {
+        $index = [];
+        $baseReal = realpath($uploadsBase);
+        if ($baseReal === false || !is_dir($baseReal)) return $index;
+        try {
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($baseReal, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $f) {
+                /** @var SplFileInfo $f */
+                if (!$f->isFile()) continue;
+                $index[strtolower($f->getFilename())][] = $f->getPathname();
+            }
+        } catch (Throwable) {
+            // недоступная папка — индекс неполный, поиск просто не найдёт
+        }
+        return $index;
+    }
+
+    /**
+     * Канонические имена раздаёт сам импорт (0.jpg, video-0.mp4, cover.jpg,
+     * ext-*.*): они одинаковы в КАЖДОЙ папке товара, поэтому по ним ищем
+     * только в СВОЕЙ папке — иначе привяжем чужой файл. Оригинальные имена
+     * (клип.mp4, фото.jpg) ищем по всему /uploads.
+     */
+    private static function isCanonicalMediaName(string $basename): bool
+    {
+        return (bool)preg_match('/^(\d+\.[a-z0-9]+|cover\..*|video-\d+\..*|ext-.*)$/i', $basename);
+    }
+
+    /**
+     * План вставки медиа для одной строки CSV.
+     * kind: external — URL как есть; zip — файл из архива (src=tmp, ext);
+     *       server — файл уже на сервере (abs, url); missing — нигде нет.
+     * Поиск на сервере: (1) точный путь, если в элементе есть «/»;
+     * (2) по имени из индекса — своя папка → video (для видео) → media →
+     * остальные папки по алфавиту; канонические имена — только своя папка.
+     */
+    private static function resolveMediaPlan(
+        array $items, array $zipFiles, array $serverIndex,
+        string $uploadsBase, string $ownDir, array $allowedExt, bool $isVideo
+    ): array {
+        $plan = [];
+        foreach ($items as $item) {
+            if (preg_match('#^https?://#i', $item)) {
+                $plan[] = ['kind' => 'external', 'url' => $item];
+                continue;
+            }
+            $key = strtolower(basename($item));
+            if (isset($zipFiles[$key])) {
+                $plan[] = ['kind' => 'zip', 'src' => $zipFiles[$key], 'ext' => strtolower(pathinfo($key, PATHINFO_EXTENSION))];
+                continue;
+            }
+            $found = self::findOnServer($item, $serverIndex, $uploadsBase, $ownDir, $allowedExt, $isVideo);
+            if ($found !== null) {
+                $plan[] = ['kind' => 'server', 'abs' => $found['abs'], 'url' => $found['url']];
+            } else {
+                $plan[] = ['kind' => 'missing', 'item' => $item];
+            }
+        }
+        return $plan;
+    }
+
+    /** Найти файл на сервере: abs-путь + URL, или null. */
+    private static function findOnServer(
+        string $item, array $serverIndex, string $uploadsBase,
+        string $ownDir, array $allowedExt, bool $isVideo
+    ): ?array {
+        $baseReal = realpath($uploadsBase);
+        if ($baseReal === false) return null;
+
+        $extOk = function (string $abs) use ($allowedExt): bool {
+            return in_array(strtolower(pathinfo($abs, PATHINFO_EXTENSION)), $allowedExt, true);
+        };
+        $mkUrl = function (string $abs) use ($baseReal): ?string {
+            $rel = substr($abs, strlen($baseReal));
+            if ($rel === false || $rel === '') return null;
+            return '/uploads/' . str_replace(DIRECTORY_SEPARATOR, '/', ltrim($rel, '/\\'));
+        };
+
+        // 1) Прямой путь из CSV: "/uploads/video/клип.mp4" или "video/клип.mp4"
+        if (str_contains($item, '/')) {
+            $abs = null;
+            if (str_starts_with($item, '/uploads/')) {
+                $abs = $baseReal . substr($item, strlen('/uploads/'));
+            } elseif (!str_starts_with($item, '/')) {
+                // относительный путь от корня uploads (./ и ../ срезаем,
+                // containment ниже всё равно проверяет realpath)
+                $abs = $baseReal . '/' . ltrim($item, './');
+            }
+            if ($abs !== null) {
+                $real = realpath($abs); // realpath заодно отсекает ../-traversal
+                if ($real !== false && is_file($real) && $extOk($real)
+                    && str_starts_with($real, $baseReal . DIRECTORY_SEPARATOR)) {
+                    $url = $mkUrl($real);
+                    if ($url !== null) return ['abs' => $real, 'url' => $url];
+                }
+            }
+        }
+
+        // 2) По имени из индекса
+        $key = strtolower(basename($item));
+        $matches = $serverIndex[$key] ?? [];
+        if ($matches === []) return null;
+
+        $ownReal = realpath($ownDir) ?: null;
+        $rank = function (string $abs) use ($ownReal, $baseReal): int {
+            if ($ownReal !== null && str_starts_with($abs, rtrim($ownReal, '/') . '/')) return 0; // своя папка
+            return str_starts_with($abs, $baseReal . '/video/') ? 1   // папка видео пользователя
+                : (str_starts_with($abs, $baseReal . '/media/') ? 2 : 3);
+        };
+        usort($matches, fn($a, $b) => $rank($a) <=> $rank($b) ?: strcmp($a, $b));
+
+        $onlyOwn = self::isCanonicalMediaName(basename($item));
+        foreach ($matches as $abs) {
+            if ($onlyOwn && ($ownReal === null || !str_starts_with($abs, rtrim($ownReal, '/') . '/'))) continue;
+            if (!$extOk($abs)) continue;
+            $url = $mkUrl($abs);
+            if ($url !== null) return ['abs' => $abs, 'url' => $url];
+        }
+        return null;
     }
 
     private static function csvEscape(string|int|float|null $v): string

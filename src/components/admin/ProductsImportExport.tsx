@@ -38,6 +38,8 @@ interface ImportResult {
   images_external: number;
   videos_copied: number;
   videos_external: number;
+  images_attached: number;
+  videos_attached: number;
   parse_errors: string[];
   import_errors: string[];
   images_missing: string[];
@@ -354,10 +356,16 @@ export function ProductsImportExport() {
               </ul>
             </details>
           )}
+          {(result.images_attached > 0 || result.videos_attached > 0) && (
+            <p className="mt-2 text-green-700">
+              🔎 Найдено на сервере (в ZIP их не было, привязаны без копии):
+              видео — <b>{result.videos_attached}</b>, картинок — <b>{result.images_attached}</b>
+            </p>
+          )}
           {result.images_missing.length > 0 && (
             <details className="mt-2">
               <summary className="cursor-pointer text-amber-700">
-                Картинки из CSV не найдены в ZIP: {result.images_missing.length}
+                Картинки из CSV не найдены ни в ZIP, ни на сервере: {result.images_missing.length}
               </summary>
               <ul className="mt-2 max-h-40 overflow-y-auto pl-4 text-xs text-amber-800">
                 {result.images_missing.map((e, i) => (<li key={i}>• {e}</li>))}
@@ -367,7 +375,7 @@ export function ProductsImportExport() {
           {result.videos_missing.length > 0 && (
             <details className="mt-2">
               <summary className="cursor-pointer text-amber-700">
-                Видео из CSV не найдены в ZIP: {result.videos_missing.length}
+                Видео из CSV не найдены ни в ZIP, ни на сервере: {result.videos_missing.length}
               </summary>
               <ul className="mt-2 max-h-40 overflow-y-auto pl-4 text-xs text-amber-800">
                 {result.videos_missing.map((e, i) => (<li key={i}>• {e}</li>))}
