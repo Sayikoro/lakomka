@@ -49,11 +49,11 @@ async function main() {
   }
 
   /* A: без токена — 401 */
-  const a = await api("/api/admin/site-update/github-check");
+  const a = await api("/api/admin/site-update/github-check?fresh=1");
   check("A: github-check без токена → 401", a.status === 401, `got ${a.status}`);
 
   /* B: editor может проверять релиз (read-only) */
-  const b = await api("/api/admin/site-update/github-check", { token: EDITOR });
+  const b = await api("/api/admin/site-update/github-check?fresh=1", { token: EDITOR });
   check("B1: github-check под editor → 200", b.status === 200, `got ${b.status}`);
   check("B2: релиз и ассет найдены", b.json?.data?.release?.tag === TAG && b.json?.data?.asset?.name === ASSET,
     `tag=${b.json?.data?.release?.tag} asset=${b.json?.data?.asset?.name}`);
@@ -118,7 +118,7 @@ async function main() {
   check("H7: файлы применены", (i.json?.data?.files ?? 0) > 100, `files=${i.json?.data?.files}`);
 
   /* I: повторная проверка — обновление больше не нужно */
-  const k = await api("/api/admin/site-update/github-check", { token: ADMIN });
+  const k = await api("/api/admin/site-update/github-check?fresh=1", { token: ADMIN });
   check("I: после применения — «последняя версия»", k.json?.data?.update_available === false,
     `available=${k.json?.data?.update_available} current=${k.json?.data?.current_version}`);
 

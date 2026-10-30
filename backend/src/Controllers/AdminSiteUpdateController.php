@@ -403,12 +403,16 @@ class AdminSiteUpdateController
        ОБНОВЛЕНИЕ С GITHUB (релизы репозитория Sayikoro/lakomka)
        Кнопка «Проверить обновления (ГИТ)» — в админке и на /update.
        Проверка: api.github.com/releases/latest (кеш 60 с; при сбое
-       API отдаётся устаревший кеш с пометкой). Скачивание — напрямую
-       github.com/…/releases/download/<tag>/<asset>, МИМО API (без
-       rate-limit); репозиторий захардкожен, tag/asset строго валидируются.
-       Целостность: sha256 из digest ассета (если GitHub его отдал) +
-       ZipArchive + update-manifest.json с ожидаемой версией; затем файл
-       идёт в штатный apply() — те же проверки Zip Slip и маркеров сайта.
+       API отдаётся устаревший кеш с пометкой). Версия берётся из тега
+       релиза (v<версия>), размер файла — из contents API.
+       ZIP обновления живёт В ДЕРЕВЕ тега: updates/lakomka-update-<версия>.zip.
+       Скачивание — напрямую github.com/…/raw/<tag>/updates/<asset>, МИМО API
+       (без rate-limit); резервный путь — tar.gz тега с codeload.github.com
+       (PharData) на случай недоступности raw. Репозиторий захардкожен,
+       tag/asset строго валидируются.
+       Целостность: sha256 от клиента (если передан) + ZipArchive +
+       update-manifest.json с ожидаемой версией; затем файл идёт в штатный
+       apply() — те же проверки Zip Slip и маркеров сайта.
        ============================================================ */
 
     private const GH_REPO = 'Sayikoro/lakomka';
@@ -429,9 +433,13 @@ class AdminSiteUpdateController
         return version_compare(self::normVersion($a), self::normVersion($b), '>');
     }
 
-    /** GET к api.github.com → [код, тело, заголовки(нижний регистр)]. */
+    /** GET к api.github.com → [код, тело, заголовки(нижний регистр)].
+      * Токен необязателен (backend/storage/github-token.txt) — поднимает
+      * лимит запросов на общедоступных хостингах (60/час на IP без него). */
     private static function ghApiGet(string $url, int $timeout = 15): array
     {
+        $auth = self::ghToken();
+        $authHeader = $auth !== null ? ['Authorization: Bearer ' . $auth] : [];
         if (function_exists('curl_init')) {
             $headers = [];
             $ch = curl_init($url);
@@ -440,7 +448,7 @@ class AdminSiteUpdateController
                 CURLOPT_CONNECTTIMEOUT => 10,
                 CURLOPT_TIMEOUT        => $timeout,
                 CURLOPT_USERAGENT      => 'lakomka-updater/1.0',
-                CURLOPT_HTTPHEADER     => ['Accept: application/vnd.github+json'],
+                CURLOPT_HTTPHEADER     => array_merge(['Accept: application/vnd.github+json'], $authHeader),
                 CURLOPT_HEADERFUNCTION => function ($ch, string $line) use (&$headers): int {
                     $p = explode(':', $line, 2);
                     if (count($p) === 2) {
@@ -459,7 +467,8 @@ class AdminSiteUpdateController
         $ctx = stream_context_create(['http' => [
             'method'        => 'GET',
             'timeout'       => $timeout,
-            'header'        => "User-Agent: lakomka-updater/1.0\r\nAccept: application/vnd.github+json\r\n",
+            'header'        => "User-Agent: lakomka-updater/1.0\r\nAccept: application/vnd.github+json\r\n"
+                . ($auth !== null ? "Authorization: Bearer " . $auth . "\r\n" : ""),
             'ignore_errors' => true,
         ]]);
         $body = @file_get_contents($url, false, $ctx);
@@ -468,6 +477,17 @@ class AdminSiteUpdateController
             if (preg_match('#^HTTP/\S+\s+(\d+)#', $h, $m)) $code = (int)$m[1];
         }
         return [$code, (string)$body, []];
+    }
+
+    /** Необязательный токен GitHub для api.github.com (если хостинг упирается в лимит). */
+    private static function ghToken(): ?string
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached['t'] ?? null;
+        $f = self::backendDir() . '/storage/github-token.txt';
+        $t = is_file($f) ? trim((string)@file_get_contents($f)) : '';
+        $cached = $t !== '' ? ['t' => $t] : [];
+        return $cached['t'] ?? null;
     }
 
     /** Ассет lakomka-update-<версия>.zip из релиза (или null). */
@@ -485,6 +505,18 @@ class AdminSiteUpdateController
             }
         }
         return null;
+    }
+
+    /** Размер файла updates/<name> в дереве тега (contents API) или null. */
+    private static function ghFileInfo(string $tag, string $assetName): ?array
+    {
+        $url = 'https://api.github.com/repos/' . self::GH_REPO . '/contents/updates/'
+            . rawurlencode($assetName) . '?ref=' . rawurlencode($tag);
+        [$code, $body] = self::ghApiGet($url);
+        if ($code !== 200) return null;
+        $j = json_decode($body, true);
+        if (!is_array($j) || !isset($j['size'])) return null;
+        return ['size' => (int)$j['size']];
     }
 
     /**
@@ -510,7 +542,9 @@ class AdminSiteUpdateController
 
         $cacheFile = self::backendDir() . '/storage/github-release-cache.json';
         $cached = self::readJson($cacheFile);
-        if (is_array($cached) && isset($cached['saved_at'], $cached['payload'])
+        // ?fresh=1 — миновать кеш (явный клик по кнопке; после установки обновления)
+        $bypass = ($_GET['fresh'] ?? '') === '1';
+        if (!$bypass && is_array($cached) && isset($cached['saved_at'], $cached['payload'])
             && (time() - (int)$cached['saved_at']) < self::GH_CACHE_TTL) {
             jsonResponse(['data' => ['cached' => true, 'stale' => false] + $cached['payload'] + $base]);
         }
@@ -549,6 +583,18 @@ class AdminSiteUpdateController
         }
 
         $asset = self::ghUpdateAsset($release);
+        if ($asset === null && preg_match('/^v([0-9A-Za-z._\-]+)$/', (string)($release['tag_name'] ?? ''), $tm)) {
+            // ZIP обновления живёт в дереве тега: updates/lakomka-update-<версия>.zip
+            $tagVersion = $tm[1];
+            $assetName = 'lakomka-update-' . $tagVersion . '.zip';
+            $info = self::ghFileInfo((string)$release['tag_name'], $assetName);
+            $asset = $info === null ? null : [
+                'name'    => $assetName,
+                'version' => $tagVersion,
+                'size'    => $info['size'],
+                'sha256'  => null,
+            ];
+        }
         $data = [
             'cached' => false,
             'stale'  => false,
@@ -594,8 +640,9 @@ class AdminSiteUpdateController
             }
         }
 
+        // raw-ссылка на файл в дереве тега (repo захардкожен)
         $url = 'https://github.com/' . self::GH_REPO
-            . '/releases/download/' . rawurlencode($tag) . '/' . rawurlencode($assetName);
+            . '/raw/' . rawurlencode($tag) . '/updates/' . rawurlencode($assetName);
 
         // имя в хранилище — под шаблон ChunkedUpload::resolveFile (латиница/цифры/дефис)
         $safeVersion = trim((string)preg_replace('/[^a-z0-9]+/', '-', strtolower($version)), '-');
@@ -609,8 +656,13 @@ class AdminSiteUpdateController
 
         $err = '';
         if (!self::httpDownloadToFile($url, $tmp, $err)) {
-            @unlink($tmp);
-            jsonResponse(['error' => 'Не удалось скачать архив с GitHub: ' . $err], 502);
+            // резервный путь: tar.gz всего тега (codeload) → вынимаем updates/<asset>
+            $err2 = '';
+            if (!self::downloadFromTagTarball($tag, 'updates/' . $assetName, $tmp, $err2)) {
+                @unlink($tmp);
+                jsonResponse(['error' => 'Не удалось скачать архив с GitHub: ' . $err
+                    . ($err2 !== '' ? ' (резерв: ' . $err2 . ')' : '')], 502);
+            }
         }
         clearstatcache(true, $tmp);
         if (!is_file($tmp) || filesize($tmp) === 0) {
@@ -660,6 +712,35 @@ class AdminSiteUpdateController
             'size'      => (int)filesize($dest),
             'sha256'    => hash_file('sha256', $dest) ?: null,
         ]]);
+    }
+
+    /** Резервное скачивание: tar.gz тега (codeload) → извлечь updates/<файл>. */
+    private static function downloadFromTagTarball(string $tag, string $path, string $dest, string &$err = ''): bool
+    {
+        if (!class_exists('PharData')) {
+            $err = 'PharData недоступен';
+            return false;
+        }
+        $tgz = $dest . '.tgz';
+        $url = 'https://codeload.github.com/' . self::GH_REPO . '/tar.gz/refs/tags/' . rawurlencode($tag);
+        if (!self::httpDownloadToFile($url, $tgz, $err)) {
+            @unlink($tgz);
+            return false;
+        }
+        try {
+            $phar = new \PharData($tgz); // .tgz распаковывается прозрачно (zlib)
+            $content = $phar[$path]->getContent();
+        } catch (\Throwable $e) {
+            @unlink($tgz);
+            $err = 'тег скачан, но файла в нём нет (' . $e->getMessage() . ')';
+            return false;
+        }
+        @unlink($tgz);
+        if ($content === '' || file_put_contents($dest, $content) === false) {
+            $err = 'не удалось сохранить извлечённый файл';
+            return false;
+        }
+        return true;
     }
 
     /** Скачивание $url в файл $to: cURL (редиректы включены) или stream-обёртка. */

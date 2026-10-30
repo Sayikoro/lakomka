@@ -185,7 +185,7 @@ export function SiteUpdateTab() {
     setGh(null);
     setGhDone(null);
     try {
-      const res = await fetch(`${API_URL}/admin/site-update/github-check`, {
+      const res = await fetch(`${API_URL}/admin/site-update/github-check?fresh=1`, {
         credentials: "include",
         cache: "no-store",
       });

@@ -274,7 +274,7 @@
     $("ghInstallBtn").classList.add("hidden");
     $("ghInfo").innerHTML = "";
     ghShowMsg(null, "");
-    fetch(API + "/admin/site-update/github-check", { headers: authHeaders(), credentials: "include" })
+    fetch(API + "/admin/site-update/github-check?fresh=1", { headers: authHeaders(), credentials: "include" })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         btn.disabled = false;
