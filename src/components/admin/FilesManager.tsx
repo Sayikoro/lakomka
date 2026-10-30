@@ -7,12 +7,13 @@
  *  - сортировка по имени/дате/размеру, поиск по текущей папке,
  *  - скачивание в два этапа (прогресс в панели загрузок),
  *  - удаление файлов и папок (media — только просмотр),
+ *    с подтверждением и галочкой «Не показывать больше» (localStorage);
  *  - СОЗДАНИЕ СВОИХ ПАПОК (кнопка «Создать папку» + модалка),
  *  - переименование файлов и папок (в media — запрещено, сломает ссылки),
  *  - ЗАГРУЗКА своих файлов в открытую папку (кнопка + drag&drop).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDownloads } from "@/components/admin/downloads/Downloads";
 import { STORAGE_ACCEPT, uploadToStorage } from "@/lib/file-storage";
 
@@ -45,6 +46,38 @@ const SECTION_TITLES: Record<string, string> = {
   imports: "Импортные архивы",
   media: "Медиа товаров",
 };
+
+/* «Не показывать больше» у подтверждения удаления — настройка браузера админа.
+ * Хранится в localStorage, компоненты читают через useSyncExternalStore
+ * (SSR-безопасно, без setState в эффектах, синхронно между вкладками). */
+const LS_CONFIRM_DELETE = "lakomka.files.confirmDelete";
+const confirmDeleteListeners = new Set<() => void>();
+
+function subscribeConfirmDelete(cb: () => void): () => void {
+  confirmDeleteListeners.add(cb);
+  window.addEventListener("storage", cb); // синхронизация между вкладками
+  return () => {
+    confirmDeleteListeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+function readConfirmDelete(): boolean {
+  try {
+    return localStorage.getItem(LS_CONFIRM_DELETE) !== "0";
+  } catch {
+    return true; // localStorage недоступен — подтверждение остаётся
+  }
+}
+
+function writeConfirmDelete(on: boolean) {
+  try {
+    localStorage.setItem(LS_CONFIRM_DELETE, on ? "1" : "0");
+  } catch {
+    /* localStorage недоступен — флаг проживёт до перезагрузки */
+  }
+  for (const cb of confirmDeleteListeners) cb();
+}
 
 function humanSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + " ГБ";
@@ -119,6 +152,17 @@ export function FilesManager() {
   const [renameFor, setRenameFor] = useState<Entry | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+
+  /* Удаление: модалка-подтверждение + «Не показывать больше»
+   * confirmDelete — из localStorage (useSyncExternalStore), НЕ react-стейт */
+  const confirmDelete = useSyncExternalStore(
+    subscribeConfirmDelete,
+    readConfirmDelete,
+    () => true, // SSR: до гидрации считаем, что вопрос показывается
+  );
+  const [deleteFor, setDeleteFor] = useState<Entry | null>(null);
+  const [deleteDontAsk, setDeleteDontAsk] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [backStack, setBackStack] = useState<string[]>([]);
   const [fwdStack, setFwdStack] = useState<string[]>([]);
@@ -256,16 +300,30 @@ export function FilesManager() {
     }
   }
 
-  async function removeEntry(e: Entry) {
+  /* Точка входа «удалить»: либо сразу (флаг выключен), либо через модалку */
+  function removeEntry(e: Entry) {
+    if (!folder) return;
+    if (!confirmDelete) {
+      void deleteEntry(e);
+      return;
+    }
+    setDeleteDontAsk(false);
+    setDeleteFor(e);
+  }
+
+  /* Подтвердили в модалке: запоминаем «не показывать больше» и удаляем */
+  function confirmRemoveEntry() {
+    if (!deleteFor) return;
+    if (deleteDontAsk) writeConfirmDelete(false); // эмит обновит confirmDelete
+    const target = deleteFor;
+    void deleteEntry(target);
+  }
+
+  async function deleteEntry(e: Entry) {
     if (!folder) return;
     const target = joinPath(folder.path, e.name);
-    const what =
-      e.type === "dir"
-        ? `папку «${e.name}» и всё её содержимое`
-        : `файл «${e.name}»`;
-    if (!window.confirm(`Удалить ${what}? Действие необратимо.`)) return;
-
     setBusy(target);
+    setDeleteBusy(true);
     setError(null);
     try {
       const res = await fetch(`${apiUrl}/admin/files/delete`, {
@@ -286,6 +344,8 @@ export function FilesManager() {
       setError(err instanceof Error ? err.message : "Ошибка сети");
     } finally {
       setBusy(null);
+      setDeleteBusy(false);
+      setDeleteFor(null);
     }
   }
 
@@ -497,6 +557,36 @@ export function FilesManager() {
               <ToolButton label="Обновить" onClick={refresh}>
                 <path d="M17 8a7 7 0 1 0 2 5M19 4v5h-5" />
               </ToolButton>
+              <button
+                type="button"
+                aria-pressed={!confirmDelete}
+                onClick={() => {
+                  const next = !confirmDelete;
+                  writeConfirmDelete(next); // эмит обновит confirmDelete
+                  setUploadNote({
+                    ok: true,
+                    text: next
+                      ? "Подтверждение удаления включено — перед удалением будет вопрос."
+                      : "Подтверждение удаления отключено — файлы удаляются сразу, без вопроса.",
+                  });
+                }}
+                title={
+                  confirmDelete
+                    ? "Подтверждение удаления включено (кликните, чтобы удалять без вопроса)"
+                    : "Удаление без подтверждения (кликните, чтобы вернуть вопрос)"
+                }
+                className={`rounded-md border bg-white p-1.5 transition ${
+                  confirmDelete
+                    ? "border-[var(--color-border)] text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                    : "border-amber-300 bg-amber-50 text-amber-700"
+                }`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 3l7 2.6v5.1c0 4.3-2.8 8-7 9.3-4.2-1.3-7-5-7-9.3V5.6L12 3z" />
+                  <path d="M10.2 9.7a1.9 1.9 0 1 1 2.7 1.8c-.6.3-.9.7-.9 1.4" />
+                  <circle cx="12" cy="15.2" r="0.4" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
             </div>
 
             {/* Загрузить свои файлы в открытую папку (медиа и т.д.) */}
@@ -914,6 +1004,65 @@ export function FilesManager() {
                 className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
               >
                 {renameBusy ? "Сохраняем…" : "Переименовать"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Модалка: подтверждение удаления (с «Не показывать больше») ── */}
+      {deleteFor && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setDeleteFor(null)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirmRemoveEntry();
+            }}
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
+              Удалить?
+            </h3>
+            <p className="mb-4 text-sm text-[var(--color-body)]">
+              {deleteFor.type === "dir" ? "Папку" : "Файл"} «{deleteFor.name}»
+              {deleteFor.type === "dir" ? " и всё её содержимое" : ""}.
+              <span className="block text-xs text-[var(--color-muted)]">Действие необратимо.</span>
+            </p>
+            <label className="mb-4 flex cursor-pointer items-start gap-2.5 rounded-lg bg-[var(--color-bg-soft)] px-3 py-2.5 select-none">
+              <input
+                type="checkbox"
+                checked={deleteDontAsk}
+                onChange={(e) => setDeleteDontAsk(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-[var(--color-primary)]"
+              />
+              <span className="text-sm text-[var(--color-body)]">
+                Не показывать больше
+                <span className="mt-0.5 block text-xs leading-snug text-[var(--color-muted)]">
+                  Удалять сразу, без этого окна. Вернуть вопрос можно кнопкой-щитом на панели
+                  инструментов.
+                </span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteFor(null)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                disabled={deleteBusy}
+                className="rounded-[var(--radius-btn)] bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteBusy ? "Удаляем…" : "Удалить"}
               </button>
             </div>
           </form>
