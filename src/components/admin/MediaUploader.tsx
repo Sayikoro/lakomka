@@ -44,6 +44,8 @@ export function MediaUploader({ productId, initial }: Props) {
   const [savingUrl, setSavingUrl] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  /* Сжатие видео (кнопка «Сжать»): id элемента, который сейчас сжимается */
+  const [compressingId, setCompressingId] = useState<number | null>(null);
 
   const imgInputRef = useRef<HTMLInputElement>(null);
   const vidInputRef = useRef<HTMLInputElement>(null);
@@ -210,6 +212,47 @@ export function MediaUploader({ productId, initial }: Props) {
     });
     if (res.ok) {
       setItems((list) => reindex(list.filter((i) => i.id !== id)));
+    }
+  }
+
+  /* ============ СЖАТИЕ ВИДЕО (mov/m4v → mp4, mp4 → перекодирование) ============
+     Файл заменяется на сервере, привязки товаров обновляются бэкендом,
+     элемент остаётся на месте — меняется только URL (расширение). */
+  function isCompressible(url: string): boolean {
+    return url.startsWith("/uploads/") && /\.(mov|m4v|mp4)(\?|$)/i.test(url);
+  }
+
+  async function compressItem(item: MediaItem) {
+    const ext = (item.url.match(/\.(mov|m4v|mp4)(\?|$)/i)?.[1] ?? "").toLowerCase();
+    if (ext === "mp4" && !confirm(
+      "Перекодировать MP4 заново с усилением сжатия?\nРазмер уменьшится, качество немного снизится.\nЕсли видео уже сжато — сервер оставит его как есть."
+    )) {
+      return;
+    }
+    setError(null);
+    setOptNote(null);
+    setCompressingId(item.id);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/compress`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ url: item.url }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось сжать видео");
+        return;
+      }
+      const d = json.data;
+      setItems((list) =>
+        list.map((it) => (it.id === item.id ? { ...it, url: d.url } : it))
+      );
+      setOptNote(d.note);
+    } catch {
+      setError("Ошибка сети при сжатии видео");
+    } finally {
+      setCompressingId(null);
     }
   }
 
@@ -393,20 +436,44 @@ export function MediaUploader({ productId, initial }: Props) {
                   </span>
                 )}
 
+                {/* Бейдж сжатия: виден, пока ffmpeg работает над файлом */}
+                {compressingId === item.id && (
+                  <span className="absolute left-1 top-1 z-20 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    <span className="h-2.5 w-2.5 animate-spin rounded-full border border-white/40 border-t-white" />
+                    Сжатие…
+                  </span>
+                )}
+
                 <div className="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-black/60 p-1 opacity-0 transition group-hover:opacity-100">
                   <button
                     type="button"
                     onClick={() => moveByOne(i, -1)}
-                    disabled={i === 0}
+                    disabled={i === 0 || compressingId === item.id}
                     className="rounded bg-white/20 px-1.5 py-0.5 text-xs text-white disabled:opacity-30"
                     title="Влево"
                   >
                     ←
                   </button>
+                  {item.type === "video" && isCompressible(item.url) && (
+                    <button
+                      type="button"
+                      onClick={() => compressItem(item)}
+                      disabled={compressingId !== null}
+                      title={
+                        /\.mp4(\?|$)/i.test(item.url)
+                          ? "Перекодировать MP4 с усилением сжатия (заменится, если станет меньше)"
+                          : "Конвертировать в MP4 (без потери качества, если возможно)"
+                      }
+                      className="rounded bg-white/20 px-1.5 py-0.5 text-xs text-white hover:bg-white/35 disabled:opacity-40"
+                    >
+                      {compressingId === item.id ? "…" : "Сжать"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeItem(item.id)}
-                    className="rounded bg-red-500/80 px-1.5 py-0.5 text-xs text-white"
+                    disabled={compressingId === item.id}
+                    className="rounded bg-red-500/80 px-1.5 py-0.5 text-xs text-white disabled:opacity-30"
                     title="Удалить"
                   >
                     ✕
@@ -414,7 +481,7 @@ export function MediaUploader({ productId, initial }: Props) {
                   <button
                     type="button"
                     onClick={() => moveByOne(i, 1)}
-                    disabled={i === items.length - 1}
+                    disabled={i === items.length - 1 || compressingId === item.id}
                     className="rounded bg-white/20 px-1.5 py-0.5 text-xs text-white disabled:opacity-30"
                     title="Вправо"
                   >

@@ -475,6 +475,77 @@ class AdminFilesController
         jsonResponse(['data' => ['ok' => true]]);
     }
 
+    /* ── СЖАТИЕ ВИДЕО (кнопка «Сжать» в редакторе товара) ──
+       POST /api/admin/files/compress  body: { url: "/uploads/…/file.mov" }
+       mov/m4v → mp4 (remux без потери качества, иначе перекодирование),
+       mp4 → перекодирование с усилением сжатия. Файл заменяется на диске,
+       все привязки (product_images.url, products.video_url) переписываются
+       на новый URL — видео остаётся подключённым к тем же товарам. */
+
+    public static function compress(PDO $pdo): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $url = trim((string)($data['url'] ?? ''));
+
+        if ($url === '') jsonResponse(['error' => 'Укажите URL файла'], 422);
+
+        // Только файлы из /uploads/; защита от traversal — как в attach:
+        // realpath обязан лежать внутри uploads-корня.
+        $rel = str_starts_with($url, '/uploads/') ? substr($url, strlen('/uploads/')) : null;
+        if ($rel === null || $rel === '' || str_contains($rel, '..')) {
+            jsonResponse(['error' => 'Сжимать можно только файлы из /uploads/'], 422);
+        }
+
+        $uploadsRoot = realpath(Paths::uploadsRoot());
+        $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
+        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
+            || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            jsonResponse(['error' => 'Файл не найден на сервере'], 404);
+        }
+
+        $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['mov', 'm4v', 'mp4'], true)) {
+            jsonResponse(['error' => 'Сжимать можно видео mov, m4v и mp4'], 422);
+        }
+
+        $opt = $ext === 'mp4'
+            ? MediaOptimizer::recompressMp4File($realFile)
+            : MediaOptimizer::optimizeVideoFile($realFile);
+
+        if (!$opt['converted']) {
+            // Честная причина: ffmpeg недоступен / уже сжато / кодек не взялся
+            jsonResponse(['error' => $opt['note'] ?: 'Не удалось сжать видео'], 422);
+        }
+
+        $newUrl = rtrim(dirname($url), '/') . '/' . $opt['name'];
+
+        // Переписываем привязки, чтобы видео осталось у тех же товаров
+        $refs = 0;
+        $upd = $pdo->prepare('UPDATE product_images SET url = ? WHERE url = ?');
+        $upd->execute([$newUrl, $url]);
+        $refs += $upd->rowCount();
+
+        try {
+            $upd2 = $pdo->prepare('UPDATE products SET video_url = ? WHERE video_url = ?');
+            $upd2->execute([$newUrl, $url]);
+            $refs += $upd2->rowCount();
+        } catch (PDOException) {
+            // старая схема без products.video_url — пропускаем
+        }
+
+        jsonResponse(['data' => [
+            'ok'           => true,
+            'url'          => $newUrl,
+            'old_url'      => $url,
+            'before'       => $opt['before'],
+            'after'        => $opt['after'],
+            'note'         => $opt['note'],
+            'refs_updated' => $refs,
+        ]]);
+    }
+
     /* ── СКАЧИВАНИЕ ФАЙЛА СЕРВЕРОМ (для разделов без публичного URL) ── */
 
     public static function download(): void

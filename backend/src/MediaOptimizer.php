@@ -203,8 +203,73 @@ class MediaOptimizer
         ];
     }
 
-    /* ─────────────────────────── ВНУТРЕННЕЕ ─────────────────────────── */
+    /**
+     * Ручное «Сжать» для УЖЕ ГОТОВОГО mp4: перекодирование заново в
+     * H.264 veryfast crf26 + AAC 128k + faststart. Файл заменяется
+     * ТОЛЬКО если новый вышел хотя бы на 10% меньше (иначе видео
+     * считается уже сжатым). Имя файла и URL не меняются — все
+     * привязки товаров остаются действительными.
+     *
+     * @return array{converted:bool, name:string, before:int, after:int, note:string}
+     */
+    public static function recompressMp4File(string $path): array
+    {
+        $name = basename($path);
+        $before = @filesize($path) ?: 0;
+        $noop = ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before, 'note' => ''];
 
+        if (!is_file($path)) return $noop;
+        if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'mp4') return $noop;
+        if ($before < 1024 * 1024) {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'файл меньше 1 МБ — сжатие не требуется'];
+        }
+
+        $bin = self::ffmpeg();
+        if ($bin === null) {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'ffmpeg на сервере недоступен — сжатие невозможно'];
+        }
+
+        if (function_exists('set_time_limit')) { @set_time_limit(600); }
+        if (function_exists('ini_set')) { @ini_set('memory_limit', '512M'); }
+
+        // Кодируем во временный файл рядом: оригинал не пострадает при сбое,
+        // замена — атомарный rename
+        $tmp = dirname($path) . '/.min-tmp-' . bin2hex(random_bytes(4)) . '.mp4';
+        $cmd = "$bin -y -loglevel error -i " . escapeshellarg($path)
+             . " -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p"
+             . " -c:a aac -b:a 128k -movflags +faststart -f mp4 " . escapeshellarg($tmp) . " 2>&1";
+        @exec($cmd, $out, $code);
+        if ($code !== 0 || !is_file($tmp) || @filesize($tmp) === 0) {
+            @unlink($tmp);
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'не удалось перекодировать видео — оставлен исходный файл'];
+        }
+
+        $after = @filesize($tmp) ?: 0;
+        // Выигрыш меньше 10% — видео уже сжато, замена только ухудшила бы качество
+        if ($after > $before * 0.9) {
+            @unlink($tmp);
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => 'видео уже хорошо сжато — перекодирование дало бы выигрыш меньше 10%, оставлен исходный файл'];
+        }
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            return $noop;
+        }
+        @chmod($path, 0644);
+
+        return [
+            'converted' => true,
+            'name'      => $name,
+            'before'    => $before,
+            'after'     => $after,
+            'note'      => sprintf('%s: перекодировано в H.264 (%s → %s)', $name, self::fmt($before), self::fmt($after)),
+        ];
+    }
+
+    /* ─────────────────────────── ВНУТРЕННЕЕ ─────────────────────────── */
     /** Найти ffmpeg на сервере; null — если недоступен (exec выключен и т.п.) */
     private static function ffmpeg(): ?string
     {

@@ -453,6 +453,12 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::download();
     }
+    /* «Сжать» в редакторе товара: mov/m4v → mp4, mp4 → перекодирование.
+       Обновляет привязки product_images / products.video_url. */
+    if ($path === '/api/admin/files/compress' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::compress($pdo);
+    }
     if ($path === '/api/admin/products' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
         AdminProductsController::list($pdo);
