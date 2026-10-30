@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginForm() {
@@ -12,6 +12,26 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /* Первый запуск сайта: суперадмин создан с дефолтным паролем — показываем
+   * подсказку, пока владелец не сменит пароль (после смены исчезает). */
+  const [firstRun, setFirstRun] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/auth/first-run`, { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (alive && res.ok) setFirstRun(Boolean(json.data?.first_run));
+      } catch {
+        /* подсказка необязательна */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,6 +68,23 @@ function LoginForm() {
         <h1 className="mb-6 text-2xl font-medium text-[var(--color-heading)]">
           Вход в админку
         </h1>
+
+        {firstRun && (
+          <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800">
+            <p className="font-semibold">Первый запуск сайта 🎄</p>
+            <p className="mt-1">
+              Суперадмин создан автоматически:
+              <br />
+              логин <code className="rounded bg-white px-1">admin@lakomka.local</code>, пароль{" "}
+              <code className="rounded bg-white px-1">Lakomka2026!</code>
+            </p>
+            <p className="mt-1">
+              Войдите и сразу смените пароль (Пользователи) — тогда эта
+              подсказка исчезнет. Секретные ключи шифрования уже сгенерированы
+              автоматически.
+            </p>
+          </div>
+        )}
 
         <label className="mb-1 block text-sm font-medium text-[var(--color-heading)]">
           Email

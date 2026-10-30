@@ -1,30 +1,41 @@
-import { cookies } from "next/headers";
+"use client";
+
+/* Рецепты по граммовке — клиентская версия (данные через /api/admin/weight-recipes). */
+
+import { useCallback, useEffect, useState } from "react";
 import {
   WeightRecipesViewer,
   type WeightSummary,
 } from "@/components/admin/WeightRecipesViewer";
 
-async function getWeights(): Promise<WeightSummary[]> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return [];
+export default function AdminWeightRecipesPage() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const [weights, setWeights] = useState<WeightSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.PHP_API_URL ?? "http://localhost:8000/api";
-  try {
-    const res = await fetch(`${apiUrl}/admin/weight-recipes`, {
-      headers: { Cookie: `admin_token=${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data: WeightSummary[] };
-    return json.data ?? [];
-  } catch {
-    return [];
-  }
-}
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/weight-recipes`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        setWeights([]);
+        return;
+      }
+      setWeights((json.data as WeightSummary[]) ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сети");
+      setWeights([]);
+    }
+  }, [apiUrl]);
 
-export default async function AdminWeightRecipesPage() {
-  const weights = await getWeights();
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <div>
@@ -39,13 +50,19 @@ export default async function AdminWeightRecipesPage() {
         </p>
       </div>
 
-      {weights.length === 0 ? (
+      {error && (
+        <div className="mb-4 rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {weights === null ? (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+          Загрузка…
+        </div>
+      ) : weights.length === 0 ? (
         <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-12 text-center text-[var(--color-muted)]">
-          Рецептов нет. Загрузите CSV через{" "}
-          <code className="rounded bg-[var(--color-bg-soft)] px-1.5 py-0.5">
-            php scripts/import-weight-recipes.php
-          </code>{" "}
-          или через кнопку «Загрузить CSV».
+          Рецептов нет. Загрузите CSV кнопкой «Загрузить CSV».
         </div>
       ) : (
         <WeightRecipesViewer initialWeights={weights} />

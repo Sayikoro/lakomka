@@ -1,7 +1,29 @@
+"use client";
+
+/* Клиентский layout админки.
+ *
+ * Раньше здесь был server-компонент с getCurrentUser() через cookies() —
+ * но админка должна работать и в статическом деплое (Next.js export на
+ * обычном хостинге с PHP-API), где серверных функций Next нет. Теперь
+ * авторизация проверяется клиентом через /api/auth/me (httpOnly-кука
+ * admin_token уходит браузером автоматически), при 401 — редирект на вход.
+ * PHP-API сам защищает все данные, поэтому без токена рендерится только
+ * каркас без содержимого.
+ */
+
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/admin/LogoutButton";
 import { DownloadsProvider } from "@/components/admin/downloads/Downloads";
-import { getCurrentUser } from "@/lib/auth";
+
+type Role = "super_admin" | "editor" | "viewer";
+
+interface CurrentUser {
+  id: number;
+  email: string;
+  role: Role;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Супер-админ",
@@ -9,12 +31,62 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "Просмотр",
 };
 
-export default async function AdminLayout({
+function AuthSplash() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg-soft)]">
+      <p className="animate-pulse text-sm text-[var(--color-muted)]">
+        Проверяем доступ…
+      </p>
+    </div>
+  );
+}
+
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getCurrentUser();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  const isLoginPage = pathname.startsWith("/admin/login");
+
+  /* Перепроверяем токен при каждой смене страницы админки (в т.ч. после
+   * входа/выхода — pathname меняется, состояние обновляется). */
+  useEffect(() => {
+    let alive = true;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/auth/me`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!alive) return;
+        setUser(res.ok ? (json.data ?? null) : null);
+      } catch {
+        if (alive) setUser(null);
+      } finally {
+        if (alive) setChecked(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
+
+  /* Не авторизован и не на странице входа → редирект на вход */
+  useEffect(() => {
+    if (checked && !user && !isLoginPage) {
+      router.replace(`/admin/login?next=${encodeURIComponent(pathname)}`);
+    }
+  }, [checked, user, isLoginPage, pathname, router]);
+
+  if (!checked && !isLoginPage) return <AuthSplash />;
+  if (checked && !user && !isLoginPage) return <AuthSplash />;
 
   return (
     <div className="min-h-screen bg-[var(--color-bg-soft)]">

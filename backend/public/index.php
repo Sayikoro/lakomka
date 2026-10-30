@@ -41,6 +41,11 @@ require __DIR__ . '/../src/Auth.php';
 
 $pdo = Database::get();
 
+// Первый запуск (свежий деплой): схема БД + дефолтный суперадмин +
+// автогенерация секретов (см. config.php). Идемпотентно.
+require_once __DIR__ . '/../src/Bootstrap.php';
+Bootstrap::ensure($pdo);
+
 $path   = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $path   = rtrim($path, '/') ?: '/';
 $method = $_SERVER['REQUEST_METHOD'];
@@ -198,6 +203,10 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/auth/logout' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AuthController.php';
         AuthController::logout();
+    }
+    if ($path === '/api/auth/first-run' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AuthController.php';
+        AuthController::firstRun($pdo);
     }
 
     /* ========== ADMIN: USERS ========== */
@@ -392,6 +401,14 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/files/upload' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::upload();
+    }
+    if ($path === '/api/admin/files/mkdir' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::mkdir();
+    }
+    if ($path === '/api/admin/files/rename' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::rename();
     }
     if ($path === '/api/admin/files/delete' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';

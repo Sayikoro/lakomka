@@ -1,6 +1,14 @@
-import { cookies } from "next/headers";
+"use client";
+
+/* Детальная карточка заказа — клиентская версия (бывшая /admin/orders/[id]).
+ * В статическом деплое Next.js динамические роуты требуют generateStaticParams
+ * на этапе сборки (список id заказов сборке недоступен), поэтому детальная
+ * страница живёт на query-параметре: /admin/orders/view?id=123.
+ * Данные: GET /api/admin/orders/{id}, httpOnly-кука уходит автоматически. */
+
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import { StatusChanger } from "@/components/admin/StatusChanger";
 import { ResendEmailButton } from "@/components/admin/ResendEmailButton";
@@ -52,34 +60,80 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Отменён",
 };
 
-async function getOrder(id: string): Promise<Order | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return null;
+function OrderViewInner() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") ?? "";
 
-  const apiUrl = process.env.PHP_API_URL ?? "http://localhost:8000/api";
-  try {
-    const res = await fetch(`${apiUrl}/admin/orders/${id}`, {
-      headers: { Cookie: `admin_token=${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data: Order };
-    return json.data;
-  } catch {
-    return null;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const [order, setOrder] = useState<Order | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/orders/${id}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        setOrder(null);
+        return;
+      }
+      setOrder((json.data as Order) ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сети");
+      setOrder(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiUrl, id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!id) {
+    return (
+      <div className="rounded-[var(--radius-card)] border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+        Не указан заказ. Выберите его в{" "}
+        <Link href="/admin/orders" className="underline">
+          списке заказов
+        </Link>
+        .
+      </div>
+    );
   }
-}
 
-interface PageProps {
-  params: Promise<{ id: string }>;
-}
+  if (loading) {
+    return (
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        Загрузка заказа…
+      </div>
+    );
+  }
 
-export default async function AdminOrderPage({ params }: PageProps) {
-  const { id } = await params;
-  const order = await getOrder(id);
-
-  if (!order) notFound();
+  if (error || !order) {
+    return (
+      <div>
+        <div className="mb-6">
+          <Link
+            href="/admin/orders"
+            className="text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)]"
+          >
+            ← К списку заказов
+          </Link>
+        </div>
+        <div className="rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          {error ?? "Заказ не найден"}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -234,7 +288,7 @@ export default async function AdminOrderPage({ params }: PageProps) {
                 {order.email_error ?? "Ошибка SMTP"}
               </p>
               <div className="mt-4">
-                <ResendEmailButton orderId={order.id} />
+                <ResendEmailButton orderId={order.id} onChanged={load} />
               </div>
             </section>
           )}
@@ -248,7 +302,7 @@ export default async function AdminOrderPage({ params }: PageProps) {
                 {STATUS_LABELS[order.status] ?? order.status}
               </span>
             </p>
-            <StatusChanger orderId={order.id} currentStatus={order.status} />
+            <StatusChanger orderId={order.id} currentStatus={order.status} onChanged={load} />
           </section>
 
           <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
@@ -276,5 +330,19 @@ export default async function AdminOrderPage({ params }: PageProps) {
         </aside>
       </div>
     </div>
+  );
+}
+
+export default function AdminOrderViewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+          Загрузка заказа…
+        </div>
+      }
+    >
+      <OrderViewInner />
+    </Suspense>
   );
 }

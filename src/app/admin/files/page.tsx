@@ -1,11 +1,11 @@
-import { redirect } from "next/navigation";
+"use client";
+
+/* Файлы (проводник) — клиентская версия: проверка доступа уже в layout,
+ * FilesManager сам ходит на /api/admin/files с httpOnly-кукой. */
+
 import { FilesManager } from "@/components/admin/FilesManager";
-import { getCurrentUser } from "@/lib/auth";
 
-export default async function AdminFilesPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/admin/login");
-
+export default function AdminFilesPage() {
   return (
     <div>
       <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">

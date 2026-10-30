@@ -1,4 +1,9 @@
-import { cookies } from "next/headers";
+"use client";
+
+/* Список товаров — клиентская версия (данные через /api/admin/products),
+ * работает и в dev, и в статическом деплое. */
+
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ProductsTable } from "@/components/admin/ProductsTable";
 import { ProductsImportExport } from "@/components/admin/ProductsImportExport";
@@ -16,33 +21,43 @@ export interface AdminProduct {
   category_id: number | null;
 }
 
-async function getProducts(): Promise<AdminProduct[]> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return [];
+export default function AdminProductsPage() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const [products, setProducts] = useState<AdminProduct[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.PHP_API_URL ?? "http://localhost:8000/api";
-  try {
-    const res = await fetch(`${apiUrl}/admin/products`, {
-      headers: { Cookie: `admin_token=${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data: AdminProduct[] };
-    return json.data ?? [];
-  } catch {
-    return [];
-  }
-}
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/products`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        setProducts([]);
+        return;
+      }
+      setProducts((json.data as AdminProduct[]) ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сети");
+      setProducts([]);
+    }
+  }, [apiUrl]);
 
-export default async function AdminProductsPage() {
-  const products = await getProducts();
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[24px] font-medium text-[var(--color-heading)]">
-          Товары <span className="text-sm font-normal text-[var(--color-muted)]">({products.length})</span>
+          Товары{" "}
+          <span className="text-sm font-normal text-[var(--color-muted)]">
+            ({products?.length ?? "…"})
+          </span>
         </h1>
         <Link
           href="/admin/products/new"
@@ -51,8 +66,23 @@ export default async function AdminProductsPage() {
           + Добавить товар
         </Link>
       </div>
-      <ProductsImportExport />
-      <ProductsTable initialProducts={products} />
+
+      {error && (
+        <div className="mb-4 rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {products === null ? (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+          Загрузка…
+        </div>
+      ) : (
+        <>
+          <ProductsImportExport />
+          <ProductsTable initialProducts={products} />
+        </>
+      )}
     </div>
   );
 }

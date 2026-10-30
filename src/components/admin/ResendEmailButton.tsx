@@ -7,7 +7,14 @@ import { useRouter } from "next/navigation";
  * Кнопка «Отправить клиенту» — повторная отправка письма о заказе.
  * Показывается, когда письмо клиенту не ушло (orders.email_sent = 0).
  */
-export function ResendEmailButton({ orderId }: { orderId: number }) {
+export function ResendEmailButton({
+  orderId,
+  onChanged,
+}: {
+  orderId: number;
+  /** Вызывается после успешной отправки письма (клиентская страница перезагрузит данные) */
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [msg, setMsg] = useState("");
@@ -33,6 +40,7 @@ export function ResendEmailButton({ orderId }: { orderId: number }) {
           ? `Письмо отправлено на ${json.data.to}`
           : "Письмо отправлено"
       );
+      onChanged?.();
       router.refresh();
     } catch {
       setState("error");

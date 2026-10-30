@@ -1,5 +1,8 @@
-import { cookies } from "next/headers";
-import { SettingsForm } from "@/components/admin/SettingsForm";
+"use client";
+
+/* Настройки — клиентская версия (данные через /api/admin/settings). */
+
+import { useCallback, useEffect, useState } from "react";
 import { SettingsTabs } from "@/components/admin/SettingsTabs";
 
 export interface AdminSettings {
@@ -29,42 +32,57 @@ export interface AdminSettings {
   snow_flake: string;
 }
 
-async function getSettings(): Promise<AdminSettings | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return null;
+const DEFAULTS: AdminSettings = {
+  admin_email: "",
+  from_email: "",
+  from_name: "",
+  site_url: "",
+  mail_driver: "smtp",
+  smtp_host: "",
+  smtp_port: "465",
+  smtp_user: "",
+  smtp_pass: "",
+  smtp_pass_set: false,
+  smtp_secure: "ssl",
+  hero_image: "",
+  hero_slider_enabled: "0",
+  hero_slides: "",
+  product_card_template: "classic",
+  snow_enabled: "0",
+  snow_count: "110",
+  snow_count_mobile: "60",
+  snow_speed: "0.5",
+  snow_size: "31",
+  snow_color: "#f5f5f5",
+  snow_flake: "",
+};
 
-  const apiUrl = process.env.PHP_API_URL ?? "http://localhost:8000/api";
-  try {
-    const res = await fetch(`${apiUrl}/admin/settings`, {
-      headers: { Cookie: `admin_token=${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data: Partial<AdminSettings> };
-    const data = json.data ?? {};
-    return {
-      ...data,
-      // Дефолты для новых ключей, если бэкенд их ещё не вернул
-      hero_image: data.hero_image ?? "",
-      hero_slider_enabled: data.hero_slider_enabled ?? "0",
-      hero_slides: data.hero_slides ?? "",
-      product_card_template: data.product_card_template ?? "classic",
-      snow_enabled: data.snow_enabled ?? "0",
-      snow_count: data.snow_count ?? "110",
-      snow_count_mobile: data.snow_count_mobile ?? "60",
-      snow_speed: data.snow_speed ?? "0.5",
-      snow_size: data.snow_size ?? "31",
-      snow_color: data.snow_color ?? "#f5f5f5",
-      snow_flake: data.snow_flake ?? "",
-    } as AdminSettings;
-  } catch {
-    return null;
-  }
-}
+export default function AdminSettingsPage() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function AdminSettingsPage() {
-  const settings = await getSettings();
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/settings`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        return;
+      }
+      setSettings({ ...DEFAULTS, ...(json.data ?? {}) } as AdminSettings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сети");
+    }
+  }, [apiUrl]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <div>
@@ -72,12 +90,16 @@ export default async function AdminSettingsPage() {
         Настройки
       </h1>
 
-      {!settings ? (
+      {error ? (
         <div className="rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-6 text-red-700">
-          Не удалось загрузить настройки. Проверь, что PHP-сервер работает.
+          Не удалось загрузить настройки: {error}
         </div>
-      ) : (
+      ) : settings ? (
         <SettingsTabs settings={settings} />
+      ) : (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+          Загрузка…
+        </div>
       )}
     </div>
   );

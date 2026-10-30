@@ -159,7 +159,7 @@ export function ProductsTable({ initialProducts }: Props) {
                   }`}
                 >
                   <td className="p-3">
-                    <Link href={`/admin/products/${p.id}`} className="hover:text-[var(--color-primary)]">
+                    <Link href={`/admin/products/edit?id=${p.id}`} className="hover:text-[var(--color-primary)]">
                       {p.name}
                     </Link>
                     {p.sku && <span className="ml-2 text-xs text-[var(--color-muted)]">{p.sku}</span>}
@@ -214,7 +214,7 @@ export function ProductsTable({ initialProducts }: Props) {
                     />
                   </td>
                   <td className="p-3 text-right whitespace-nowrap">
-                    <Link href={`/admin/products/${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
+                    <Link href={`/admin/products/edit?id=${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
                       ред.
                     </Link>
                     <button onClick={() => destroy(p.id, p.name)} disabled={deletingId === p.id}

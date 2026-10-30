@@ -238,10 +238,8 @@ class AdminFilesController
         }
 
         // 5) санитайз имени: буквы/цифры/точка/дефис/пробел/подчёркивание (unicode)
-        $base = pathinfo($originalName, PATHINFO_FILENAME);
-        $base = trim(preg_replace('/[^\p{L}\p{N}._\- ]+/u', '_', $base) ?? '', " ._");
-        $base = mb_substr($base, 0, 100);
-        if ($base === '' || $base === '_') $base = 'file';
+        $base = self::sanitizeName(pathinfo($originalName, PATHINFO_FILENAME));
+        if ($base === '') $base = 'file';
         $name = $base . '.' . $ext;
 
         // 6) дедупликация: photo.jpg → photo-1.jpg → photo-2.jpg …
@@ -269,6 +267,89 @@ class AdminFilesController
             'path'   => $key . ($rel === '' ? '' : '/' . $rel) . '/' . $name,
             'url'    => $cfg['public'] ? $cfg['public'] . '/' . ($rel === '' ? $name : $rel . '/' . $name) : null,
             'size'   => @filesize($dest) ?: 0,
+        ]]);
+    }
+
+    /* ── СОЗДАНИЕ ПАПКИ ──
+       POST /api/admin/files/mkdir  JSON: { path: "раздел[/родитель]", name: "Имя" }
+       Папку можно создавать в любом разделе (в media — для организации
+       медиа по папкам; удаление в media по-прежнему запрещено). */
+    public static function mkdir(): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $parent = (string)($data['path'] ?? '');
+        $name   = (string)($data['name'] ?? '');
+
+        if ($parent === '') {
+            jsonResponse(['error' => 'Откройте раздел — папки создаются внутри разделов'], 400);
+        }
+
+        [$cfg, $key, $root, $abs, $rel] = self::resolve($parent);
+        if (!is_dir($abs)) jsonResponse(['error' => 'Родительская папка не найдена'], 404);
+
+        $safe = self::sanitizeName($name);
+        if ($safe === '') {
+            jsonResponse(['error' => 'Некорректное имя папки'], 422);
+        }
+
+        $dest = $abs . '/' . $safe;
+        if (file_exists($dest)) {
+            jsonResponse(['error' => 'Папка или файл с таким именем уже есть'], 409);
+        }
+        if (!@mkdir($dest, 0755)) {
+            jsonResponse(['error' => 'Не удалось создать папку (права?)'], 500);
+        }
+
+        jsonResponse(['data' => [
+            'name' => $safe,
+            'path' => $key . ($rel === '' ? '' : '/' . $rel) . '/' . $safe,
+        ]]);
+    }
+
+    /* ── ПЕРЕИМЕНОВАНИЕ (файл или папка) ──
+       POST /api/admin/files/rename  JSON: { path: "раздел/…/старое", name: "Новое имя" }
+       Только в разделах, где разрешено удаление (в media переименование
+       сломало бы ссылки товаров на файлы). */
+    public static function rename(): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $path = (string)($data['path'] ?? '');
+        $name = (string)($data['name'] ?? '');
+
+        [$cfg, $key, $root, $abs, $rel] = self::resolve($path);
+
+        if (!$cfg['deletable']) {
+            jsonResponse(['error' => 'В этом разделе файлы трогать нельзя — переименование сломает сайт'], 403);
+        }
+        if ($rel === '') {
+            jsonResponse(['error' => 'Нельзя переименовать сам раздел'], 400);
+        }
+
+        $safe = self::sanitizeName($name);
+        if ($safe === '') {
+            jsonResponse(['error' => 'Некорректное имя'], 422);
+        }
+
+        $dest = dirname($abs) . '/' . $safe;
+        if ($dest !== $abs && file_exists($dest)) {
+            jsonResponse(['error' => 'Папка или файл с таким именем уже есть'], 409);
+        }
+        if ($dest === $abs) {
+            jsonResponse(['data' => ['ok' => true, 'path' => $path, 'name' => basename($abs)]]);
+        }
+        if (!@rename($abs, $dest)) {
+            jsonResponse(['error' => 'Не удалось переименовать'], 500);
+        }
+
+        $newRel = ltrim(substr($dest, strlen($root)), '/');
+        jsonResponse(['data' => [
+            'ok'   => true,
+            'name' => $safe,
+            'path' => $key . '/' . $newRel,
         ]]);
     }
 
@@ -330,6 +411,16 @@ class AdminFilesController
     }
 
     /* ── внутреннее ── */
+
+    /** Санитайз имени файла/папки: unicode-буквы, цифры, точка, дефис,
+      * пробел, подчёркивание; до 100 символов; без точек/пробелов по краям. */
+    private static function sanitizeName(string $raw): string
+    {
+        $base = trim(preg_replace('/[^\p{L}\p{N}._\- ]+/u', '_', $raw) ?? '', " ._");
+        $base = mb_substr($base, 0, 100);
+        if ($base === '' || $base === '_') return '';
+        return $base;
+    }
 
     private static function dirSize(string $dir): int
     {

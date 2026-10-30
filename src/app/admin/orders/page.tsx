@@ -1,4 +1,10 @@
-import { cookies } from "next/headers";
+"use client";
+
+/* Список заказов — клиентская версия (данные через /api/admin/orders).
+ * Клиентская, чтобы страница работала в статическом деплое: браузер сам
+ * отправляет httpOnly-куку admin_token, PHP-API отдаёт данные только с ней. */
+
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 
@@ -60,27 +66,34 @@ function MailFailedIcon({ error }: { error: string | null }) {
   );
 }
 
-async function getOrders(): Promise<OrderRow[]> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("admin_token")?.value;
-  if (!token) return [];
+export default function AdminOrdersPage() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const [orders, setOrders] = useState<OrderRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.PHP_API_URL ?? "http://localhost:8000/api";
-  try {
-    const res = await fetch(`${apiUrl}/admin/orders`, {
-      headers: { Cookie: `admin_token=${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data: OrderRow[] };
-    return json.data ?? [];
-  } catch {
-    return [];
-  }
-}
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/orders`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? `Ошибка ${res.status}`);
+        setOrders([]);
+        return;
+      }
+      setOrders((json.data as OrderRow[]) ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сети");
+      setOrders([]);
+    }
+  }, [apiUrl]);
 
-export default async function AdminOrdersPage() {
-  const orders = await getOrders();
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <div>
@@ -89,11 +102,21 @@ export default async function AdminOrdersPage() {
           Заказы
         </h1>
         <span className="text-sm text-[var(--color-muted)]">
-          Всего: {orders.length}
+          Всего: {orders?.length ?? "…"}
         </span>
       </div>
 
-      {orders.length === 0 ? (
+      {error && (
+        <div className="mb-4 rounded-[var(--radius-card)] border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {orders === null ? (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+          Загрузка…
+        </div>
+      ) : orders.length === 0 ? (
         <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-12 text-center text-[var(--color-muted)]">
           Заказов пока нет
         </div>
@@ -119,7 +142,7 @@ export default async function AdminOrdersPage() {
                 >
                   <td className="p-3">
                     <Link
-                      href={`/admin/orders/${o.id}`}
+                      href={`/admin/orders/view?id=${o.id}`}
                       className="font-medium text-[var(--color-primary)] hover:underline"
                     >
                       {o.order_number}

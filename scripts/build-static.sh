@@ -19,15 +19,14 @@
 #
 # Что делает:
 #   1) полная проверка типов;
-#   2) временно убирает src/app/admin (админка — server-only, в статику
-#      не экспортируется) и возвращает её всегда, даже при ошибке;
-#   3) собирает Next.js в режиме EXPORT_MODE (PHP должен быть запущен —
-#      данные товаров запекаются на этапе сборки);
-#   4) собирает пакет: статика + backend + .htaccess + update.html +
+#   2) собирает Next.js в режиме EXPORT_MODE (PHP должен быть запущен —
+#      данные товаров запекаются на этапе сборки). Админка — клиентские
+#      страницы, она экспортируется вместе с витриной в /admin/;
+#   3) собирает пакет: статика + backend + .htaccess + update.html +
 #      инструкция; в backend/version.json — версия сборки;
-#   5) для режима update/both — копия пакета без медиа и БД +
+#   4) для режима update/both — копия пакета без медиа и БД +
 #      update-manifest.json с версией;
-#   6) упаковывает в ZIP.
+#   5) упаковывает в ZIP.
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,30 +37,15 @@ OUT="$ROOT/.next-static"
 PKG="$ROOT/.deploy-package"
 PKG_U="$ROOT/.deploy-package-update"
 MODE="${MODE:-full}"
-STASH="$ROOT/.admin-export-stash"
 
 if [[ "$MODE" != "full" && "$MODE" != "update" && "$MODE" != "both" ]]; then
   echo "MODE должен быть full | update | both (получено: $MODE)"; exit 1
 fi
 
-echo "[0/6] полная проверка типов (пока админка на месте)…"
+echo "[0/5] полная проверка типов…"
 npx tsc --noEmit
 
-if [ -d "$ROOT/src/app/admin" ]; then
-  mv "$ROOT/src/app/admin" "$STASH"
-  echo "[1/6] admin-роуты временно убраны из экспорта"
-else
-  echo "[1/6] admin-роуты уже отсутствуют (прошлый запуск был прерван?)"
-fi
-restore_admin() {
-  if [ -d "$STASH" ] && [ ! -d "$ROOT/src/app/admin" ]; then
-    mv "$STASH" "$ROOT/src/app/admin"
-    echo "[*] admin-роуты возвращены на место"
-  fi
-}
-trap restore_admin EXIT
-
-echo "[2/6] сборка Next.js (EXPORT_MODE=1)…"
+echo "[1/5] сборка Next.js (EXPORT_MODE=1)…"
 rm -rf "$OUT"
 # ВАЖНО: при force-cache (EXPORT_MODE) Next пишет data-cache в ОБЩИЙ .next/cache/fetch-cache,
 # а не в .next-static. Без очистки сборка переиспользует ответы ПРЕДЫДУЩЕЙ сборки
@@ -72,7 +56,7 @@ PHP_API_URL="${PHP_API_URL:-http://127.0.0.1:8000/api}" \
 NEXT_TELEMETRY_DISABLED=1 \
   npx next build
 
-echo "[3/6] сборка базового пакета…"
+echo "[2/5] сборка базового пакета…"
 rm -rf "$PKG" "$PKG_U"
 mkdir -p "$PKG"
 cp -a "$OUT/." "$PKG/"
@@ -84,11 +68,23 @@ cp -a "$ROOT/backend" "$PKG/backend"
 rm -f "$PKG/backend/storage/"*.log "$PKG/backend/storage/"*-wal "$PKG/backend/storage/"*-shm 2>/dev/null || true
 rm -rf "$PKG/backend/storage/chunked-uploads"
 rm -f "$PKG/backend/storage/last-update.json"
+# секреты и приватные артефакты песочницы: на сервере создаются заново
+# (jwt/encryption — автогенерация при первом запуске, см. config.php)
+rm -f "$PKG/backend/storage/secret-keys.php"
+rm -f "$PKG/backend/storage/github-token.txt"
+rm -f "$PKG/backend/storage/github-release-cache.json"
+rm -f "$PKG/backend/storage/deploy-archive-meta.json"
 rm -f "$PKG/backend/UPDATE_ROOT"
 cp "$ROOT/scripts/deploy/.htaccess" "$PKG/.htaccess"
 cp "$ROOT/scripts/deploy/README-DEPLOY.md" "$PKG/README-DEPLOY.md"
-# страница обновления: на развёрнутом сайте админки нет, обновление через /update
+# страница обновления: дубль входа и на развёрнутом сайте (там есть и /admin)
 cp "$ROOT/scripts/deploy/update.html" "$PKG/update.html"
+
+# Дефолтный суперадмин (admin@lakomka.local / Lakomka2026!) — сразу в БД
+# пакета: админка на хостинге открывается без ручных настроек; подсказку
+# с кредами показывает страница входа до смены пароля.
+PHP_BIN="$(command -v php || echo "$ROOT/.ztools/php")"
+"$PHP_BIN" "$ROOT/scripts/seed-default-admin.php" "$PKG/backend/storage/database.sqlite"
 
 VERSION="$(date +%Y.%m.%d-%H%M)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -100,7 +96,7 @@ printf '{"version":"%s","built_at":"%s","type":"deploy","git":"%s"}\n' \
 mkdir -p "$ROOT/download"
 
 zip_full() {
-  echo "[5/6] ZIP полного деплоя (со всеми медиа)…"
+  echo "[3/5] ZIP полного деплоя (со всеми медиа)…"
   FULL_ZIP="$ROOT/download/lakomka-deploy-static.zip"
   rm -f "$FULL_ZIP"
   ( cd "$PKG" && zip -qr "$FULL_ZIP" . )
@@ -108,7 +104,7 @@ zip_full() {
 }
 
 make_update_package() {
-  echo "[4/6] пакет обновления (без медиа и БД)…"
+  echo "[4/5] пакет обновления (без медиа и БД)…"
   cp -a "$PKG" "$PKG_U"
   # медиа остаётся на сервере
   rm -rf "$PKG_U/uploads"
@@ -132,7 +128,7 @@ else
   zip_full
 fi
 
-echo "[6/6] готово:"
+echo "[5/5] готово:"
 if [ -f "$ROOT/download/lakomka-deploy-static.zip" ]; then
   du -sh "$PKG" "$ROOT/download/lakomka-deploy-static.zip" | sed 's/^/    /'
   echo "    пакет:   $PKG"

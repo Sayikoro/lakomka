@@ -15,9 +15,12 @@ const ALL_STATUSES: { value: string; label: string }[] = [
 interface Props {
   orderId: number;
   currentStatus: string;
+  /** Вызывается после успешной смены статуса (для клиентских страниц,
+   *  где данные рендерятся из fetch, а не из серверного дерева) */
+  onChanged?: () => void;
 }
 
-export function StatusChanger({ orderId, currentStatus }: Props) {
+export function StatusChanger({ orderId, currentStatus, onChanged }: Props) {
   const router = useRouter();
   const [status, setStatus] = useState(currentStatus);
   const [comment, setComment] = useState("");
@@ -42,6 +45,7 @@ export function StatusChanger({ orderId, currentStatus }: Props) {
         return;
       }
       setComment("");
+      onChanged?.();
       router.refresh();
     } catch {
       setError("Ошибка сети");

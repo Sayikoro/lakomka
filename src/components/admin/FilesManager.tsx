@@ -7,6 +7,8 @@
  *  - сортировка по имени/дате/размеру, поиск по текущей папке,
  *  - скачивание в два этапа (прогресс в панели загрузок),
  *  - удаление файлов и папок (media — только просмотр),
+ *  - СОЗДАНИЕ СВОИХ ПАПОК (кнопка «Создать папку» + модалка),
+ *  - переименование файлов и папок (в media — запрещено, сломает ссылки),
  *  - ЗАГРУЗКА своих файлов в открытую папку (кнопка + drag&drop).
  */
 
@@ -109,6 +111,14 @@ export function FilesManager() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadNote, setUploadNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  /* Создание папок и переименование (как в проводнике) */
+  const [mkdirOpen, setMkdirOpen] = useState(false);
+  const [mkdirName, setMkdirName] = useState("");
+  const [mkdirBusy, setMkdirBusy] = useState(false);
+  const [renameFor, setRenameFor] = useState<Entry | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
 
   const [backStack, setBackStack] = useState<string[]>([]);
   const [fwdStack, setFwdStack] = useState<string[]>([]);
@@ -279,6 +289,69 @@ export function FilesManager() {
     }
   }
 
+  /* ── Создание папки в текущей директории ── */
+
+  async function createFolder() {
+    if (!path || !mkdirName.trim()) return;
+    setMkdirBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/mkdir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ path, name: mkdirName.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось создать папку");
+        return;
+      }
+      setMkdirOpen(false);
+      setMkdirName("");
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(path, { force: true });
+      setUploadNote({ ok: true, text: `Папка «${json.data?.name ?? mkdirName.trim()}» создана` });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка сети");
+    } finally {
+      setMkdirBusy(false);
+    }
+  }
+
+  /* ── Переименование файла/папки ── */
+
+  async function renameEntry() {
+    if (!folder || !renameFor || !renameName.trim()) return;
+    const target = joinPath(folder.path, renameFor.key ?? renameFor.name);
+    setRenameBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ path: target, name: renameName.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось переименовать");
+        return;
+      }
+      setRenameFor(null);
+      setRenameName("");
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(folder.path, { force: true });
+      setUploadNote({ ok: true, text: `Переименовано в «${json.data?.name ?? renameName.trim()}»` });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка сети");
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
   /* ── Загрузка файлов в хранилище (текущая папка) ── */
 
   async function uploadFiles(list: FileList | File[]) {
@@ -440,6 +513,28 @@ export function FilesManager() {
                 <path d="M4 20h16" />
               </svg>
               Загрузить
+            </button>
+
+            {/* Создать свою папку в открытой директории */}
+            <button
+              type="button"
+              onClick={() => {
+                setMkdirName("");
+                setMkdirOpen(true);
+              }}
+              disabled={!path}
+              title={
+                path
+                  ? `Создать папку в «${folder?.title ?? path}»`
+                  : "Откройте раздел, чтобы создать папку"
+              }
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z" />
+                <path d="M12 10.5v5M9.5 13h5" />
+              </svg>
+              Создать папку
             </button>
             <input
               ref={fileInputRef}
@@ -624,6 +719,19 @@ export function FilesManager() {
                           {e.deletable && (
                             <button
                               type="button"
+                              onClick={() => {
+                                setRenameName(e.name);
+                                setRenameFor(e);
+                              }}
+                              disabled={busy === entryPath}
+                              className="ml-1.5 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-50"
+                            >
+                              переим.
+                            </button>
+                          )}
+                          {e.deletable && (
+                            <button
+                              type="button"
                               onClick={() => removeEntry(e)}
                               disabled={busy === entryPath}
                               className="ml-1.5 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
@@ -646,6 +754,20 @@ export function FilesManager() {
                       key={e.key ?? e.name}
                       className="group relative rounded-lg border border-transparent p-2 hover:border-[var(--color-border)] hover:bg-[var(--color-bg-soft)]"
                     >
+                      {e.deletable && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRenameName(e.name);
+                            setRenameFor(e);
+                          }}
+                          disabled={busy === entryPath}
+                          title="Переименовать"
+                          className="absolute top-1 right-6 hidden rounded-md px-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-primary)] group-hover:block"
+                        >
+                          ✎
+                        </button>
+                      )}
                       {e.deletable && (
                         <button
                           type="button"
@@ -697,6 +819,103 @@ export function FilesManager() {
           </div>
         </div>
       </div>
+
+      {/* ── Модалка: создать папку ── */}
+      {mkdirOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setMkdirOpen(false)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createFolder();
+            }}
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
+              Новая папка
+            </h3>
+            <p className="mb-4 text-xs text-[var(--color-muted)]">
+              В «{folder?.title ?? path}»
+            </p>
+            <input
+              autoFocus
+              value={mkdirName}
+              onChange={(e) => setMkdirName(e.target.value)}
+              placeholder="Например: Наборы 2027"
+              className="mb-4 w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMkdirOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                disabled={mkdirBusy || !mkdirName.trim()}
+                className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+              >
+                {mkdirBusy ? "Создаём…" : "Создать"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Модалка: переименовать ── */}
+      {renameFor && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setRenameFor(null)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void renameEntry();
+            }}
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
+              Переименовать
+            </h3>
+            <p className="mb-4 text-xs text-[var(--color-muted)]">
+              {renameFor.type === "dir" ? "Папку" : "Файл"} «{renameFor.name}»
+            </p>
+            <input
+              autoFocus
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              className="mb-4 w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)]"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRenameFor(null)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                disabled={renameBusy || !renameName.trim()}
+                className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+              >
+                {renameBusy ? "Сохраняем…" : "Переименовать"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ── Мобильное дерево ── */}
       {showSidebar && (

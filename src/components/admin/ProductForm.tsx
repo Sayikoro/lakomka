@@ -149,7 +149,7 @@ export function ProductForm({ mode, initial }: Props) {
             });
           } catch { /* не критично: медиа можно привязать и позже на странице товара */ }
         }
-        router.push(`/admin/products/${newId}`);
+        router.push(`/admin/products/edit?id=${newId}`);
       } else {
         setSaved(true);
         router.refresh();

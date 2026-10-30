@@ -8,7 +8,9 @@ import type { AdminUser } from "@/app/admin/users/page";
 
 interface Props {
   initialUsers: AdminUser[];
-  currentUserId: number;
+  /** id текущего админа; если не передан — определяется через /auth/me
+   *  (нужно на клиентских страницах, где SSR-контекста нет) */
+  currentUserId?: number;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -46,6 +48,31 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
+  /* id текущего пользователя: из пропса или определяем сами */
+  const [meId, setMeId] = useState(currentUserId ?? 0);
+  useEffect(() => {
+    if (currentUserId) {
+      setMeId(currentUserId);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/auth/me`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (alive && res.ok) setMeId(json.data?.id ?? 0);
+      } catch {
+        /* не критично */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [currentUserId, apiUrl]);
 
   async function changeRole(u: AdminUser, newRole: string) {
     if (u.role === newRole) return;
@@ -121,7 +148,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
           </thead>
           <tbody>
             {users.map((u) => {
-              const isMe = u.id === currentUserId;
+              const isMe = u.id === meId;
               const busy = deleting === u.id || changingRole === u.id;
               return (
                 <tr
@@ -169,7 +196,7 @@ export function UsersTable({ initialUsers, currentUserId }: Props) {
                       пароль
                     </button>
                     <Link
-                      href={`/admin/users/${u.id}`}
+                      href={`/admin/users/edit?id=${u.id}`}
                       className="mr-3 text-xs text-[var(--color-primary)] hover:underline"
                     >
                       ред.
