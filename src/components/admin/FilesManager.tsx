@@ -6,6 +6,10 @@
  *  - вид «подробности» (таблица) и «значки» (плитка),
  *  - сортировка по имени/дате/размеру, поиск по текущей папке,
  *  - скачивание в два этапа (прогресс в панели загрузок),
+ *  - КОНТЕКСТНОЕ МЕНЮ по правому клику (и долгому тапу на сенсорных
+ *    экранах, плюс кнопка «⋯» в строке): открыть/скачать, открыть в
+ *    новой вкладке, копировать ссылку, переименовать, удалить, свойства;
+ *    на пустом месте — обновить, загрузить файлы, создать папку, свойства папки;
  *  - удаление файлов и папок (media — только просмотр),
  *    с подтверждением и галочкой «Не показывать больше» (localStorage);
  *  - СОЗДАНИЕ СВОИХ ПАПОК (кнопка «Создать папку» + модалка),
@@ -26,6 +30,18 @@ interface Entry {
   public_url: string | null;
   ext?: string;
   key?: string; // ключ раздела (в корне)
+}
+
+/* Данные для окна «Свойства» (файл, папка или текущий раздел) */
+interface PropsInfo {
+  entry: Entry;        // для текущей папки — псевдо-Entry
+  kind: string;        // «Папка», «Видео»…
+  pathDisplay: string; // полный путь
+  size: string;
+  mtime: string;
+  filesCount?: number; // для папок
+  publicUrl: string | null;
+  deletable: boolean;
 }
 
 interface FolderData {
@@ -101,6 +117,29 @@ function joinPath(a: string, b: string): string {
   return a ? `${a}/${b}` : b;
 }
 
+/* Копирование в буфер: clipboard API + запасной путь для http */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    /* нет clipboard API (например, не-HTTPS) — идём через запасной путь */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function parentPath(p: string): string {
   const i = p.lastIndexOf("/");
   return i === -1 ? "" : p.slice(0, i);
@@ -152,6 +191,14 @@ export function FilesManager() {
   const [renameFor, setRenameFor] = useState<Entry | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+
+  /* Контекстное меню (ПКМ / долгий тап) и окно «Свойства» */
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null; items: CtxItem[] } | null>(null);
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const pressTimer = useRef<number | null>(null);
+  const lpFiredRef = useRef(false); // подавить клик сразу после долгого тапа
+  const [propsInfo, setPropsInfo] = useState<PropsInfo | null>(null);
 
   /* Удаление: модалка-подтверждение + «Не показывать больше»
    * confirmDelete — из localStorage (useSyncExternalStore), НЕ react-стейт */
@@ -245,6 +292,30 @@ export function FilesManager() {
     void loadFolder("");
   }, [loadFolder]);
 
+  /* Контекстное меню: закрытие по клику мимо, Esc, скроллу, resize, blur */
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onDown = (ev: MouseEvent) => {
+      if (menuRef.current && ev.target instanceof Node && !menuRef.current.contains(ev.target)) close();
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
   /* ── Навигация ── */
 
   const open = useCallback(
@@ -255,7 +326,7 @@ export function FilesManager() {
       setShowSidebar(false);
       void loadFolder(p);
     },
-    [path, loadFolder],
+    [path, loadFolder, setShowSidebar],
   );
 
   const goBack = useCallback(() => {
@@ -411,6 +482,166 @@ export function FilesManager() {
       setRenameBusy(false);
     }
   }
+
+  /* ── Контекстное меню: элементы и открытие ── */
+
+  const entryFull = (e: Entry): string => joinPath(path, e.key ?? e.name);
+
+  const entryUrl = (e: Entry): string => {
+    const full = entryFull(e);
+    return e.public_url ?? `${apiUrl}/admin/files/download?path=${encodeURIComponent(full)}`;
+  };
+
+  const propsOfEntry = (e: Entry): PropsInfo => {
+    const full = entryFull(e);
+    const isRootSection = e.type === "dir" && !path;
+    const title = SECTION_TITLES[e.key ?? e.name];
+    return {
+      entry: e,
+      kind: isRootSection && title ? "Раздел" : typeLabel(e),
+      pathDisplay: (isRootSection && title ? title : null) ?? full,
+      size: e.type === "dir" ? (e.size > 0 ? humanSize(e.size) : "—") : humanSize(e.size),
+      mtime: humanDate(e.mtime),
+      publicUrl: e.type === "file" ? e.public_url : null,
+      deletable: e.deletable,
+    };
+  };
+
+  const propsOfCurrentFolder = (): PropsInfo => ({
+    entry: {
+      name: folder?.title ?? path,
+      type: "dir",
+      size: folder?.total_size ?? 0,
+      mtime: 0,
+      deletable: folder?.deletable ?? false,
+      public_url: null,
+      key: path,
+    },
+    kind: "Папка",
+    pathDisplay: path || "Файлы",
+    size: folder && folder.total_size > 0 ? humanSize(folder.total_size) : "—",
+    mtime: "—",
+    filesCount: folder?.files_count,
+    publicUrl: null,
+    deletable: folder?.deletable ?? false,
+  });
+
+  const copyEntryLink = (e: Entry) => {
+    void copyText(entryUrl(e)).then((ok) =>
+      setUploadNote({
+        ok,
+        text: ok ? `Ссылка на «${e.name}» скопирована` : "Не удалось скопировать ссылку",
+      }),
+    );
+  };
+
+  const ctxItemsFor = (e: Entry | null): CtxItem[] => {
+    if (!e) {
+      const items: CtxItem[] = [
+        { key: "refresh", label: "Обновить", icon: ICONS.refresh, action: refresh },
+      ];
+      if (path && uploadPct === null) {
+        items.push({
+          key: "upload",
+          label: "Загрузить файлы сюда",
+          icon: ICONS.upload,
+          action: () => fileInputRef.current?.click(),
+        });
+      }
+      if (path) {
+        items.push({
+          key: "mkdir",
+          label: "Создать папку",
+          icon: ICONS.folderPlus,
+          action: () => {
+            setMkdirName("");
+            setMkdirOpen(true);
+          },
+        });
+        items.push({
+          key: "fprops",
+          label: "Свойства папки",
+          icon: ICONS.info,
+          action: () => setPropsInfo(propsOfCurrentFolder()),
+        });
+      }
+      return items;
+    }
+
+    const full = entryFull(e);
+    const items: CtxItem[] = [];
+    if (e.type === "dir") {
+      items.push({ key: "open", label: "Открыть", icon: ICONS.open, action: () => open(e.key ?? full) });
+    } else {
+      if (e.public_url) {
+        const url = e.public_url;
+        items.push({
+          key: "newtab",
+          label: "Открыть в новой вкладке",
+          icon: ICONS.ext,
+          action: () => window.open(url, "_blank", "noopener,noreferrer"),
+        });
+      }
+      items.push({ key: "download", label: "Скачать", icon: ICONS.download, action: () => downloadFile(e) });
+      items.push({ key: "copy", label: "Копировать ссылку", icon: ICONS.link, action: () => void copyEntryLink(e) });
+    }
+    items.push({ key: "props", label: "Свойства", icon: ICONS.info, action: () => setPropsInfo(propsOfEntry(e)) });
+    if (e.deletable) {
+      items.push({ key: "sep", label: "", icon: "", sep: true });
+      items.push({
+        key: "rename",
+        label: "Переименовать",
+        icon: ICONS.pencil,
+        disabled: busy === full,
+        action: () => {
+          setRenameName(e.name);
+          setRenameFor(e);
+        },
+      });
+      items.push({
+        key: "delete",
+        label: "Удалить",
+        icon: ICONS.trash,
+        danger: true,
+        disabled: busy === full,
+        action: () => removeEntry(e),
+      });
+    }
+    return items;
+  };
+
+  /* Открыть меню в точке экрана с поправкой на края окна;
+   * пункты считаем сразу и храним в состоянии (не вызываем в рендере) */
+  const openMenuAt = (x: number, y: number, entry: Entry | null) => {
+    const items = ctxItemsFor(entry);
+    const W = 268;
+    const H = 40 + items.length * 30 + (entry ? 30 : 0);
+    const cx = Math.max(8, Math.min(x, window.innerWidth - W - 8));
+    const cy = Math.max(8, Math.min(y, window.innerHeight - H - 8));
+    setMenu({ x: cx, y: cy, entry, items });
+    setMenuPos({ x: cx, y: cy });
+  };
+
+  /* Долгий тап (сенсорные экраны) ≈ правый клик */
+  const startLongPress = (ev: React.TouchEvent, entry: Entry | null) => {
+    const t = ev.touches[0];
+    if (!t) return;
+    const x = t.clientX;
+    const y = t.clientY;
+    cancelLongPress();
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      lpFiredRef.current = true;
+      openMenuAt(x, y, entry);
+    }, 550);
+  };
+
+  const cancelLongPress = () => {
+    if (pressTimer.current !== null) {
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
 
   /* ── Загрузка файлов в хранилище (текущая папка) ── */
 
@@ -727,6 +958,10 @@ export function FilesManager() {
               setDragOver(false);
               if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
             }}
+            onContextMenu={(ev) => {
+              ev.preventDefault();
+              openMenuAt(ev.clientX, ev.clientY, null);
+            }}
           >
             {dragOver && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-primary)]/5">
@@ -776,6 +1011,21 @@ export function FilesManager() {
                       <tr
                         key={e.key ?? e.name}
                         className="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-bg-soft)]"
+                        onContextMenu={(ev) => {
+                          ev.preventDefault();
+                          ev.stopPropagation();
+                          openMenuAt(ev.clientX, ev.clientY, e);
+                        }}
+                        onTouchStart={(ev) => startLongPress(ev, e)}
+                        onTouchMove={cancelLongPress}
+                        onTouchEnd={cancelLongPress}
+                        onTouchCancel={cancelLongPress}
+                        onClickCapture={(ev) => {
+                          if (lpFiredRef.current) {
+                            lpFiredRef.current = false;
+                            ev.stopPropagation();
+                          }
+                        }}
                       >
                         <td className="max-w-[360px] px-3 py-2">
                           <button
@@ -832,6 +1082,19 @@ export function FilesManager() {
                               {busy === entryPath ? "…" : "удалить"}
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              const r = ev.currentTarget.getBoundingClientRect();
+                              openMenuAt(r.left, r.bottom + 4, e);
+                            }}
+                            title="Ещё действия (меню)"
+                            aria-label="Ещё действия"
+                            className="ml-1.5 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                          >
+                            ⋯
+                          </button>
                         </td>
                       </tr>
                     );
@@ -846,6 +1109,21 @@ export function FilesManager() {
                     <div
                       key={e.key ?? e.name}
                       className="group relative rounded-lg border border-transparent p-2 hover:border-[var(--color-border)] hover:bg-[var(--color-bg-soft)]"
+                      onContextMenu={(ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        openMenuAt(ev.clientX, ev.clientY, e);
+                      }}
+                      onTouchStart={(ev) => startLongPress(ev, e)}
+                      onTouchMove={cancelLongPress}
+                      onTouchEnd={cancelLongPress}
+                      onTouchCancel={cancelLongPress}
+                      onClickCapture={(ev) => {
+                        if (lpFiredRef.current) {
+                          lpFiredRef.current = false;
+                          ev.stopPropagation();
+                        }
+                      }}
                     >
                       {e.deletable && (
                         <button
@@ -870,6 +1148,21 @@ export function FilesManager() {
                           className="absolute top-1 right-1 hidden rounded-md px-1 text-xs text-[var(--color-muted)] hover:text-red-600 group-hover:block"
                         >
                           ✕
+                        </button>
+                      )}
+                      {!e.deletable && (
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            const r = ev.currentTarget.getBoundingClientRect();
+                            openMenuAt(r.left, r.bottom + 4, e);
+                          }}
+                          title="Действия (меню)"
+                          aria-label="Действия"
+                          className="absolute top-1 right-1 hidden rounded-md bg-white/80 px-1 text-xs text-[var(--color-muted)] hover:text-[var(--color-primary)] group-hover:block"
+                        >
+                          ⋯
                         </button>
                       )}
                       <button
@@ -1069,6 +1362,161 @@ export function FilesManager() {
         </div>
       )}
 
+      {/* ── Контекстное меню (ПКМ / долгий тап / «⋯») ── */}
+      {menu && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[95] min-w-[224px] max-w-[280px] overflow-hidden rounded-xl border border-[var(--color-border)] bg-white py-1 shadow-2xl"
+          style={{ left: menuPos.x, top: menuPos.y }}
+          onContextMenu={(ev) => ev.preventDefault()}
+        >
+          {menu.entry && (
+            <p
+              className="max-w-full truncate border-b border-[var(--color-border)] px-3 pb-1.5 pt-1.5 text-[11px] font-medium text-[var(--color-muted)]"
+              title={menu.entry.name}
+            >
+              {typeLabel(menu.entry)} · {menu.entry.name}
+            </p>
+          )}
+          {menu.items.map((it) =>
+            it.sep ? (
+              <div key={it.key} className="my-1 border-t border-[var(--color-border)]" />
+            ) : (
+              <button
+                key={it.key}
+                type="button"
+                role="menuitem"
+                disabled={it.disabled}
+                onClick={() => {
+                  setMenu(null);
+                  it.action?.();
+                }}
+                className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition disabled:pointer-events-none disabled:opacity-40 ${
+                  it.danger
+                    ? "text-red-600 hover:bg-red-50"
+                    : "text-[var(--color-body)] hover:bg-[var(--color-bg-soft)] hover:text-[var(--color-heading)]"
+                }`}
+              >
+                <MenuIcon d={it.icon} />
+                <span className="truncate">{it.label}</span>
+              </button>
+            ),
+          )}
+        </div>
+      )}
+
+      {/* ── Модалка: свойства файла/папки ── */}
+      {propsInfo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setPropsInfo(null)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <div className="relative w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+            <h3 className="mb-4 flex items-center gap-2.5 text-lg font-semibold text-[var(--color-heading)]">
+              <EntryGlyph entry={propsInfo.entry} big />
+              <span className="min-w-0 flex-1 break-all text-base leading-snug">{propsInfo.entry.name}</span>
+            </h3>
+            <dl className="mb-5 space-y-2.5 text-sm">
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-[var(--color-muted)]">Тип</dt>
+                <dd className="min-w-0 flex-1 text-[var(--color-body)]">{propsInfo.kind}</dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-[var(--color-muted)]">Расположение</dt>
+                <dd className="min-w-0 flex-1 break-all text-[var(--color-body)]">{propsInfo.pathDisplay}</dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-[var(--color-muted)]">Размер</dt>
+                <dd className="min-w-0 flex-1 text-[var(--color-body)]">
+                  {propsInfo.size}
+                  {propsInfo.filesCount !== undefined && propsInfo.filesCount > 0
+                    ? ` · файлов: ${propsInfo.filesCount}`
+                    : ""}
+                </dd>
+              </div>
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-[var(--color-muted)]">Изменён</dt>
+                <dd className="min-w-0 flex-1 text-[var(--color-body)]">{propsInfo.mtime}</dd>
+              </div>
+              {propsInfo.publicUrl && (
+                <div className="flex gap-3">
+                  <dt className="w-32 shrink-0 text-[var(--color-muted)]">Ссылка</dt>
+                  <dd className="flex min-w-0 flex-1 items-center gap-2">
+                    <span
+                      className="min-w-0 flex-1 truncate text-[var(--color-body)]"
+                      title={propsInfo.publicUrl}
+                    >
+                      {propsInfo.publicUrl}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = propsInfo.publicUrl ?? "";
+                        void copyText(url).then((ok) =>
+                          setUploadNote({
+                            ok,
+                            text: ok ? "Ссылка скопирована" : "Не удалось скопировать ссылку",
+                          }),
+                        );
+                      }}
+                      className="shrink-0 rounded-md border border-[var(--color-border)] px-2 py-0.5 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                    >
+                      Копировать
+                    </button>
+                  </dd>
+                </div>
+              )}
+              <div className="flex gap-3">
+                <dt className="w-32 shrink-0 text-[var(--color-muted)]">Действия</dt>
+                <dd className="min-w-0 flex-1 text-[var(--color-body)]">
+                  {propsInfo.deletable
+                    ? "переименование и удаление разрешены"
+                    : "только просмотр — раздел защищён от изменений"}
+                </dd>
+              </div>
+            </dl>
+            <div className="flex justify-end gap-2">
+              {propsInfo.entry.type === "dir" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const en = propsInfo.entry;
+                    setPropsInfo(null);
+                    open(en.key ?? joinPath(path, en.name));
+                  }}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+                >
+                  Открыть
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const en = propsInfo.entry;
+                    setPropsInfo(null);
+                    downloadFile(en);
+                  }}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+                >
+                  Скачать
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPropsInfo(null)}
+                className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)]"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Мобильное дерево ── */}
       {showSidebar && (
         <div className="fixed inset-0 z-[90] md:hidden">
@@ -1116,6 +1564,51 @@ export function FilesManager() {
 }
 
 /* ── Вспомогательные компоненты ── */
+
+/* Иконки пунктов контекстного меню (контурные, 24×24) */
+const ICONS = {
+  open: "M3 7a2 2 0 0 1 2-2h4.2l1.9 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z M12 10.5V16 M9.8 13.8 12 16l2.2-2.2",
+  ext: "M14 4h6v6 M20 4 11 13 M19 13.5V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5.5",
+  download: "M12 4v11 M7.5 11 12 15.5 16.5 11 M5 20h14",
+  link: "M9.5 14.5 14.5 9.5 M8 12l-2.2 2.2a3.8 3.8 0 0 0 5.4 5.4l2.2-2.2 M16 12l2.2-2.2a3.8 3.8 0 0 0-5.4-5.4L10.6 6.6",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 11v5 M12 7.5v.01",
+  pencil: "M17 3.5a2.3 2.3 0 0 1 3.3 3.3L7.5 19.5 3 21l1.5-4.5L17 3.5Z",
+  trash: "M4 6.5h16 M9 6.5V4.5h6v2 M6 6.5l1 13.5h10l1-13.5 M10 10.5v6 M14 10.5v6",
+  refresh: "M17 8a7 7 0 1 0 2 5 M19 4v5h-5",
+  upload: "M12 16V4 M6.5 9.5 12 4l5.5 5.5 M4 20h16",
+  folderPlus:
+    "M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z M12 10.5v5 M9.5 13h5",
+} as const;
+
+/* Пункт контекстного меню (или разделитель) */
+interface CtxItem {
+  key: string;
+  label: string;
+  icon: string;
+  sep?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+  action?: () => void;
+}
+
+function MenuIcon({ d }: { d: string }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className="shrink-0 opacity-70"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
 
 function ToolButton({
   label,
