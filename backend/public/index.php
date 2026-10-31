@@ -426,7 +426,7 @@ $stmt->execute([$m[1]]);
     }
     if ($path === '/api/admin/files' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
-        AdminFilesController::list();
+        AdminFilesController::list($pdo);
     }
     /* Рекурсивный поиск всех видео под /uploads (медиа-галерея, «Видео») */
     if ($path === '/api/admin/files/videos' && $method === 'GET') {
@@ -443,7 +443,7 @@ $stmt->execute([$m[1]]);
     }
     if ($path === '/api/admin/files/rename' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
-        AdminFilesController::rename();
+        AdminFilesController::rename($pdo);
     }
     if ($path === '/api/admin/files/delete' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';

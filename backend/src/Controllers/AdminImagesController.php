@@ -42,6 +42,75 @@ class AdminImagesController
         }
     }
 
+    /** Переписать ссылки на файл у товаров (product_images + products.video_url).
+     *  Нужна после переноса видео в папку товара (Task 92): если этот файл
+     *  уже был привязан к другим товарам, их записи должны указывать на
+     *  новое место, иначе они потеряют видео. Возвращает число строк. */
+    private static function retargetProductRefs(PDO $pdo, string $fromUrl, string $toUrl): int
+    {
+        $refs = 0;
+        $norm = preg_replace('#/+#', '/', $fromUrl) ?? $fromUrl;
+        $variants = $norm === $fromUrl ? [$fromUrl] : [$fromUrl, $norm];
+        $in = implode(',', array_fill(0, count($variants), '?'));
+
+        $upd = $pdo->prepare("UPDATE product_images SET url = ? WHERE url IN ($in)");
+        $upd->execute([$toUrl, ...$variants]);
+        $refs += $upd->rowCount();
+
+        try {
+            $upd2 = $pdo->prepare("UPDATE products SET video_url = ? WHERE video_url IN ($in)");
+            $upd2->execute([$toUrl, ...$variants]);
+            $refs += $upd2->rowCount();
+        } catch (PDOException) {
+            // старая схема без products.video_url — пропускаем
+        }
+        return $refs;
+    }
+
+    /** ПЕРЕНОС видео в папку товара (Task 92): видео из медиа-галереи
+     *  («видео», любые папки /uploads) при привязке к товару переезжает
+     *  в /uploads/products/<slug>/ — так же, как загруженные файлы.
+     *  Если файл уже лежит в папке товара — ничего не делаем. Если
+     *  переименовать не удалось (права/кросс-устройство) — файл остаётся
+     *  на месте, привязка всё равно сработает. Имя при коллизии получает
+     *  суффикс «-2», «-3»… Существующие привязки других товаров
+     *  переписываются на новый URL (см. retargetProductRefs).
+     *  Возвращает [новый URL, новый абсолютный путь]. */
+    private static function moveVideoToProductDir(
+        PDO $pdo,
+        int $productId,
+        string $url,
+        string $realFile
+    ): array {
+        $prodDir = self::ensureProductDir($pdo, $productId); // 404, если товара нет
+        $prodDirReal = realpath($prodDir);
+        if (!$prodDirReal || dirname($realFile) === $prodDirReal) {
+            return [$url, $realFile]; // уже в папке товара
+        }
+
+        $name = basename($realFile);
+        $dest = $prodDirReal . '/' . $name;
+        if (file_exists($dest)) {
+            $stem = pathinfo($name, PATHINFO_FILENAME);
+            $ext = pathinfo($name, PATHINFO_EXTENSION);
+            $n = 1;
+            do {
+                $dest = $prodDirReal . '/' . $stem . '-' . (++$n) . '.' . $ext;
+            } while (file_exists($dest) && $n < 100);
+        }
+
+        if (!@rename($realFile, $dest)) {
+            return [$url, $realFile]; // перенос не удался — работаем как раньше
+        }
+
+        $oldUrl = $url;
+        $newUrl = '/uploads/products/' . basename($prodDirReal) . '/' . basename($dest);
+        self::retargetProductRefs($pdo, $oldUrl, $newUrl);
+        clearstatcache(true, $dest);
+
+        return [$newUrl, $dest];
+    }
+
     /* ============================================================
        ЗАГРУЗКА КАРТИНКИ
        POST /api/admin/products/{id}/media/image
@@ -268,6 +337,14 @@ class AdminImagesController
               : (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true) ? 'video' : null);
         if ($type === null) {
             jsonResponse(['error' => "Формат не поддерживается: .$ext"], 422);
+        }
+
+        /* TASK 92: видео при привязке к товару переезжает из папки видео
+           (media, любые папки /uploads) в папку товара — как картинки,
+           загруженные напрямую. Ссылки других товаров, если файл был уже
+           привязан, переписываются на новое место. */
+        if ($type === 'video') {
+            [$url, $realFile] = self::moveVideoToProductDir($pdo, $productId, $url, $realFile);
         }
 
         /* ОПТИМИЗАТОР для attach: mov/m4v из медиа-галереи → mp4, тяжёлые

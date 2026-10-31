@@ -148,11 +148,13 @@ UPURL=$(echo "$UP" | jget data.url)
 check "$UPURL" "/uploads/Мои наборы 2026/Клип _1.mp4" "загрузка: url чистый, mov→mp4 без «//» (№→_ в имени)"
 [ -s "public/uploads/Мои наборы 2026/Клип _1.mp4" ] && ok "файл на диске с кириллическим именем" || bad "файла нет на диске"
 
-# D. Переименование кириллического файла — в ЭКСПОРТАХ (в media rename
-# осознанно запрещён: раздел «только просмотр», переименование сломало бы
-# ссылки товаров; тестируем сначала API-отказ в media, потом успех в exports)
-RNMED=$(jq -n --arg p "media/Мои наборы 2026/Клип _1.mp4" '{path:$p, name:"Клип №2.mov"}' | curl -s -X POST "$BASE/admin/files/rename" -H "$AUTH" -H "$CT" -d @-)
-echo "$RNMED" | grep -q "трогать нельзя" && ok "rename в media честно отклонён (защита ссылок)" || bad "rename в media не отклонён: $RNMED"
+# D. Переименование в media (Task 93): СВОБОДНЫЙ файл (ещё не привязан)
+# переименовать МОЖНО, а привязанный — нельзя (403, защита ссылок).
+# Сначала качели «переименовали → вернули», после attach — проверка 403.
+RNMED=$(jq -n --arg p "media/Мои наборы 2026/Клип _1.mp4" '{path:$p, name:"Клип _1 (свободный).mp4"}' | curl -s -X POST "$BASE/admin/files/rename" -H "$AUTH" -H "$CT" -d @-)
+true_ok "$(echo "$RNMED" | jget data.ok)" "rename в media СВОБОДНОГО файла разрешён (Task 93)"
+RNBACK=$(jq -n --arg p "media/Мои наборы 2026/Клип _1 _свободный_.mp4" '{path:$p, name:"Клип _1.mp4"}' | curl -s -X POST "$BASE/admin/files/rename" -H "$AUTH" -H "$CT" -d @-)
+true_ok "$(echo "$RNBACK" | jget data.ok)" "...и обратное переименование тоже"
 
 MK2=$(curl -s -X POST "$BASE/admin/files/mkdir" -H "$AUTH" -H "$CT" -d '{"path":"exports","name":"Архивы 2026"}')
 check "$(echo "$MK2" | jget data.path)" "exports/Архивы 2026" "mkdir кириллической папки в exports"
@@ -165,12 +167,19 @@ RN2=$(jq -n --arg p "exports/Архивы 2026/Клип _1.mov" '{path:$p, name:
 check "$(echo "$RN2" | jget data.path)" "exports/Архивы 2026/Клип _2 _финал_.mov" "rename с кириллицей/№/скобками в exports"
 [ -s "public/exports/Архивы 2026/Клип _2 _финал_.mov" ] && ok "переименованный файл на диске" || bad "после rename файла нет на диске"
 
-# E. Привязка к товару — в БД чистая ссылка
+# E. Привязка к товару — Task 92: видео ПЕРЕЕЗЖАЕТ в папку товара
 AT=$(jq -n --arg u "/uploads/Мои наборы 2026/Клип _1.mp4" '{url:$u}' | curl -s -X POST "$BASE/admin/products/$PID89/media/attach" -H "$AUTH" -H "$CT" -d @-)
 nz_ok "$(echo "$AT" | jget data.id)" "attach по кириллическому url (data.id в ответе)"
 DBURL=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite");
   echo $pdo->query("SELECT url FROM product_images WHERE product_id=".(int)$argv[1])->fetchColumn();' "$PID89")
-check "$DBURL" "/uploads/Мои наборы 2026/Клип _1.mp4" "в БД ссылка ровно та же (без «//»)"
+SLUG89=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite");
+  echo $pdo->query("SELECT slug FROM products WHERE id=".(int)$argv[1])->fetchColumn();' "$PID89")
+check "$DBURL" "/uploads/products/$SLUG89/Клип _1.mp4" "видео переехало в папку товара, ссылка в БД чистая (без «//»)"
+[ ! -f "public/uploads/Мои наборы 2026/Клип _1.mp4" ] && ok "в папке видео файла больше нет (перенос)" || bad "файл остался в папке видео"
+[ -s "public/uploads/products/$SLUG89/Клип _1.mp4" ] && ok "файл лежит в папке товара" || bad "файла в папке товара нет"
+# теперь файл referenced — rename обязан отклониться (защита ссылок)
+RNREF=$(jq -n --arg p "media/products/$SLUG89/Клип _1.mp4" '{path:$p, name:"взлом.mp4"}' | curl -s -X POST "$BASE/admin/files/rename" -H "$AUTH" -H "$CT" -d @-)
+echo "$RNREF" | grep -q "используется" && ok "rename ПРИВЯЗАННОГО файла в media — 403 (защита ссылок)" || bad "referenced-файл переименован?! $RNREF"
 
 # F. «Сжать» чистого URL: крупный LOSSLESS (>1 МБ порога компрессии)
 mkmov "/tmp/t89/Жирный клип.mp4" big
@@ -179,14 +188,17 @@ SZ=$(stat -c%s "public/uploads/Мои наборы 2026/Жирный клип.mp
 [ "$SZ" -gt 1000000 ] && ok "LOSSLESS «Жирный клип.mp4» на диске ($SZ байт > 1 МБ)" || { bad "lossless меньше 1 МБ ($SZ) — порог компрессии не пройти"; exit 1; }
 AT2=$(jq -n --arg u "/uploads/Мои наборы 2026/Жирный клип.mp4" '{url:$u}' | curl -s -X POST "$BASE/admin/products/$PID89/media/attach" -H "$AUTH" -H "$CT" -d @-)
 nz_ok "$(echo "$AT2" | jget data.id)" "attach lossless mp4 (data.id в ответе)"
-CM=$(jq -n --arg u "/uploads/Мои наборы 2026/Жирный клип.mp4" '{url:$u}' | curl -s -X POST "$BASE/admin/files/compress" -H "$AUTH" -H "$CT" -d @-)
+# Task 92: файл уже в папке товара → compress работает с новым URL
+FATURL=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite");
+  echo $pdo->query("SELECT url FROM product_images WHERE product_id=".(int)$argv[1]." AND url LIKE \"%Жирный клип%\"")->fetchColumn();' "$PID89")
+CM=$(jq -n --arg u "$FATURL" '{url:$u}' | curl -s -X POST "$BASE/admin/files/compress" -H "$AUTH" -H "$CT" -d @-)
 true_ok "$(echo "$CM" | jget data.ok)" "compress кириллического видео (перекодирование)"
 CMURL=$(echo "$CM" | jget data.url)
-check "$CMURL" "/uploads/Мои наборы 2026/Жирный клип.mp4" "имя после сжатия не меняется, «//» нет"
+check "$CMURL" "/uploads/products/$SLUG89/Жирный клип.mp4" "имя после сжатия не меняется, файл в папке товара, «//» нет"
 DBURL2=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite");
   echo $pdo->query("SELECT url FROM product_images WHERE product_id=".(int)$argv[1]." AND url LIKE \"%Жирный клип%\"")->fetchColumn();' "$PID89")
 check "$DBURL2" "$CMURL" "после сжатия ссылка в БД = url из ответа"
-[ -s "public/uploads/Мои наборы 2026/Жирный клип.mp4" ] && ok "сжатый файл на диске" || bad "сжатого файла нет на диске"
+[ -s "public/uploads/products/$SLUG89/Жирный клип.mp4" ] && ok "сжатый файл на диске (в папке товара)" || bad "сжатого файла нет на диске"
 
 # G. Унаследованная битая ссылка: «//» в БД, compress по битому URL чинит базу
 mkmov "/tmp/t89/Старый клип.mov"

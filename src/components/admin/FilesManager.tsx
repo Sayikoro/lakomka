@@ -27,6 +27,9 @@ interface Entry {
   size: number;
   mtime: number;
   deletable: boolean;
+  /* Task 93: в media — используется ли файл/папка товарами (null в
+   *  своих разделах, там переименование всегда разрешено) */
+  referenced?: boolean | null;
   public_url: string | null;
   ext?: string;
   key?: string; // ключ раздела (в корне)
@@ -382,6 +385,53 @@ export function FilesManager() {
     setDeleteFor(e);
   }
 
+  /* Task 94: оптимизация видео прямо в проводнике — тот же эндпоинт,
+   *  что у кнопки «Сжать» в редакторе товара (файл заменяется на диске,
+   *  привязки товаров переписываются бэкендом). После успеха —
+   *  перечитываем папку (имя файла могло смениться mov → mp4). */
+  async function compressEntry(e: Entry) {
+    if (!e.public_url) return;
+    const full = entryFull(e);
+    if (
+      /\.mp4$/i.test(e.name) &&
+      !window.confirm(
+        "Перекодировать MP4 заново с усилением сжатия?\nРазмер уменьшится, качество немного снизится.\nЕсли видео уже сжато — сервер оставит его как есть.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setBusy(full);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/compress`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ url: e.public_url }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось сжать видео");
+        return;
+      }
+      const d = json.data;
+      const fmt = (n: unknown) => (typeof n === "number" && n > 0 ? humanSize(n) : "?");
+      setUploadNote({
+        ok: true,
+        text: `Видео оптимизировано: ${fmt(d.before)} → ${fmt(d.after)}${d.note ? ` · ${d.note}` : ""}${
+          d.refs_updated ? ` · ссылок товаров обновлено: ${d.refs_updated}` : ""
+        }`,
+      });
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(path, { force: true });
+    } catch {
+      setError("Ошибка сети при сжатии видео");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /* Подтвердили в модалке: запоминаем «не показывать больше» и удаляем */
   function confirmRemoveEntry() {
     if (!deleteFor) return;
@@ -492,6 +542,17 @@ export function FilesManager() {
     return e.public_url ?? `${apiUrl}/admin/files/download?path=${encodeURIComponent(full)}`;
   };
 
+  /* Task 93: переименование доступно в своих разделах (deletable) и в
+   *  media — для файлов/папок, которые НЕ использует ни один товар
+   *  (бэкенд проверяет по product_images/products.video_url и 403-ит,
+   *  если файл всё же где-то подключён). */
+  const canRename = (e: Entry): boolean => e.deletable || e.referenced === false;
+
+  /* Task 94: видео из /uploads, которое можно оптимизировать
+   *  (mov/m4v → mp4, тяжёлый mp4 → перекодирование). */
+  const isVideoCompressible = (e: Entry): boolean =>
+    e.type === "file" && !!e.public_url && /\.(mov|m4v|mp4)$/i.test(e.name);
+
   const propsOfEntry = (e: Entry): PropsInfo => {
     const full = entryFull(e);
     const isRootSection = e.type === "dir" && !path;
@@ -584,9 +645,19 @@ export function FilesManager() {
       }
       items.push({ key: "download", label: "Скачать", icon: ICONS.download, action: () => downloadFile(e) });
       items.push({ key: "copy", label: "Копировать ссылку", icon: ICONS.link, action: () => void copyEntryLink(e) });
+      /* Task 94: оптимизация видео (mov/m4v → mp4, mp4 → пережать) */
+      if (isVideoCompressible(e)) {
+        items.push({
+          key: "compress",
+          label: /\.mp4$/i.test(e.name) ? "Пережать MP4" : "Оптимизировать в MP4",
+          icon: ICONS.compress,
+          disabled: busy === full,
+          action: () => void compressEntry(e),
+        });
+      }
     }
     items.push({ key: "props", label: "Свойства", icon: ICONS.info, action: () => setPropsInfo(propsOfEntry(e)) });
-    if (e.deletable) {
+    if (canRename(e)) {
       items.push({ key: "sep", label: "", icon: "", sep: true });
       items.push({
         key: "rename",
@@ -598,6 +669,8 @@ export function FilesManager() {
           setRenameFor(e);
         },
       });
+    }
+    if (e.deletable) {
       items.push({
         key: "delete",
         label: "Удалить",
@@ -1059,7 +1132,22 @@ export function FilesManager() {
                               скачать
                             </button>
                           )}
-                          {e.deletable && (
+                          {isVideoCompressible(e) && (
+                            <button
+                              type="button"
+                              onClick={() => void compressEntry(e)}
+                              disabled={busy === entryPath}
+                              title={
+                                /\.mp4$/i.test(e.name)
+                                  ? "Перекодировать MP4 с усилением сжатия (заменится, если станет меньше)"
+                                  : "Конвертировать в MP4 (сжать, привязки товаров обновятся)"
+                              }
+                              className="ml-1.5 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-50"
+                            >
+                              {busy === entryPath ? "…" : "оптимизировать"}
+                            </button>
+                          )}
+                          {canRename(e) && (
                             <button
                               type="button"
                               onClick={() => {
@@ -1125,7 +1213,7 @@ export function FilesManager() {
                         }
                       }}
                     >
-                      {e.deletable && (
+                      {canRename(e) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1578,6 +1666,9 @@ const ICONS = {
   upload: "M12 16V4 M6.5 9.5 12 4l5.5 5.5 M4 20h16",
   folderPlus:
     "M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z M12 10.5v5 M9.5 13h5",
+  /* Task 94: «оптимизировать» — стрелки внутрь (сжатие) */
+  compress:
+    "M9 4H4v5 M4 4l5 5 M15 20h5v-5 M20 20l-5-5 M15 4h5v5 M20 4l-5 5 M9 20H4v-5 M4 20l5-5",
 } as const;
 
 /* Пункт контекстного меню (или разделитель) */

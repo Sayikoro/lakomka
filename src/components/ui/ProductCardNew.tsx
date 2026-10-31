@@ -105,6 +105,10 @@ export function ProductCardNew({ product, className = "" }: Props) {
   );
 
   const videoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  /* Свайп: ref живёт ТОЛЬКО пока палец/кнопка прижаты. Раньше ref не
+     сбрасывался по pointerup — после обычного клика курсор оставался
+     внутри карточки, и дальнейшее движение мыши на 40px от СТАРОЙ
+     точки нажатия перелистывало слайд без всякого клика (Task 95). */
   const swipeRef = useRef<{ x: number; y: number; consumed: boolean } | null>(
     null
   );
@@ -165,6 +169,12 @@ export function ProductCardNew({ product, className = "" }: Props) {
             onPointerMove={(e) => {
               const s = swipeRef.current;
               if (!s || s.consumed) return;
+              /* Мышь без прижатой кнопки — это просто наведение,
+                 никак не свайп (страховка от «застрявшего» ref) */
+              if (e.pointerType === "mouse" && e.buttons === 0) {
+                swipeRef.current = null;
+                return;
+              }
               const dx = e.clientX - s.x;
               const dy = e.clientY - s.y;
               if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) {
@@ -172,6 +182,9 @@ export function ProductCardNew({ product, className = "" }: Props) {
                 if (dx < 0) nextSlide();
                 else prevSlide();
               }
+            }}
+            onPointerUp={() => {
+              swipeRef.current = null;
             }}
             onPointerLeave={() => {
               swipeRef.current = null;

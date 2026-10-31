@@ -55,6 +55,47 @@ class AdminFilesController
         ];
     }
 
+    /** Все URL файлов, используемые товарами (product_images + products.video_url).
+     *  Возвращаются и «как в базе», и нормализованные («//» → «/») — в старых
+     *  базах встречаются битые варианты (Task 89). Нужен для проверки
+     *  «можно ли переименовать/трогать файл в media» (Task 93). */
+    private static function usedUrls(PDO $pdo): array
+    {
+        $urls = [];
+        try {
+            foreach ($pdo->query('SELECT DISTINCT url FROM product_images') as $r) {
+                $u = (string)$r['url'];
+                if ($u !== '') { $urls[$u] = true; $urls[preg_replace('#/+#', '/', $u) ?? $u] = true; }
+            }
+        } catch (PDOException) {
+            // таблицы может не быть на свежей базе
+        }
+        try {
+            foreach ($pdo->query('SELECT DISTINCT video_url FROM products WHERE video_url IS NOT NULL') as $r) {
+                $u = (string)$r['video_url'];
+                if ($u !== '') { $urls[$u] = true; $urls[preg_replace('#/+#', '/', $u) ?? $u] = true; }
+            }
+        } catch (PDOException) {
+            // старая схема без products.video_url — пропускаем
+        }
+        return $urls;
+    }
+
+    /** Используется ли файл/папка (хоть один файл внутри) товарами.
+     *  $url — ПУБЛИЧНЫЙ URL файла или папки («/uploads/путь», БЕЗ ключа
+     *  раздела — ровно в том виде, в каком путь лежит в базе). */
+    private static function isUsedByProducts(array $usedUrls, string $url, bool $isDir): bool
+    {
+        if ($isDir) {
+            $prefix = rtrim($url, '/') . '/';
+            foreach (array_keys($usedUrls) as $u) {
+                if (str_starts_with($u, $prefix)) return true;
+            }
+            return false;
+        }
+        return isset($usedUrls[$url]);
+    }
+
     /** Разбор и защита пути: «section/rel/path» → абсолютные пути. */
     private static function resolve(string $rawPath): array
     {
@@ -90,7 +131,7 @@ class AdminFilesController
 
     /* ── СПИСОК ПАПКИ ── */
 
-    public static function list(): void
+    public static function list(PDO $pdo): void
     {
         Auth::requireEditor();
 
@@ -130,10 +171,19 @@ class AdminFilesController
         $totalFiles = 0;
         $totalSize = 0;
         $bigTree = ($key === 'media'); // у медиа не считаем размер каждой папки (тысячи файлов)
+        /* Task 93: в защищённых разделах (media) помечаем, какие файлы/
+         *  папки реально используются товарами — их переименовывать нельзя,
+         *  свободные можно. Один запрос на всё содержимое папки. */
+        $usedUrls = $cfg['deletable'] ? [] : self::usedUrls($pdo);
 
         foreach (scandir($abs, SCANDIR_SORT_ASCENDING) ?: [] as $name) {
             if ($name === '.' || $name === '..') continue;
             $full = $abs . '/' . $name;
+            /* публичный URL записи (для media — «/uploads/…» без ключа раздела:
+             * именно в таком виде пути лежат в product_images/products.video_url) */
+            $pubUrl = $cfg['public']
+                ? rtrim($cfg['public'], '/') . '/' . ($rel === '' ? $name : $rel . '/' . $name)
+                : null;
             if (is_dir($full)) {
                 $entries[] = [
                     'name' => $name,
@@ -141,7 +191,8 @@ class AdminFilesController
                     'size' => $bigTree ? 0 : self::dirSize($full),
                     'mtime' => @filemtime($full) ?: 0,
                     'deletable' => $cfg['deletable'],
-                    'public_url' => $cfg['public'] ? $cfg['public'] . '/' . ($rel === '' ? $name : $rel . '/' . $name) : null,
+                    'referenced' => $cfg['deletable'] ? null : self::isUsedByProducts($usedUrls, (string)$pubUrl, true),
+                    'public_url' => $pubUrl,
                 ];
             } elseif (is_file($full)) {
                 $size = @filesize($full) ?: 0;
@@ -153,8 +204,9 @@ class AdminFilesController
                     'size' => $size,
                     'mtime' => @filemtime($full) ?: 0,
                     'deletable' => $cfg['deletable'],
+                    'referenced' => $cfg['deletable'] ? null : self::isUsedByProducts($usedUrls, (string)$pubUrl, false),
                     'ext' => strtolower(pathinfo($name, PATHINFO_EXTENSION)),
-                    'public_url' => $cfg['public'] ? $cfg['public'] . '/' . ($rel === '' ? $name : $rel . '/' . $name) : null,
+                    'public_url' => $pubUrl,
                 ];
             }
         }
@@ -407,9 +459,11 @@ class AdminFilesController
 
     /* ── ПЕРЕИМЕНОВАНИЕ (файл или папка) ──
        POST /api/admin/files/rename  JSON: { path: "раздел/…/старое", name: "Новое имя" }
-       Только в разделах, где разрешено удаление (в media переименование
-       сломало бы ссылки товаров на файлы). */
-    public static function rename(): void
+       В своих разделах (exports/imports/backups) — всегда можно.
+       В media (файлы товаров) — только если файл/папку не использует
+       ни один товар (проверка по product_images + products.video_url):
+       переименование используемого файла сломало бы ссылки (Task 93). */
+    public static function rename(PDO $pdo): void
     {
         Auth::requireEditor();
 
@@ -419,8 +473,13 @@ class AdminFilesController
 
         [$cfg, $key, $root, $abs, $rel] = self::resolve($path);
 
+        $isDir = is_dir($abs);
         if (!$cfg['deletable']) {
-            jsonResponse(['error' => 'В этом разделе файлы трогать нельзя — переименование сломает сайт'], 403);
+            /* публичный URL без ключа раздела (media → «/uploads/…») */
+            $pubUrl = rtrim((string)($cfg['public'] ?? ''), '/') . '/' . $rel;
+            if (self::isUsedByProducts(self::usedUrls($pdo), $pubUrl, $isDir)) {
+                jsonResponse(['error' => 'Файл используется в товарах — переименование сломает ссылки. Сначала отвяжите его от товаров.'], 403);
+            }
         }
         if ($rel === '') {
             jsonResponse(['error' => 'Нельзя переименовать сам раздел'], 400);
