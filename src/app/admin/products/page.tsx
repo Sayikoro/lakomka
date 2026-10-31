@@ -19,6 +19,10 @@ export interface AdminProduct {
   show_in_catalog: number;
   is_published: number;
   category_id: number | null;
+  /** Вес рецепта (г) — ступени фильтра «Вес» (Task 90) */
+  recipe_weight_g: number | null;
+  /** URL первой картинки — иконка категории в фильтре-плитках (Task 90) */
+  thumb?: string | null;
 }
 
 export default function AdminProductsPage() {

@@ -1,9 +1,25 @@
 "use client";
 
+/* Список товаров админки с фильтрами как в клиентском каталоге (Task 90):
+ * плитки категорий с иконками, двойные ползунки цены и веса (общий
+ * DualSlider из ui/DualSlider), сортировка «название/цена» и сброс.
+ * Админ-специфичные фильтры сохранены: поиск по названию/SKU и статусный
+ * select (в каталоге / скрытые / тип товара). Все фильтры клиентские —
+ * список приходит целиком с /api/admin/products. */
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { DualSlider, SORT_OPTIONS, priceLabel, weightLabel } from "@/components/ui/DualSlider";
+import type { SortKey } from "@/components/ui/DualSlider";
+import { SmartImg } from "@/components/ui/SmartImg";
+import { mockCategories } from "@/lib/mock-data";
 import type { AdminProduct } from "@/app/admin/products/page";
+
+interface AdminCategory {
+  id: number;
+  slug: string;
+  name: string;
+}
 
 interface Props {
   initialProducts: AdminProduct[];
@@ -23,8 +39,12 @@ const TYPE_BADGE: Record<string, string> = {
   recipe: "bg-pink-100 text-pink-800",
 };
 
+/** Фолбэк-миниатюры для категорий без товаров — как в клиентском каталоге */
+const CATEGORY_ICONS: Record<string, string> = Object.fromEntries(
+  mockCategories.map((c) => [c.slug, c.imageUrl])
+);
+
 export function ProductsTable({ initialProducts }: Props) {
-  const router = useRouter();
   const [products, setProducts] = useState(initialProducts);
   // router.refresh() приносит новые props — синхронизируем state, иначе таблица
   // навсегда показывает snapshot на момент монтирования (после импорта список
@@ -38,27 +58,162 @@ export function ProductsTable({ initialProducts }: Props) {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /* ── Фильтры каталога (Task 90) ── */
+  const [categories, setCategories] = useState<AdminCategory[] | null>(null);
+  const [category, setCategory] = useState<string>("all"); // slug | "all"
+  const [sort, setSort] = useState<SortKey>("default");
+  // Ползунки: пока пользователь их не трогал — следуют за границами данных
+  // (без эффектов и boundsReady: «прикоснулся» = touched, сброс = touched=false)
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]);
+  const [priceTouched, setPriceTouched] = useState(false);
+  const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]);
+  const [weightTouched, setWeightTouched] = useState(false);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiUrl}/categories`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!cancelled) setCategories((json?.data as AdminCategory[]) ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl]);
+
+  // Ступени веса из списка товаров (по возрастанию) — как в каталоге
+  const weightSteps = useMemo(() => {
+    const set = new Set<number>();
+    products.forEach((p) => p.recipe_weight_g && set.add(p.recipe_weight_g));
+    return Array.from(set).sort((a, b) => a - b);
+  }, [products]);
+
+  // Границы цены по списку, округлённые до сотен рублей — как в каталоге
+  const priceBounds = useMemo(() => {
+    let min = Infinity;
+    let max = 0;
+    products.forEach((p) => {
+      if (p.price_kopecks < min) min = p.price_kopecks;
+      if (p.price_kopecks > max) max = p.price_kopecks;
+    });
+    if (!Number.isFinite(min)) return { min: 0, max: 0 };
+    return {
+      min: Math.floor(min / 10000) * 10000,
+      max: Math.max(Math.ceil(max / 10000) * 10000, Math.floor(min / 10000) * 10000 + 10000),
+    };
+  }, [products]);
+
+  // Категории, реально представленные среди товаров (порядок — общий)
+  const categoryOptions = useMemo(() => {
+    if (!categories) return [];
+    const present = new Set<number>();
+    products.forEach((p) => p.category_id && present.add(p.category_id));
+    return categories.filter((c) => present.has(c.id));
+  }, [categories, products]);
+
+  // Иконки плиток: первое фото товара категории (thumb из API),
+  // без товаров — фолбэк из мока, ровно как в каталоге
+  const iconBySlug = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const p of products) {
+      if (p.category_id == null || byId.has(p.category_id)) continue;
+      if (!p.thumb) continue;
+      byId.set(p.category_id, p.thumb);
+    }
+    const map = new Map<string, string>();
+    for (const c of categories ?? []) {
+      const icon = byId.get(c.id);
+      map.set(c.slug, icon ?? CATEGORY_ICONS[c.slug] ?? mockCategories[0].imageUrl);
+    }
+    return map;
+  }, [products, categories]);
+
+  // Эффективные границы ползунков: до первого касания — весь span данных
+  const effWeight = useMemo<[number, number]>(
+    () => (weightTouched ? weightIdx : [0, Math.max(weightSteps.length - 1, 0)]),
+    [weightTouched, weightIdx, weightSteps.length]
+  );
+  const effPrice = useMemo<[number, number]>(
+    () => (priceTouched ? priceRange : [priceBounds.min, priceBounds.max]),
+    [priceTouched, priceRange, priceBounds.min, priceBounds.max]
+  );
+  const weightActive =
+    weightTouched && weightSteps.length > 1 &&
+    (effWeight[0] > 0 || effWeight[1] < weightSteps.length - 1);
+  const priceActive =
+    priceTouched && priceBounds.max > 0 &&
+    (effPrice[0] > priceBounds.min || effPrice[1] < priceBounds.max);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const cat = categoryOptions.find((c) => c.slug === category);
+    const wLo = weightSteps[effWeight[0]];
+    const wHi = weightSteps[effWeight[1]];
     return products.filter((p) => {
       if (filter === "catalog" && !(p.show_in_catalog === 1 && p.is_published === 1 && p.type !== "recipe")) return false;
       if (filter === "hidden" && !(p.show_in_catalog === 0 || p.is_published === 0)) return false;
       if (filter === "bundles" && p.type !== "bundle") return false;
       if (filter === "simple" && p.type !== "simple") return false;
       if (filter === "recipe" && p.type !== "recipe") return false;
+      if (cat && p.category_id !== cat.id) return false;
+      if (weightActive) {
+        const w = p.recipe_weight_g ?? 0;
+        if (w < wLo || w > wHi) return false;
+      }
+      if (priceActive && (p.price_kopecks < effPrice[0] || p.price_kopecks > effPrice[1])) return false;
       if (q) {
         const haystack = `${p.name} ${p.sku ?? ""}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [products, search, filter]);
+  }, [products, search, filter, categoryOptions, category, weightSteps, effWeight, weightActive, effPrice, priceActive]);
+
+  // Сортировка отфильтрованного списка — те же варианты, что в каталоге
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    switch (sort) {
+      case "name-asc":
+        arr.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+        break;
+      case "name-desc":
+        arr.sort((a, b) => b.name.localeCompare(a.name, "ru"));
+        break;
+      case "price-asc":
+        arr.sort((a, b) => a.price_kopecks - b.price_kopecks);
+        break;
+      case "price-desc":
+        arr.sort((a, b) => b.price_kopecks - a.price_kopecks);
+        break;
+    }
+    return arr;
+  }, [filtered, sort]);
+
+  const hasFilters =
+    category !== "all" ||
+    search.trim() !== "" ||
+    filter !== "all" ||
+    weightActive ||
+    priceActive;
+
+  const resetFilters = () => {
+    setSearch("");
+    setFilter("all");
+    setCategory("all");
+    setSort("default");
+    setPriceTouched(false);
+    setWeightTouched(false);
+  };
 
   async function patch(id: number, payload: Record<string, unknown>) {
     setSavingId(id);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/products/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,7 +225,9 @@ export function ProductsTable({ initialProducts }: Props) {
         setError(json.error ?? "Не удалось сохранить");
         return;
       }
-      setProducts((list) => list.map((p) => (p.id === id ? { ...p, ...json.data } : p)));
+      setProducts((list) =>
+        list.map((p) => (p.id === id ? { ...p, ...json.data, thumb: json.data?.thumb ?? p.thumb } : p))
+      );
     } catch {
       setError("Ошибка сети");
     } finally {
@@ -83,7 +240,6 @@ export function ProductsTable({ initialProducts }: Props) {
     setDeletingId(id);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
       const res = await fetch(`${apiUrl}/admin/products/${id}`, {
         method: "DELETE",
         credentials: "include",
@@ -103,7 +259,7 @@ export function ProductsTable({ initialProducts }: Props) {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <input
           type="search"
           value={search}
@@ -126,7 +282,122 @@ export function ProductsTable({ initialProducts }: Props) {
         <span className="text-sm text-[var(--color-muted)]">
           Найдено: {filtered.length}
         </span>
+        <label className="ml-auto flex items-center gap-2 text-sm text-[var(--color-muted)]">
+          <span className="hidden sm:inline">Сортировка</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            aria-label="Сортировка"
+            className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-sm text-[var(--color-heading)] focus:border-[var(--color-primary)] focus:outline-none"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
+
+      {/* ── Панель фильтров каталога: плитки категорий + ползунки цены/веса ── */}
+      {(categoryOptions.length > 0 || priceBounds.max > 0 || weightSteps.length > 1) && (
+        <div className="mb-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
+          {categoryOptions.length > 0 && (
+            <div>
+              <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Категория</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-[repeat(auto-fill,minmax(120px,1fr))]">
+                <button
+                  onClick={() => setCategory("all")}
+                  aria-pressed={category === "all"}
+                  className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border p-2.5 text-center text-[12px] font-medium leading-tight transition-colors ${
+                    category === "all"
+                      ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                      : "border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+                  }`}
+                >
+                  <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                    <rect x="3" y="3" width="7.5" height="7.5" rx="2" />
+                    <rect x="13.5" y="3" width="7.5" height="7.5" rx="2" />
+                    <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" />
+                    <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" />
+                  </svg>
+                  Все
+                </button>
+                {categoryOptions.map((c) => (
+                  <button
+                    key={c.slug}
+                    onClick={() => setCategory(c.slug)}
+                    aria-pressed={category === c.slug}
+                    className={`flex flex-col items-center gap-1.5 rounded-2xl border p-2.5 text-center text-[12px] font-medium leading-tight transition-colors ${
+                      category === c.slug
+                        ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                        : "border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+                    }`}
+                  >
+                    <SmartImg
+                      src={iconBySlug.get(c.slug) ?? mockCategories[0].imageUrl}
+                      alt=""
+                      loading="lazy"
+                      wrapperClassName="h-9 w-9 rounded-xl"
+                      skeletonClassName="rounded-xl"
+                      className="h-9 w-9 rounded-xl object-cover"
+                    />
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(priceBounds.max > 0 || weightSteps.length > 1) && (
+            <div className={`grid gap-5 sm:grid-cols-2 ${categoryOptions.length > 0 ? "mt-5" : ""}`}>
+              {priceBounds.max > 0 && (
+                <div>
+                  <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Цена</div>
+                  <DualSlider
+                    min={priceBounds.min}
+                    max={priceBounds.max}
+                    step={10000}
+                    value={effPrice}
+                    onChange={(v) => {
+                      setPriceRange(v);
+                      setPriceTouched(true);
+                    }}
+                    format={priceLabel}
+                    ariaLabel="Цена"
+                  />
+                </div>
+              )}
+              {weightSteps.length > 1 && (
+                <div>
+                  <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Вес</div>
+                  <DualSlider
+                    min={0}
+                    max={weightSteps.length - 1}
+                    step={1}
+                    value={effWeight}
+                    onChange={(v) => {
+                      setWeightIdx(v);
+                      setWeightTouched(true);
+                    }}
+                    format={(i) => weightLabel(weightSteps[i] ?? 0)}
+                    ariaLabel="Вес"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {hasFilters && (
+            <button
+              onClick={resetFilters}
+              className="mt-5 w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-muted)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+            >
+              Сбросить фильтры
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -149,7 +420,7 @@ export function ProductsTable({ initialProducts }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p) => {
+            {sorted.map((p) => {
               const isRecipe = p.type === "recipe";
               return (
                 <tr
@@ -225,9 +496,16 @@ export function ProductsTable({ initialProducts }: Props) {
                 </tr>
               );
             })}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-10 text-center text-sm text-[var(--color-muted)]">
+                  Ничего не найдено — попробуйте изменить или сбросить фильтры.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
-} 
+}

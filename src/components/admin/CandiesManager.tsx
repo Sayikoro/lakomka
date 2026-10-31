@@ -77,7 +77,9 @@ export function CandiesManager() {
     { mode: "create" } | { mode: "edit"; set: CandySet } | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<Candy | null>(null);
-  const [deleteSetTarget, setDeleteSetTarget] = useState<CandySet | null>(null);
+  // Task 90: кастомный набор удаляется сразу, без подтверждающего окна —
+  // остаётся busy-состояние кнопки и красная плашка при ошибке
+  const [deletingSetId, setDeletingSetId] = useState<number | null>(null);
 
   const loadCandies = useCallback(async () => {
     try {
@@ -96,6 +98,24 @@ export function CandiesManager() {
       setSets(json.data ?? []);
     } catch { setError("Ошибка сети"); }
   }, []);
+
+  // Task 90: удаление набора без подтверждающей модалки — один клик.
+  // Сами конфеты не трогаются (это чистит только справочник набора),
+  // ошибка уходит в общую красную плашку сверху.
+  const deleteSet = useCallback(async (s: CandySet) => {
+    setDeletingSetId(s.id);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/candy-sets/${s.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) { setError(json.error ?? "Не удалось удалить"); return; }
+      await loadSets();
+    } catch { setError("Ошибка сети"); }
+    finally { setDeletingSetId(null); }
+  }, [loadSets]);
 
   useEffect(() => {
     let alive = true;
@@ -170,8 +190,9 @@ export function CandiesManager() {
       ) : (
         <SetsList
           sets={sets}
+          deletingId={deletingSetId}
           onEdit={(s) => setSetModal({ mode: "edit", set: s })}
-          onDelete={(s) => setDeleteSetTarget(s)}
+          onDelete={(s) => void deleteSet(s)}
         />
       )}
 
@@ -195,13 +216,6 @@ export function CandiesManager() {
           candy={deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onDeleted={async () => { setDeleteTarget(null); await Promise.all([loadCandies(), loadSets()]); }}
-        />
-      )}
-      {deleteSetTarget && (
-        <DeleteSetModal
-          set={deleteSetTarget}
-          onClose={() => setDeleteSetTarget(null)}
-          onDeleted={async () => { setDeleteSetTarget(null); await loadSets(); }}
         />
       )}
     </div>
@@ -505,10 +519,12 @@ function DeleteCandyModal({
 
 function SetsList({
   sets,
+  deletingId,
   onEdit,
   onDelete,
 }: {
   sets: CandySet[];
+  deletingId: number | null;
   onEdit: (s: CandySet) => void;
   onDelete: (s: CandySet) => void;
 }) {
@@ -527,7 +543,7 @@ function SetsList({
   return (
     <div className="grid gap-3">
       {sets.map((s) => (
-        <div key={s.id} className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-4">
+        <div key={s.id} className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-4 ${deletingId === s.id ? "opacity-50" : ""}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -547,8 +563,13 @@ function SetsList({
               <button onClick={() => onEdit(s)} className="text-xs text-[var(--color-primary)] hover:underline">
                 ред.
               </button>
-              <button onClick={() => onDelete(s)} className="text-xs text-[var(--color-muted)] hover:text-red-600">
-                удалить
+              {/* Task 90: удаляем сразу, без подтверждающего окна */}
+              <button
+                onClick={() => onDelete(s)}
+                disabled={deletingId === s.id}
+                className="text-xs text-[var(--color-muted)] hover:text-red-600 disabled:pointer-events-none disabled:opacity-60"
+              >
+                {deletingId === s.id ? "удаляем…" : "удалить"}
               </button>
             </div>
           </div>
@@ -737,63 +758,6 @@ function SetModal({
           </button>
         </div>
       </form>
-    </div>
-  );
-}
-
-/* ================= Модалка удаления набора ================= */
-
-function DeleteSetModal({
-  set,
-  onClose,
-  onDeleted,
-}: {
-  set: CandySet;
-  onClose: () => void;
-  onDeleted: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function doDelete() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${apiUrl}/admin/candy-sets/${set.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) { setError(json.error ?? "Не удалось удалить"); return; }
-      onDeleted();
-    } catch { setError("Ошибка сети"); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
-      <div
-        onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
-      >
-        <h2 className="mb-2 text-lg font-medium text-[var(--color-heading)]">Удалить набор «{set.name}»?</h2>
-        <p className="text-sm text-[var(--color-body)]">
-          Сами конфеты при этом не удаляются — только справочник набора.
-        </p>
-        {error && (
-          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-        )}
-        <div className="mt-5 flex items-center gap-3">
-          <button onClick={doDelete} disabled={busy}
-            className="rounded-[var(--radius-btn)] bg-red-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-60">
-            {busy ? "Удаляем…" : "Удалить"}
-          </button>
-          <button onClick={onClose} disabled={busy}
-            className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-5 py-2 text-sm text-[var(--color-heading)] transition hover:border-[var(--color-primary)] disabled:opacity-60">
-            Отмена
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

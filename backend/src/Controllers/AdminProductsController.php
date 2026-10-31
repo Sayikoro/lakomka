@@ -46,8 +46,31 @@ class AdminProductsController
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
+        $rows = $stmt->fetchAll();
 
-        jsonResponse(['data' => $stmt->fetchAll()]);
+        /* Task 90: URL первой картинки товара — иконки категорий в
+           фильтре-плитках админки (как в клиентском каталоге). Один
+           запрос по всем картинкам, первым считается минимум
+           (sort_order, id) с media_type = 'image'. */
+        $tq = $pdo->query(
+            "SELECT product_id, url
+             FROM product_images
+             WHERE media_type = 'image'
+             ORDER BY product_id, sort_order, id"
+        );
+        $thumbByProduct = [];
+        foreach ($tq as $r) {
+            $pid = (int)$r['product_id'];
+            if (!isset($thumbByProduct[$pid])) {
+                $thumbByProduct[$pid] = $r['url'];
+            }
+        }
+        foreach ($rows as &$row) {
+            $row['thumb'] = $thumbByProduct[(int)$row['id']] ?? null;
+        }
+        unset($row);
+
+        jsonResponse(['data' => $rows]);
     }
 
     /* ============================================================
