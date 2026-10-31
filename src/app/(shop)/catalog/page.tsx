@@ -38,6 +38,7 @@ export default async function CatalogPage() {
         products={products}
         categories={categories}
         template={cfg.product_card_template}
+        showVideos={cfg.card_video_enabled}
       />
     </div>
   );

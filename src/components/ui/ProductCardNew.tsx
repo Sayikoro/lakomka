@@ -22,6 +22,11 @@ import type { Product, ProductMedia } from "@/lib/types";
 interface Props {
   product: Product;
   className?: string;
+  /** Показывать видео-слайды в карточке. Выключается галочкой в админке
+      (Настройки → «Показывать видео в карточках каталога»): когда товаров
+      с видео много, страница каталога грузится тяжело — без флага карточки
+      показывают только фото. */
+  showVideos?: boolean;
 }
 
 function isLocalVideo(url: string): boolean {
@@ -81,7 +86,11 @@ function SlideVideo({
   );
 }
 
-export function ProductCardNew({ product, className = "" }: Props) {
+export function ProductCardNew({
+  product,
+  className = "",
+  showVideos = true,
+}: Props) {
   const add = useCart((s) => s.add);
   const [added, setAdded] = useState(false);
 
@@ -95,8 +104,11 @@ export function ProductCardNew({ product, className = "" }: Props) {
   };
 
   const media: ProductMedia[] = useMemo(
-    () => [...product.media].sort((a, b) => a.sort_order - b.sort_order),
-    [product.media]
+    () =>
+      [...product.media]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .filter((m) => showVideos || m.type !== "video"),
+    [product.media, showVideos]
   );
 
   const posterUrl = useMemo(

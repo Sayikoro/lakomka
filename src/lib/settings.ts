@@ -27,6 +27,8 @@ export interface ShopFrontSettings {
   hero_slides: HeroSlide[];
   /** Шаблон карточки товара в каталоге: classic | new */
   product_card_template: "classic" | "new";
+  /** Показывать видео в карточке каталога (много видео = тяжёлая страница) */
+  card_video_enabled: boolean;
   /** Снегопад */
   snow: SnowSettings;
   /** Тексты страниц («Текст на страницах»): ключ из реестра → значение;
@@ -42,6 +44,7 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   hero_slider_enabled: false,
   hero_slides: [],
   product_card_template: "new",
+  card_video_enabled: true,
   snow: DEFAULT_SNOW_SETTINGS,
   texts: {},
 };
@@ -51,6 +54,7 @@ interface ApiPublicSettings {
   hero_slider_enabled?: boolean;
   hero_slides?: HeroSlide[];
   product_card_template?: string;
+  card_video_enabled?: boolean;
   snow?: Parameters<typeof parseSnowConfig>[0];
   texts?: Record<string, unknown>;
 }
@@ -84,6 +88,9 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
         ? d.hero_slides.filter((s) => s && typeof s.url === "string" && s.url)
         : [],
       product_card_template: template,
+      /* По умолчанию видео показываем (историческое поведение); false —
+         только когда владелец явно выключил галочку в админке */
+      card_video_enabled: d.card_video_enabled !== false,
       snow: parseSnowConfig(d.snow),
       texts: parseTexts(d.texts),
     };

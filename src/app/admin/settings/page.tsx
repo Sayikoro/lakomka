@@ -22,6 +22,8 @@ export interface AdminSettings {
   hero_slider_enabled: string;
   hero_slides: string;
   product_card_template: string;
+  /* видео в карточке каталога: "1" = показывать, "0" = скрыть */
+  card_video_enabled: string;
   /* снегопад */
   snow_enabled: string;
   snow_count: string;
@@ -51,6 +53,8 @@ const DEFAULTS: AdminSettings = {
      Если ключа ещё нет в БД, форма и первое сохранение дают «new»,
      а не отключают карусель дефолтом «classic» (регресс галереи). */
   product_card_template: "new",
+  /* видео в карточке показываем по умолчанию (историческое поведение) */
+  card_video_enabled: "1",
   snow_enabled: "0",
   snow_count: "110",
   snow_count_mobile: "60",

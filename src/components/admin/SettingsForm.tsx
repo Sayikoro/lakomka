@@ -161,6 +161,7 @@ export function SettingsForm({ initial }: Props) {
           hero_slider_enabled: form.hero_slider_enabled === "1" ? "1" : "0",
           hero_slides: JSON.stringify(slides.filter((s) => s.url)),
           product_card_template: form.product_card_template || "new",
+          card_video_enabled: form.card_video_enabled === "1" ? "1" : "0",
           snow_enabled: form.snow_enabled === "1" ? "1" : "0",
           snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
           snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),
@@ -497,6 +498,26 @@ export function SettingsForm({ initial }: Props) {
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             Новая карточка показывает всё медиа товара: фото и видео листаются свайпом, видео проигрывается прямо в карточке.
           </p>
+
+          {/* Видео в карточке каталога */}
+          <div className="mt-4 rounded-lg border border-[var(--color-border)] p-4">
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.card_video_enabled === "1"}
+                onChange={(e) =>
+                  setField("card_video_enabled", e.target.checked ? "1" : "0")
+                }
+                className="h-4 w-4 accent-[var(--color-primary)]"
+              />
+              <span className="text-sm font-medium text-[var(--color-heading)]">
+                Показывать видео в карточках каталога
+              </span>
+            </label>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Когда товаров с видео много, каталог грузится медленно. Выключите — в карточках останутся только фото, видео по-прежнему будет на странице товара.
+            </p>
+          </div>
         </div>
       </div>
 

@@ -21,6 +21,8 @@ class AdminSettingsController
         'hero_slider_enabled',
         'hero_slides',
         'product_card_template',
+        /* витрина: видео в карточке каталога (выключено = карточки легче) */
+        'card_video_enabled',
         /* медиа-галерея: папка поиска видео (пусто = искать везде) */
         'gallery_video_folder',
         /* витрина: снегопад */
@@ -39,6 +41,7 @@ class AdminSettingsController
         'hero_slider_enabled',
         'hero_slides',
         'product_card_template',
+        'card_video_enabled',
         'snow_enabled',
         'snow_count',
         'snow_count_mobile',
@@ -107,6 +110,10 @@ class AdminSettingsController
                 $out[$k] = (string)self::SNOW_DEFAULTS['size'];
             } elseif ($k === 'snow_color' && ($map[$k] ?? '') === '') {
                 $out[$k] = (string)self::SNOW_DEFAULTS['color'];
+            } elseif ($k === 'card_video_enabled' && ($map[$k] ?? '') === '') {
+                /* Ключа нет в БД (обновление со старой версии) — в админке
+                   честно показываем фактическое поведение витрины: видео включено */
+                $out[$k] = '1';
             } else {
                 $out[$k] = $map[$k] ?? '';
             }
@@ -119,7 +126,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -149,6 +156,11 @@ class AdminSettingsController
             $template = 'new';
         }
 
+        /* Видео в карточке каталога: по умолчанию показываем (историческое
+           поведение). Выключается галочкой в админке, когда товаров с видео
+           много и страница каталога грузится тяжело. */
+        $cardVideo = ($map['card_video_enabled'] ?? '1') === '0' ? false : true;
+
         /* Тексты страниц: ключи text_* отдаются без префикса */
         $texts = [];
         foreach ($map as $k => $v) {
@@ -162,6 +174,7 @@ class AdminSettingsController
             'hero_slider_enabled'   => ($map['hero_slider_enabled'] ?? '0') === '1',
             'hero_slides'           => $slides,
             'product_card_template' => $template,
+            'card_video_enabled'    => $cardVideo,
             'snow'                  => self::snowConfig($map),
             'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
@@ -182,7 +195,7 @@ class AdminSettingsController
            true/false, "true"/"false", "on"/"off", "да"/"нет" — иначе старый
            кэш браузера или другой клиент ловит 422 «…: 0 | 1» и настройки
            не сохраняются вовсе. null = ключ не менять. */
-        foreach (['hero_slider_enabled', 'snow_enabled'] as $bk) {
+        foreach (['hero_slider_enabled', 'snow_enabled', 'card_video_enabled'] as $bk) {
             if (!array_key_exists($bk, $data)) continue;
             $v = $data[$bk];
             if (is_bool($v)) {
@@ -217,6 +230,10 @@ class AdminSettingsController
         if (isset($data['snow_enabled'])
             && !in_array((string)$data['snow_enabled'], ['0', '1'], true)) {
             jsonResponse(['error' => 'snow_enabled: 0 | 1'], 422);
+        }
+        if (isset($data['card_video_enabled'])
+            && !in_array((string)$data['card_video_enabled'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'card_video_enabled: 0 | 1'], 422);
         }
         if (isset($data['snow_count']) && !preg_match('/^\d+$/', (string)$data['snow_count'])) {
             jsonResponse(['error' => 'snow_count: целое число 0–500'], 422);

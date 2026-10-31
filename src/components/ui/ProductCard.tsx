@@ -9,6 +9,9 @@ import type { Product } from "@/lib/types";
 
 interface Props {
   product: Product;
+  /** Показывать видео в карточке (галочка в админке «Настройки»).
+      Выключено — карточка не играет видео при наведении и без значка видео. */
+  showVideos?: boolean;
 }
 
 function isPlayableLocalVideo(url: string | null | undefined): boolean {
@@ -17,7 +20,7 @@ function isPlayableLocalVideo(url: string | null | undefined): boolean {
   return /\.(mp4|webm)(\?|$)/i.test(url);
 }
 
-export function ProductCard({ product }: Props) {
+export function ProductCard({ product, showVideos = true }: Props) {
   const add = useCart((s) => s.add);
   const [hover, setHover] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -37,7 +40,7 @@ export function ProductCard({ product }: Props) {
 
   const playableVideoUrl = firstLocalVideo?.url;
   const canPlay = isPlayableLocalVideo(playableVideoUrl);
-  const showVideo = hover && canPlay && !videoError;
+  const showVideo = showVideos && hover && canPlay && !videoError;
 
   return (
     <div
@@ -86,7 +89,7 @@ export function ProductCard({ product }: Props) {
           </span>
         )}
 
-        {hasAnyVideo && !showVideo && (
+        {showVideos && hasAnyVideo && !showVideo && (
           <span
             aria-hidden
             className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white shadow-md"

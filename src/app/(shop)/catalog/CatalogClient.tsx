@@ -17,6 +17,9 @@ interface Props {
   categories: Category[];
   /** Шаблон карточки: classic (светлая) | new (тёмная со свайпом) — задаётся в админке */
   template?: "classic" | "new";
+  /** Показывать видео в карточках каталога (галочка в админке «Настройки»).
+      Запекается при сборке, после монтирования обновляется с /api/settings/public. */
+  showVideos?: boolean;
 }
 
 /** Фолбэк-миниатюры для категорий без товаров */
@@ -54,7 +57,12 @@ function buildPageList(current: number, total: number): (number | "dots")[] {
   return out;
 }
 
-export function CatalogClient({ products, categories, template = "classic" }: Props) {
+export function CatalogClient({
+  products,
+  categories,
+  template = "classic",
+  showVideos = true,
+}: Props) {
   const t = useT();
   const [category, setCategory] = useState<string>("all"); // slug категории | "all"
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]); // индексы ступеней, пересчитываются от данных
@@ -72,6 +80,9 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
      product_card_template с /api/settings/public (no-store) — карточки
      переключаются на новый шаблон по F5, без пересборки. */
   const [cardTemplate, setCardTemplate] = useState<"classic" | "new">(template);
+  /* Видео в карточках: начальное значение запечено при сборке, после
+     монтирования сверяем с /api/settings/public — как и шаблон карточки */
+  const [cardVideo, setCardVideo] = useState(showVideos);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/settings/public", { cache: "no-store" })
@@ -82,6 +93,8 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
         if ((t === "classic" || t === "new") && t !== cardTemplate) {
           setCardTemplate(t);
         }
+        const v = json?.data?.card_video_enabled;
+        if (typeof v === "boolean") setCardVideo(v);
       })
       .catch(() => {});
     return () => {
@@ -497,9 +510,9 @@ export function CatalogClient({ products, categories, template = "classic" }: Pr
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
             {pageItems.map((p) =>
               cardTemplate === "new" ? (
-                <ProductCardNew key={p.id} product={p} />
+                <ProductCardNew key={p.id} product={p} showVideos={cardVideo} />
               ) : (
-                <ProductCard key={p.id} product={p} />
+                <ProductCard key={p.id} product={p} showVideos={cardVideo} />
               )
             )}
           </div>
