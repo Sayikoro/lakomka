@@ -4,7 +4,7 @@
    (урок Task 51: applyImport вызывается с $uploadsRoot песочницы). */
 
 error_reporting(E_ALL & ~E_DEPRECATED);
-$ROOT = '/home/z/my-project';
+$ROOT = dirname(__DIR__);
 require_once $ROOT . '/backend/src/Controllers/AdminProductsImportExportController.php';
 
 $SB = '/tmp/t85';

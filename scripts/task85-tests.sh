@@ -4,8 +4,8 @@
 # только если файла нет нигде. Уровень 1 — sandbox (applyImport напрямую),
 # уровень 2 — e2e через HTTP (чанковая загрузка ZIP → import-zip).
 set -u
-cd /home/z/my-project
-PHP=/home/z/my-project/.ztools/php
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PHP="$(command -v php || true)"; [ -z "$PHP" ] && [ -x "$(pwd)/.ztools/php" ] && PHP="$(pwd)/.ztools/php"; [ -z "$PHP" ] && [ -x "$(pwd)/../.ztools/php" ] && PHP="$(pwd)/../.ztools/php"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  OK  $1"; }
 bad()  { FAIL=$((FAIL+1)); echo "FAIL  $1"; }

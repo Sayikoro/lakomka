@@ -498,6 +498,17 @@ class AdminFilesController
             jsonResponse(['error' => 'Сжимать можно только файлы из /uploads/'], 422);
         }
 
+        /* Нормализация унаследованных битых ссылок (Task 89): «/uploads//файл.mov»
+           (источник ошибки «…/uploads//KAM_v012.mov: No such file or directory»)
+           чистится сразу — дальше $url идёт в locateUploaded и в ответ админке.
+           ОРИГИНАЛ из запроса сохраняется в $rawUrl: он нужен retargetRefs,
+           чтобы переписать и унаследованные битые записи в базе («//»), и чистые.
+           Кириллица/пробелы в путях тут ни при чём: они легальны и проходят
+           без изменений. */
+        $rawUrl = $url;
+        $rel = ltrim($rel, '/');
+        $url = '/uploads/' . $rel;
+
         $uploadsRoot = realpath(Paths::uploadsRoot());
         $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
         $locatedUrl = $url; // URL, под которым файл реально лежит (для переписывания ссылок)
@@ -517,7 +528,7 @@ class AdminFilesController
                 && strcasecmp(pathinfo($url, PATHINFO_EXTENSION), 'mp4') !== 0) {
                 /* Просили mov, а на диске уже лежит mp4 с тем же именем —
                     видео было перекодировано ранее, осталось обновить ссылки. */
-                $refs = self::retargetRefs($pdo, $url, $found['url']);
+                $refs = self::retargetRefs($pdo, $rawUrl, $found['url']);
                 $size = @filesize($found['abs']) ?: 0;
                 jsonResponse(['data' => [
                     'ok'           => true,
@@ -557,7 +568,7 @@ class AdminFilesController
         // Переписываем привязки, чтобы видео осталось у тех же товаров
         // (WHERE — по URL из запроса: именно он записан в базе, даже если
         // файл на диске нашёлся в другой папке и ссылка в базе устарела)
-        $refs = self::retargetRefs($pdo, $url, $newUrl);
+        $refs = self::retargetRefs($pdo, $rawUrl, $newUrl);
 
         jsonResponse(['data' => [
             'ok'           => true,
@@ -571,17 +582,23 @@ class AdminFilesController
     }
 
     /** Переписать ссылки на файл у товаров (product_images + products.video_url).
-        Возвращает число обновлённых строк. */
+        Возвращает число обновлённых строк. Битый вариант с «//» (унаследованный
+        из старых версий) тоже переписывается — иначе после сжатия он бы остался
+        в базе и продолжал бы рождать ошибку «файл не найден» (Task 89). */
     private static function retargetRefs(PDO $pdo, string $fromUrl, string $toUrl): int
     {
         $refs = 0;
-        $upd = $pdo->prepare('UPDATE product_images SET url = ? WHERE url = ?');
-        $upd->execute([$toUrl, $fromUrl]);
+        $norm = preg_replace('#/+#', '/', $fromUrl) ?? $fromUrl;
+        $variants = $norm === $fromUrl ? [$fromUrl] : [$fromUrl, $norm];
+        $in = implode(',', array_fill(0, count($variants), '?'));
+
+        $upd = $pdo->prepare("UPDATE product_images SET url = ? WHERE url IN ($in)");
+        $upd->execute([$toUrl, ...$variants]);
         $refs += $upd->rowCount();
 
         try {
-            $upd2 = $pdo->prepare('UPDATE products SET video_url = ? WHERE video_url = ?');
-            $upd2->execute([$toUrl, $fromUrl]);
+            $upd2 = $pdo->prepare("UPDATE products SET video_url = ? WHERE video_url IN ($in)");
+            $upd2->execute([$toUrl, ...$variants]);
             $refs += $upd2->rowCount();
         } catch (PDOException) {
             // старая схема без products.video_url — пропускаем

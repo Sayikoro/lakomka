@@ -248,6 +248,14 @@ class AdminImagesController
             jsonResponse(['error' => 'Допустимы только файлы из /uploads/'], 422);
         }
 
+        /* Нормализация унаследованных битых ссылок (Task 89): «/uploads//клип.mov»
+           или «/uploads/media//папка/файл.jpg» чистятся до записи в базу.
+           realpath ниже нашёл бы файл и с «//» (системные вызовы сжимают слеши),
+           но битая ссылка закрепилась бы в product_images ещё раз. Кириллица и
+           пробелы тут не при чём: они в путях легальны и проходят как есть. */
+        $rel = ltrim($rel, '/');
+        $url = '/uploads/' . $rel;
+
         $uploadsRoot = realpath(Paths::uploadsRoot());
         $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
         if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
