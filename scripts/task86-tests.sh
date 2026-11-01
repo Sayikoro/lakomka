@@ -8,7 +8,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PHP="$(command -v php || true)"
 [ -z "$PHP" ] && [ -x "$ROOT/.ztools/php" ] && PHP="$ROOT/.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/.ztools/bin" ] && PHP="$ROOT/.ztools/bin"
 [ -z "$PHP" ] && [ -x "$ROOT/../.ztools/php" ] && PHP="$ROOT/../.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/../.ztools/bin" ] && PHP="$ROOT/../.ztools/bin"
 [ -n "$PHP" ] || { echo "php не найден"; exit 1; }
 PORT=8011
 BASE="http://127.0.0.1:$PORT/api"
@@ -95,7 +97,8 @@ echo "  ответ: $ERR"
 case "$ERR" in *"ffmpeg:"*) ok "причина от ffmpeg показана админу";; *) bad "без причины: $ERR";; esac
 
 echo "── 5. Уборка ──"
-curl -s -X DELETE "$BASE/admin/products/$PID" -H "$AUTH" > /dev/null
+curl -s -X DELETE "$BASE/admin/products/$PID" -H "$AUTH" > /dev/null # мягкое удаление → корзина
+curl -s -X DELETE "$BASE/admin/products/$PID?force=1" -H "$AUTH" > /dev/null
 LEFT=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite"); echo $pdo->query("SELECT COUNT(*) FROM product_images WHERE url LIKE \"%media-test-86%\"")->fetchColumn();')
 check "$LEFT" "0" "тестовых привязок не осталось"
 rm -rf public/uploads/media-test-86

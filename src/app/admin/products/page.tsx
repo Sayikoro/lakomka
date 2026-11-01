@@ -23,6 +23,10 @@ export interface AdminProduct {
   recipe_weight_g: number | null;
   /** URL первой картинки — иконка категории в фильтре-плитках (Task 90) */
   thumb?: string | null;
+  /** Медиа-счётчики и корзина (Task 97-106) */
+  imgs?: number;
+  vids?: number;
+  deleted_at?: string | null;
 }
 
 export default function AdminProductsPage() {
@@ -84,7 +88,7 @@ export default function AdminProductsPage() {
       ) : (
         <>
           <ProductsImportExport />
-          <ProductsTable initialProducts={products} />
+          <ProductsTable initialProducts={products ?? []} reload={load} />
         </>
       )}
     </div>

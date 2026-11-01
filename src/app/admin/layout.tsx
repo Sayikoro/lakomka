@@ -16,6 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/admin/LogoutButton";
 import { DownloadsProvider } from "@/components/admin/downloads/Downloads";
+import { NewOrdersBadge, UpdateBadge } from "@/components/admin/AdminIndicators";
 
 type Role = "super_admin" | "editor" | "viewer";
 
@@ -95,9 +96,10 @@ export default function AdminLayout({
           <nav className="flex items-center gap-6 text-sm">
             <Link
               href="/admin/orders"
-              className="font-medium text-[var(--color-heading)] hover:text-[var(--color-primary)]"
+              className="flex items-center font-medium text-[var(--color-heading)] hover:text-[var(--color-primary)]"
             >
               Заказы
+              <NewOrdersBadge onOrdersPage={pathname.startsWith("/admin/orders")} />
             </Link>
             <Link
               href="/admin/products"
@@ -147,6 +149,7 @@ export default function AdminLayout({
             )}
           </nav>
           <div className="flex items-center gap-4 text-sm">
+            <UpdateBadge isSuperAdmin={user?.role === "super_admin"} />
             {user && (
               <span className="text-[var(--color-muted)]">
                 {user.email}

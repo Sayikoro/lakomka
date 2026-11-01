@@ -8,7 +8,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PHP="$(command -v php || true)"
 [ -z "$PHP" ] && [ -x "$ROOT/.ztools/php" ] && PHP="$ROOT/.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/.ztools/bin" ] && PHP="$ROOT/.ztools/bin"
 [ -z "$PHP" ] && [ -x "$ROOT/../.ztools/php" ] && PHP="$ROOT/../.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/../.ztools/bin" ] && PHP="$ROOT/../.ztools/bin"
 [ -n "$PHP" ] || { echo "php не найден"; exit 1; }
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); echo "  OK  $1"; }
@@ -83,7 +85,8 @@ C4=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8010/api/ad
 check "$C4" "401" "без токена — 401"
 
 echo "── 5. Уборка ──"
-curl -s -X DELETE "http://127.0.0.1:8010/api/admin/products/$PID" -H "$AUTH" > /dev/null
+curl -s -X DELETE "http://127.0.0.1:8010/api/admin/products/$PID" -H "$AUTH" > /dev/null # мягкое удаление → корзина
+curl -s -X DELETE "http://127.0.0.1:8010/api/admin/products/$PID?force=1" -H "$AUTH" > /dev/null
 LEFT=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite"); echo $pdo->query("SELECT COUNT(*) FROM product_images WHERE url LIKE \"%media-test%\"")->fetchColumn();')
 check "$LEFT" "0" "тестовых привязок не осталось"
 rm -rf public/uploads/media-test

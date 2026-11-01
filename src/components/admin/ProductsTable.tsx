@@ -4,10 +4,17 @@
  * плитки категорий с иконками, двойные ползунки цены и веса (общий
  * DualSlider из ui/DualSlider), сортировка «название/цена» и сброс.
  * Админ-специфичные фильтры сохранены: поиск по названию/SKU и статусный
- * select (в каталоге / скрытые / тип товара). Все фильтры клиентские —
- * список приходит целиком с /api/admin/products. */
+ * select (в каталоге / скрытые / тип товара / корзина). Все фильтры
+ * клиентские — список приходит целиком с /api/admin/products.
+ *
+ * Task 97-106 добавили:
+ *  - дублирование товара в один клик (черновик с теми же картинками);
+ *  - массовые операции: чекбоксы → статус/категория/цена ±%/удаление;
+ *  - мягкое удаление с «Отменить» вместо подтверждающих окон
+ *    (удалённое живёт в «Корзине», восстановление в один клик);
+ *  - метки медиа в строке: «нет фото» и «видео: N». */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DualSlider, SORT_OPTIONS, priceLabel, weightLabel } from "@/components/ui/DualSlider";
 import type { SortKey } from "@/components/ui/DualSlider";
@@ -23,9 +30,11 @@ interface AdminCategory {
 
 interface Props {
   initialProducts: AdminProduct[];
+  /** Перезагрузить список с сервера (после bulk/дублирования/восстановления) */
+  reload?: () => void | Promise<void>;
 }
 
-type Filter = "all" | "catalog" | "hidden" | "bundles" | "simple" | "recipe";
+type Filter = "all" | "catalog" | "hidden" | "bundles" | "simple" | "recipe" | "deleted";
 
 const TYPE_LABEL: Record<string, string> = {
   simple: "Товар",
@@ -44,7 +53,7 @@ const CATEGORY_ICONS: Record<string, string> = Object.fromEntries(
   mockCategories.map((c) => [c.slug, c.imageUrl])
 );
 
-export function ProductsTable({ initialProducts }: Props) {
+export function ProductsTable({ initialProducts, reload }: Props) {
   const [products, setProducts] = useState(initialProducts);
   // router.refresh() приносит новые props — синхронизируем state, иначе таблица
   // навсегда показывает snapshot на момент монтирования (после импорта список
@@ -58,6 +67,18 @@ export function ProductsTable({ initialProducts }: Props) {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
+  /* ── Task 97-106: выбор, bulk, дублирование, undo-удаление ── */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
+  const [bulkPricePercent, setBulkPricePercent] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  /* Тост «удалено — отменить»: мягкое удаление без подтверждающих окон */
+  const [undo, setUndo] = useState<{ ids: number[]; label: string; timer: number } | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
   /* ── Фильтры каталога (Task 90) ── */
   const [categories, setCategories] = useState<AdminCategory[] | null>(null);
   const [category, setCategory] = useState<string>("all"); // slug | "all"
@@ -68,8 +89,6 @@ export function ProductsTable({ initialProducts }: Props) {
   const [priceTouched, setPriceTouched] = useState(false);
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]);
   const [weightTouched, setWeightTouched] = useState(false);
-
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +104,55 @@ export function ProductsTable({ initialProducts }: Props) {
       cancelled = true;
     };
   }, [apiUrl]);
+  /* Корзина: отдельный список (сервер отдаёт только удалённые) */
+  const [deletedList, setDeletedList] = useState<AdminProduct[] | null>(null);
+
+  const showUndoToast = (ids: number[], label: string) => {
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+    const timer = window.setTimeout(() => setUndo(null), 10000);
+    undoTimerRef.current = timer;
+    setUndo({ ids, label, timer });
+  };
+
+  useEffect(() => {
+    if (filter !== "deleted" || deletedList !== null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/admin/products?filter=deleted`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setDeletedList((json.data as AdminProduct[]) ?? []);
+      } catch {
+        /* пусто */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
+
+  const restoreProducts = async (ids: number[]) => {
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`${apiUrl}/admin/products/${id}/restore`, {
+            method: "POST",
+            credentials: "include",
+          })
+        )
+      );
+      setUndo(null);
+      setSelected(new Set());
+      setDeletedList(null); // перечитаем корзину при следующем открытии
+      await reload?.();
+    } catch {
+      setError("Не удалось восстановить");
+    }
+  };
 
   // Ступени веса из списка товаров (по возрастанию) — как в каталоге
   const weightSteps = useMemo(() => {
@@ -149,12 +217,23 @@ export function ProductsTable({ initialProducts }: Props) {
     priceTouched && priceBounds.max > 0 &&
     (effPrice[0] > priceBounds.min || effPrice[1] < priceBounds.max);
 
+  // База для таблицы: живые товары или список корзины (Task 100)
+  const base = useMemo(
+    () => (filter === "deleted" ? (deletedList ?? []) : products),
+    [filter, deletedList, products]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const cat = categoryOptions.find((c) => c.slug === category);
     const wLo = weightSteps[effWeight[0]];
     const wHi = weightSteps[effWeight[1]];
-    return products.filter((p) => {
+    return base.filter((p) => {
+      /* В корзине — просто плоский список с поиском */
+      if (filter === "deleted") {
+        if (!q) return true;
+        return `${p.name} ${p.sku ?? ""}`.toLowerCase().includes(q);
+      }
       if (filter === "catalog" && !(p.show_in_catalog === 1 && p.is_published === 1 && p.type !== "recipe")) return false;
       if (filter === "hidden" && !(p.show_in_catalog === 0 || p.is_published === 0)) return false;
       if (filter === "bundles" && p.type !== "bundle") return false;
@@ -172,7 +251,7 @@ export function ProductsTable({ initialProducts }: Props) {
       }
       return true;
     });
-  }, [products, search, filter, categoryOptions, category, weightSteps, effWeight, weightActive, effPrice, priceActive]);
+  }, [base, search, filter, categoryOptions, category, weightSteps, effWeight, weightActive, effPrice, priceActive]);
 
   // Сортировка отфильтрованного списка — те же варианты, что в каталоге
   const sorted = useMemo(() => {
@@ -236,7 +315,8 @@ export function ProductsTable({ initialProducts }: Props) {
   }
 
   async function destroy(id: number, name: string) {
-    if (!confirm(`Удалить «${name}»? Это действие необратимо.`)) return;
+    /* Task 100: мягкое удаление без подтверждающего окна — товар падает
+       в «Корзину», 10 секунд можно «Отменить» прямо в тосте. */
     setDeletingId(id);
     setError(null);
     try {
@@ -250,10 +330,72 @@ export function ProductsTable({ initialProducts }: Props) {
         return;
       }
       setProducts((list) => list.filter((p) => p.id !== id));
+      setDeletedList(null);
+      showUndoToast([id], `«${name}» перемещён в корзину`);
     } catch {
       setError("Ошибка сети");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  /* ── Task 98: дублирование товара ── */
+  async function duplicate(p: AdminProduct) {
+    setDuplicatingId(p.id);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/products/${p.id}/duplicate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось дублировать");
+        return;
+      }
+      await reload?.();
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
+
+  /* ── Task 99: массовые операции ── */
+  async function bulkAction(action: "status" | "category" | "price_percent" | "delete", value: unknown) {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/products/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: [...selected], action, value }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Массовая операция не удалась");
+        return;
+      }
+      const d = json.data as { updated: number; skipped: number; skipped_names?: string[] };
+      if (action === "delete") {
+        const deletedIds = [...selected];
+        setProducts((list) => list.filter((p) => !selected.has(p.id)));
+        setDeletedList(null);
+        setSelected(new Set());
+        showUndoToast(
+          deletedIds,
+          `Удалено: ${d.updated}` + (d.skipped ? ` · пропущены: ${d.skipped}` : "")
+        );
+      } else {
+        setSelected(new Set());
+        await reload?.();
+      }
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -269,7 +411,10 @@ export function ProductsTable({ initialProducts }: Props) {
         />
         <select
           value={filter}
-          onChange={(e) => setFilter(e.target.value as Filter)}
+          onChange={(e) => {
+            setFilter(e.target.value as Filter);
+            setSelected(new Set());
+          }}
           className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
         >
           <option value="all">Все</option>
@@ -278,6 +423,7 @@ export function ProductsTable({ initialProducts }: Props) {
           <option value="simple">Только товары</option>
           <option value="bundles">Только наборы</option>
           <option value="recipe">Только конфеты</option>
+          <option value="deleted">Корзина</option>
         </select>
         <span className="text-sm text-[var(--color-muted)]">
           Найдено: {filtered.length}
@@ -406,10 +552,117 @@ export function ProductsTable({ initialProducts }: Props) {
         </div>
       )}
 
+      {/* ── Панель массовых операций (Task 99) ── */}
+      {filter !== "deleted" && selected.size > 0 && (
+        <div
+          data-testid="bulk-bar"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--color-primary)] bg-white p-3 text-sm shadow-sm"
+        >
+          <span className="font-medium text-[var(--color-heading)]">
+            Выбрано: {selected.size}
+          </span>
+          <span className="mx-1 h-5 w-px bg-[var(--color-border)]" />
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulkAction("status", { is_published: 1 })}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            Опубликовать
+          </button>
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulkAction("status", { is_published: 0 })}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            Скрыть
+          </button>
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulkAction("status", { show_in_catalog: 1 })}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            В каталог
+          </button>
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulkAction("status", { show_in_catalog: 0 })}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            Из каталога
+          </button>
+          <span className="mx-1 h-5 w-px bg-[var(--color-border)]" />
+          <select
+            value={bulkCategoryId}
+            onChange={(e) => setBulkCategoryId(e.target.value)}
+            className="rounded-lg border border-[var(--color-border)] px-2 py-1.5"
+            aria-label="Категория для массовой смены"
+          >
+            <option value="">Категория…</option>
+            {(categories ?? []).map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.name}</option>
+            ))}
+          </select>
+          <button
+            disabled={bulkBusy || bulkCategoryId === ""}
+            onClick={() => bulkAction("category", bulkCategoryId)}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            Применить категорию
+          </button>
+          <span className="mx-1 h-5 w-px bg-[var(--color-border)]" />
+          <input
+            type="number"
+            value={bulkPricePercent}
+            onChange={(e) => setBulkPricePercent(e.target.value)}
+            placeholder="±%"
+            aria-label="Процент изменения цены"
+            className="w-20 rounded-lg border border-[var(--color-border)] px-2 py-1.5"
+          />
+          <button
+            disabled={bulkBusy || bulkPricePercent === "" || Number(bulkPricePercent) === 0}
+            onClick={() => bulkAction("price_percent", Number(bulkPricePercent))}
+            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 hover:border-[var(--color-primary)] disabled:opacity-50"
+          >
+            Изменить цены
+          </button>
+          <span className="mx-1 h-5 w-px bg-[var(--color-border)]" />
+          <button
+            disabled={bulkBusy}
+            onClick={() => bulkAction("delete", null)}
+            className="rounded-lg border border-red-200 px-2.5 py-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            Удалить выбранные
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="ml-auto text-xs text-[var(--color-muted)] underline"
+          >
+            Снять выделение
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
+              {filter !== "deleted" && (
+                <th className="w-10 p-3 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Выбрать всё"
+                    checked={sorted.length > 0 && sorted.every((p) => selected.has(p.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelected(new Set(sorted.map((p) => p.id)));
+                      } else {
+                        setSelected(new Set());
+                      }
+                    }}
+                    className="accent-[var(--color-primary)]"
+                  />
+                </th>
+              )}
               <th className="p-3">Название</th>
               <th className="p-3">Тип</th>
               <th className="p-3 text-right">Цена</th>
@@ -422,18 +675,58 @@ export function ProductsTable({ initialProducts }: Props) {
           <tbody>
             {sorted.map((p) => {
               const isRecipe = p.type === "recipe";
+              const isDeletedRow = filter === "deleted";
               return (
                 <tr
                   key={p.id}
                   className={`border-b border-[var(--color-border)] last:border-none ${
-                    savingId === p.id || deletingId === p.id ? "opacity-50" : ""
-                  }`}
+                    savingId === p.id || deletingId === p.id || duplicatingId === p.id ? "opacity-50" : ""
+                  } ${isDeletedRow ? "bg-orange-50/50" : ""}`}
                 >
+                  {!isDeletedRow && (
+                    <td className="p-3 text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`Выбрать «${p.name}»`}
+                        checked={selected.has(p.id)}
+                        onChange={(e) => {
+                          const next = new Set(selected);
+                          if (e.target.checked) next.add(p.id);
+                          else next.delete(p.id);
+                          setSelected(next);
+                        }}
+                        className="accent-[var(--color-primary)]"
+                      />
+                    </td>
+                  )}
                   <td className="p-3">
                     <Link href={`/admin/products/edit?id=${p.id}`} className="hover:text-[var(--color-primary)]">
                       {p.name}
                     </Link>
                     {p.sku && <span className="ml-2 text-xs text-[var(--color-muted)]">{p.sku}</span>}
+                    {/* Метки медиа (Task 101): незаполненное фото и тяжёлые видео */}
+                    {(p.imgs ?? 0) === 0 && (
+                      <span
+                        data-testid="no-photo-badge"
+                        title="У товара нет ни одной картинки — карточка будет пустой"
+                        className="ml-2 inline-block rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                      >
+                        нет фото
+                      </span>
+                    )}
+                    {(p.vids ?? 0) > 0 && (
+                      <span
+                        title="В товаре есть видео — с выключенной галочкой «Показывать видео в карточках» каталог грузится быстрее"
+                        className="ml-1.5 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700"
+                      >
+                        видео: {p.vids}
+                      </span>
+                    )}
+                    {isDeletedRow && p.deleted_at && (
+                      <span className="ml-2 text-xs text-[var(--color-muted)]">
+                        удалён: {new Date(p.deleted_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
                   </td>
                   <td className="p-3">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_BADGE[p.type] ?? "bg-gray-100"}`}>
@@ -485,27 +778,91 @@ export function ProductsTable({ initialProducts }: Props) {
                     />
                   </td>
                   <td className="p-3 text-right whitespace-nowrap">
-                    <Link href={`/admin/products/edit?id=${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
-                      ред.
-                    </Link>
-                    <button onClick={() => destroy(p.id, p.name)} disabled={deletingId === p.id}
-                      className="text-xs text-[var(--color-muted)] hover:text-red-600">
-                      удалить
-                    </button>
+                    {isDeletedRow ? (
+                      <>
+                        <button
+                          onClick={() => restoreProducts([p.id])}
+                          className="mr-3 text-xs text-[var(--color-primary)] hover:underline"
+                        >
+                          восстановить
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!confirm(`Удалить «${p.name}» НАВСЕГДА? Вернуть будет нельзя.`)) return;
+                            (async () => {
+                              try {
+                                const res = await fetch(`${apiUrl}/admin/products/${p.id}?force=1`, {
+                                  method: "DELETE",
+                                  credentials: "include",
+                                });
+                                const json = await res.json();
+                                if (!res.ok) {
+                                  setError(json.error ?? "Не удалось удалить");
+                                  return;
+                                }
+                                setDeletedList((list) => (list ?? []).filter((x) => x.id !== p.id));
+                              } catch {
+                                setError("Ошибка сети");
+                              }
+                            })();
+                          }}
+                          className="text-xs text-[var(--color-muted)] hover:text-red-600"
+                        >
+                          удалить навсегда
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <Link href={`/admin/products/edit?id=${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
+                          ред.
+                        </Link>
+                        <button
+                          onClick={() => duplicate(p)}
+                          disabled={duplicatingId === p.id}
+                          title="Создать копию товара (черновик с теми же картинками и составом)"
+                          className="mr-3 text-xs text-[var(--color-muted)] hover:text-[var(--color-primary)]"
+                        >
+                          {duplicatingId === p.id ? "копируем…" : "копия"}
+                        </button>
+                        <button onClick={() => destroy(p.id, p.name)} disabled={deletingId === p.id}
+                          title="Переместить в корзину (можно отменить)"
+                          className="text-xs text-[var(--color-muted)] hover:text-red-600">
+                          удалить
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               );
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-10 text-center text-sm text-[var(--color-muted)]">
-                  Ничего не найдено — попробуйте изменить или сбросить фильтры.
+                <td colSpan={8} className="p-10 text-center text-sm text-[var(--color-muted)]">
+                  {filter === "deleted"
+                    ? "Корзина пуста."
+                    : "Ничего не найдено — попробуйте изменить или сбросить фильтры."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* ── Тост «удалено — отменить» (Task 100) ── */}
+      {undo && (
+        <div
+          data-testid="undo-toast"
+          className="fixed bottom-6 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#3a3a3a] px-5 py-2.5 text-sm text-white shadow-xl"
+        >
+          <span>{undo.label}</span>
+          <button
+            onClick={() => restoreProducts(undo.ids)}
+            className="font-semibold text-emerald-300 underline underline-offset-2 hover:text-emerald-200"
+          >
+            Отменить
+          </button>
+        </div>
+      )}
     </div>
   );
 }

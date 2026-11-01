@@ -8,7 +8,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PHP="$(command -v php || true)"
 [ -z "$PHP" ] && [ -x "$ROOT/.ztools/php" ] && PHP="$ROOT/.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/.ztools/bin" ] && PHP="$ROOT/.ztools/bin"
 [ -z "$PHP" ] && [ -x "$ROOT/../.ztools/php" ] && PHP="$ROOT/../.ztools/php"
+[ -z "$PHP" ] && [ -x "$ROOT/../.ztools/bin" ] && PHP="$ROOT/../.ztools/bin"
 [ -n "$PHP" ] || { echo "php не найден"; exit 1; }
 PORT=8012
 BASE="http://127.0.0.1:$PORT/api"
@@ -104,7 +106,8 @@ U=$(urls "$PID")
 has "$U" '/uploads/loc87/normal.mp4' "D3: ссылка обновлена"
 
 echo "── 6. Уборка ──"
-DEL=$(curl -s -X DELETE "$BASE/admin/products/$PID" -H "$AUTH")
+curl -s -X DELETE "$BASE/admin/products/$PID" -H "$AUTH" > /dev/null # мягкое удаление → корзина
+DEL=$(curl -s -X DELETE "$BASE/admin/products/$PID?force=1" -H "$AUTH")
 has "$DEL" '"ok":true' "товар удалён"
 LEFT=$("$PHP" -r '$pdo=new PDO("sqlite:backend/storage/database.sqlite");
   echo $pdo->query("SELECT COUNT(*) FROM product_images WHERE product_id IN (SELECT id FROM products WHERE name LIKE \"Тест 87%\")")->fetchColumn();')

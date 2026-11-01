@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../AdminLog.php';
 
 class AdminSettingsController
 {
@@ -182,7 +183,7 @@ class AdminSettingsController
 
     public static function update(PDO $pdo): void
     {
-        Auth::requireAuth();
+        $payload = Auth::requireAuth();
 
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
@@ -306,6 +307,12 @@ class AdminSettingsController
                 $value = trim($value);
             }
             $upd->execute([$k, $value]);
+        }
+
+        /* Журнал действий (Task 104): какие ключи менялись */
+        $changed = array_values(array_intersect(self::KEYS, array_keys($data)));
+        if ($changed !== []) {
+            AdminLog::add($pdo, AdminLog::actor($payload), 'settings.update', implode(', ', $changed));
         }
 
         jsonResponse(['data' => ['ok' => true]]);

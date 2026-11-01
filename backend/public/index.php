@@ -125,12 +125,14 @@ try {
 
     /* ========== PUBLIC ========== */
         if ($path === '/api/products' && $method === 'GET') {
-        // Каталог: только simple и bundle, recipe всегда скрыт
+        // Каталог: только simple и bundle, recipe всегда скрыт;
+        // удалённые (в корзине админки, deleted_at) не показываются (Task 100)
         $stmt = $pdo->prepare(
             "SELECT p.* FROM products p
              WHERE p.show_in_catalog = 1
                AND p.is_published = 1
                AND p.type IN ('simple', 'bundle')
+               AND p.deleted_at IS NULL
              ORDER BY p.id DESC"
         );
         $stmt->execute();
@@ -159,7 +161,7 @@ try {
 
     if (preg_match('#^/api/products/by-legacy/(.+)$#', $path, $m) && $method === 'GET') {
         $stmt = $pdo->prepare(
-            'SELECT slug FROM products WHERE legacy_slug = ? AND is_published = 1 LIMIT 1'
+            'SELECT slug FROM products WHERE legacy_slug = ? AND is_published = 1 AND deleted_at IS NULL LIMIT 1'
         );
         $stmt->execute([urldecode($m[1])]);
         $row = $stmt->fetch();
@@ -171,7 +173,7 @@ try {
         
     $stmt = $pdo->prepare(
     "SELECT * FROM products WHERE slug = ? AND is_published = 1
-       AND type IN ('simple', 'bundle')"
+       AND type IN ('simple', 'bundle') AND deleted_at IS NULL"
 );
 $stmt->execute([$m[1]]);
         $product = $stmt->fetch();
@@ -378,6 +380,20 @@ $stmt->execute([$m[1]]);
         Auth::requireEditor();
         AdminOrdersController::resendEmail($pdo, (int)$m[1]);
     }
+    /* Бейдж новых заказов в шапке админки (Task 97-106) */
+    if ($path === '/api/admin/orders/unread' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
+        AdminOrdersController::unread($pdo);
+    }
+    /* Журнал действий и бэкап БД (Task 104/105) */
+    if ($path === '/api/admin/log' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminMaintenanceController.php';
+        AdminMaintenanceController::log($pdo);
+    }
+    if ($path === '/api/admin/db-backup' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminMaintenanceController.php';
+        AdminMaintenanceController::dbBackup($pdo);
+    }
     if (preg_match('#^/api/admin/orders/(\d+)$#', $path, $m)) {
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         $id = (int)$m[1];
@@ -447,7 +463,24 @@ $stmt->execute([$m[1]]);
     }
     if ($path === '/api/admin/files/delete' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
-        AdminFilesController::delete();
+        AdminFilesController::delete($pdo);
+    }
+    /* Корзина файлов (Task 100) и неиспользуемые файлы (Task 103) */
+    if ($path === '/api/admin/files/trash' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::trashList();
+    }
+    if ($path === '/api/admin/files/restore' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::trashRestore($pdo);
+    }
+    if ($path === '/api/admin/files/unused' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::unused($pdo);
+    }
+    if ($path === '/api/admin/files/unused-purge' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::unusedPurge($pdo);
     }
     if ($path === '/api/admin/files/download' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
@@ -467,6 +500,20 @@ $stmt->execute([$m[1]]);
         Auth::requireEditor();
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
         AdminProductsController::create($pdo);
+    }
+    /* Массовые операции (Task 99) — до маршрута с (\d+) не обязательно:
+       «bulk» не матчится как число, но держим логический блок вместе */
+    if ($path === '/api/admin/products/bulk' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
+        AdminProductsController::bulk($pdo);
+    }
+    if (preg_match('#^/api/admin/products/(\d+)/duplicate$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
+        AdminProductsController::duplicate($pdo, (int)$m[1]);
+    }
+    if (preg_match('#^/api/admin/products/(\d+)/restore$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
+        AdminProductsController::restore($pdo, (int)$m[1]);
     }
     if (preg_match('#^/api/admin/products/(\d+)$#', $path, $m)) {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';

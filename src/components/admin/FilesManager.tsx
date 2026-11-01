@@ -58,6 +58,24 @@ interface FolderData {
   section?: string;
 }
 
+/* Корзина файлов (Task 100): позиция = перемещённый файл/папка */
+interface TrashItem {
+  id: string;
+  name: string;
+  orig: string;
+  is_dir: boolean;
+  size: number;
+  moved_at: string;
+}
+
+/* «Неиспользуемые» (Task 103): файл без привязок к товарам */
+interface UnusedItem {
+  path: string;
+  url: string;
+  size: number;
+  mtime: number;
+}
+
 type SortKey = "name" | "size" | "mtime";
 
 const SECTION_TITLES: Record<string, string> = {
@@ -217,6 +235,18 @@ export function FilesManager() {
   const [backStack, setBackStack] = useState<string[]>([]);
   const [fwdStack, setFwdStack] = useState<string[]>([]);
 
+  /* ── Корзина файлов и «Неиспользуемые» (Task 100/103) ── */
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashBusyId, setTrashBusyId] = useState<string | null>(null);
+  const [unusedOpen, setUnusedOpen] = useState(false);
+  const [unusedItems, setUnusedItems] = useState<UnusedItem[]>([]);
+  const [unusedTotal, setUnusedTotal] = useState(0);
+  const [unusedLoading, setUnusedLoading] = useState(false);
+  const [unusedSelected, setUnusedSelected] = useState<Set<string>>(new Set());
+  const [unusedBusy, setUnusedBusy] = useState(false);
+
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
   const [view, setView] = useState<"details" | "tiles">("details");
@@ -374,9 +404,12 @@ export function FilesManager() {
     }
   }
 
-  /* Точка входа «удалить»: либо сразу (флаг выключен), либо через модалку */
+  /* Точка входа «удалить»: либо сразу (флаг выключен), либо через модалку.
+     В media файл/папка падает в КОРЗИНУ (можно восстановить), если к нему
+     не привязан ни один товар (referenced === false). */
   function removeEntry(e: Entry) {
     if (!folder) return;
+    if (!canDelete(e)) return;
     if (!confirmDelete) {
       void deleteEntry(e);
       return;
@@ -384,6 +417,140 @@ export function FilesManager() {
     setDeleteDontAsk(false);
     setDeleteFor(e);
   }
+
+  /* Task 100/103: в media удаление доступно для НЕиспользуемых файлов
+     (referenced === false) — используемые по-прежнему защищены. */
+  const section = path.split("/")[0] ?? "";
+  const canDelete = (e: Entry): boolean =>
+    e.deletable || (section === "media" && e.referenced === false);
+
+  /* ── Загрузка корзины (Task 100) ── */
+  const loadTrash = async () => {
+    setTrashLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/trash`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setTrashItems((json.data?.items as TrashItem[]) ?? []);
+    } catch {
+      /* пусто */
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const restoreTrashItem = async (it: TrashItem) => {
+    setTrashBusyId(it.id);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: it.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось восстановить");
+        return;
+      }
+      setUploadNote({ ok: true, text: `Возвращено: ${json.data?.path ?? it.name}` });
+      await loadTrash();
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(path, { force: true });
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setTrashBusyId(null);
+    }
+  };
+
+  const purgeTrashItem = async (it: TrashItem) => {
+    if (!window.confirm(`Удалить «${it.name}» навсегда? Вернуть будет нельзя.`)) return;
+    setTrashBusyId(it.id);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ path: `media/.trash/${it.id}` }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error ?? "Не удалось удалить");
+        return;
+      }
+      await loadTrash();
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setTrashBusyId(null);
+    }
+  };
+
+  /* ── «Неиспользуемые файлы» (Task 103) ── */
+  const loadUnused = async () => {
+    setUnusedLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/unused`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setUnusedItems((json.data?.items as UnusedItem[]) ?? []);
+        setUnusedTotal(json.data?.total_size ?? 0);
+        setUnusedSelected(new Set());
+      }
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setUnusedLoading(false);
+    }
+  };
+
+  const purgeUnused = async () => {
+    if (unusedSelected.size === 0) return;
+    if (
+      !window.confirm(
+        `Удалить навсегда ${unusedSelected.size} файл(ов)?\nОни не привязаны к товарам, но вернуть их будет нельзя.`
+      )
+    )
+      return;
+    setUnusedBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/unused-purge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ paths: [...unusedSelected] }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось удалить");
+        return;
+      }
+      setUploadNote({
+        ok: true,
+        text: `Удалено неиспользуемых файлов: ${json.data?.deleted ?? 0}` +
+          (json.data?.skipped ? ` · пропущено: ${json.data.skipped}` : ""),
+      });
+      await loadUnused();
+      cacheRef.current.clear();
+      setTreeVersion((v) => v + 1);
+      await loadFolder(path, { force: true });
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setUnusedBusy(false);
+    }
+  };
 
   /* Task 94: оптимизация видео прямо в проводнике — тот же эндпоинт,
    *  что у кнопки «Сжать» в редакторе товара (файл заменяется на диске,
@@ -461,6 +628,13 @@ export function FilesManager() {
       cacheRef.current.clear();
       setTreeVersion((v) => v + 1);
       await loadFolder(folder.path, { force: true });
+      /* Task 100: media-удаление переносит файл в корзину — скажем об этом */
+      if (json.data?.trashed) {
+        setUploadNote({
+          ok: true,
+          text: `«${e.name}» перемещён в корзину — можно восстановить (кнопка «Корзина»).`,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сети");
     } finally {
@@ -670,10 +844,10 @@ export function FilesManager() {
         },
       });
     }
-    if (e.deletable) {
+    if (canDelete(e)) {
       items.push({
         key: "delete",
-        label: "Удалить",
+        label: section === "media" && !e.deletable ? "В корзину" : "Удалить",
         icon: ICONS.trash,
         danger: true,
         disabled: busy === full,
@@ -933,6 +1107,42 @@ export function FilesManager() {
               </svg>
               Создать папку
             </button>
+
+            {/* Task 100/103: корзина и «неиспользуемые» — только в медиа */}
+            {section === "media" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrashOpen(true);
+                    void loadTrash();
+                  }}
+                  title="Удалённые файлы: восстановить или удалить навсегда (храним 30 дней)"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4 7h16M9.5 7V4.8A.8.8 0 0 1 10.3 4h3.4a.8.8 0 0 1 .8.8V7M6.5 7l.8 12.2a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5L17.5 7" />
+                  </svg>
+                  Корзина
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnusedOpen(true);
+                    void loadUnused();
+                  }}
+                  title="Файлы, не привязанные ни к одному товару — можно удалить и освободить место"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5Z" />
+                    <path d="M14 4v5h5" />
+                    <path d="M8.5 13.5l2 2 4-4" />
+                  </svg>
+                  Неиспользуемые
+                </button>
+              </>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -1295,6 +1505,177 @@ export function FilesManager() {
       </div>
 
       {/* ── Модалка: создать папку ── */}
+      {/* ── Корзина удалённых файлов (Task 100) ── */}
+      {trashOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setTrashOpen(false)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
+              Корзина
+            </h3>
+            <p className="mb-4 text-xs text-[var(--color-muted)]">
+              Удалённые файлы и папки хранятся 30 дней, потом стираются автоматически.
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {trashLoading ? (
+                <p className="py-6 text-center text-sm text-[var(--color-muted)]">Загружаем…</p>
+              ) : trashItems.length === 0 ? (
+                <p className="py-6 text-center text-sm text-[var(--color-muted)]">
+                  Корзина пуста.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {trashItems.map((it) => (
+                    <li
+                      key={it.id}
+                      className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] p-2.5 text-sm"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-[var(--color-heading)]">
+                          {it.is_dir ? "📁 " : "📄 "}
+                          {it.name}
+                        </span>
+                        <span className="block truncate text-xs text-[var(--color-muted)]" title={`был: ${it.orig}`}>
+                          был: {it.orig} · {humanSize(it.size)} ·{" "}
+                          {new Date(it.moved_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={trashBusyId === it.id}
+                        onClick={() => void restoreTrashItem(it)}
+                        className="shrink-0 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs text-[var(--color-primary)] hover:border-[var(--color-primary)] disabled:opacity-50"
+                      >
+                        Восстановить
+                      </button>
+                      <button
+                        type="button"
+                        disabled={trashBusyId === it.id}
+                        onClick={() => void purgeTrashItem(it)}
+                        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Стереть
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTrashOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Неиспользуемые файлы (Task 103) ── */}
+      {unusedOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={() => setUnusedOpen(false)}
+            className="absolute inset-0 bg-black/30"
+          />
+          <div className="relative flex max-h-[80vh] w-full max-w-xl flex-col rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
+              Неиспользуемые файлы
+            </h3>
+            <p className="mb-4 text-xs text-[var(--color-muted)]">
+              Не привязаны ни к одному товару. Суммарно: {humanSize(unusedTotal)}.
+              Удаление — навсегда; файл, привязавшийся в последний момент, не тронем.
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {unusedLoading ? (
+                <p className="py-6 text-center text-sm text-[var(--color-muted)]">
+                  Ищем свободные файлы…
+                </p>
+              ) : unusedItems.length === 0 ? (
+                <p className="py-6 text-center text-sm text-[var(--color-muted)]">
+                  Всё чисто — неиспользуемых файлов нет.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {unusedItems.map((f) => (
+                    <li
+                      key={f.path}
+                      className="flex items-center gap-2.5 rounded-lg border border-[var(--color-border)] px-2.5 py-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={unusedSelected.has(f.path)}
+                        onChange={(e) => {
+                          const next = new Set(unusedSelected);
+                          if (e.target.checked) next.add(f.path);
+                          else next.delete(f.path);
+                          setUnusedSelected(next);
+                        }}
+                        className="accent-[var(--color-primary)]"
+                        aria-label={`Выбрать ${f.path}`}
+                      />
+                      <span className="min-w-0 flex-1 truncate" title={f.path}>
+                        {f.path}
+                      </span>
+                      <span className="shrink-0 text-xs text-[var(--color-muted)]">
+                        {humanSize(f.size)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                disabled={unusedItems.length === 0 || unusedBusy}
+                onClick={() =>
+                  setUnusedSelected(
+                    unusedSelected.size === unusedItems.length
+                      ? new Set()
+                      : new Set(unusedItems.map((f) => f.path))
+                  )
+                }
+                className="text-xs text-[var(--color-muted)] underline disabled:opacity-40"
+              >
+                {unusedSelected.size === unusedItems.length && unusedItems.length > 0
+                  ? "Снять все"
+                  : "Выбрать все"}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUnusedOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+                >
+                  Закрыть
+                </button>
+                <button
+                  type="button"
+                  disabled={unusedSelected.size === 0 || unusedBusy}
+                  onClick={() => void purgeUnused()}
+                  className="rounded-[var(--radius-btn)] bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+                >
+                  {unusedBusy
+                    ? "Удаляем…"
+                    : `Удалить выбранные (${unusedSelected.size})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {mkdirOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <button

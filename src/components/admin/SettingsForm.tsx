@@ -19,6 +19,8 @@ export function SettingsForm({ initial }: Props) {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
   /* ── Витрина: слайды hero ── */
   const [slides, setSlides] = useState<{ url: string }[]>(() => {
     try {
@@ -748,6 +750,29 @@ export function SettingsForm({ initial }: Props) {
           </ul>
         </div>
       </aside>
+
+      {/* ── Обслуживание: бэкап базы (Task 105) ── */}
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6 lg:col-span-2">
+        <h2 className="text-lg font-semibold text-[var(--color-heading)]">
+          Обслуживание
+        </h2>
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          Снимок базы делается консистентным (живой сайт не останавливается) и
+          одновременно остаётся в хранилище на сервере — последние 10 копий.
+          Скачивайте перед рискованными экспериментами или просто на всякий случай.
+        </p>
+        <a
+          href={`${apiUrl}/admin/db-backup`}
+          data-testid="db-backup-btn"
+          className="mt-3 inline-flex items-center gap-2 rounded-[var(--radius-btn)] border border-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)] hover:text-white"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 4v10M7.5 10.5 12 15l4.5-4.5" />
+            <path d="M4 19h16" />
+          </svg>
+          Скачать бэкап базы данных
+        </a>
+      </div>
     </form>
   );
 }

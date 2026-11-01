@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../ChunkedUpload.php';
 require_once __DIR__ . '/../Paths.php';
 require_once __DIR__ . '/../MediaOptimizer.php';
+require_once __DIR__ . '/../AdminLog.php';
 
 class AdminFilesController
 {
@@ -178,6 +179,8 @@ class AdminFilesController
 
         foreach (scandir($abs, SCANDIR_SORT_ASCENDING) ?: [] as $name) {
             if ($name === '.' || $name === '..') continue;
+            /* Корзина удалённых файлов не видна в общем списке (Task 100) */
+            if ($key === 'media' && $rel === '' && $name === '.trash') continue;
             $full = $abs . '/' . $name;
             /* публичный URL записи (для media — «/uploads/…» без ключа раздела:
              * именно в таком виде пути лежат в product_images/products.video_url) */
@@ -465,7 +468,7 @@ class AdminFilesController
        переименование используемого файла сломало бы ссылки (Task 93). */
     public static function rename(PDO $pdo): void
     {
-        Auth::requireEditor();
+        $payload = Auth::requireEditor();
 
         $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
         $path = (string)($data['path'] ?? '');
@@ -502,6 +505,7 @@ class AdminFilesController
         }
 
         $newRel = ltrim(substr($dest, strlen($root)), '/');
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.rename', "{$key}/{$rel} → {$safe}");
         jsonResponse(['data' => [
             'ok'   => true,
             'name' => $safe,
@@ -511,27 +515,300 @@ class AdminFilesController
 
     /* ── УДАЛЕНИЕ (файл или папка рекурсивно) ── */
 
-    public static function delete(): void
+    /* ── УДАЛЕНИЕ С КОРЗИНОЙ (Task 100) ──
+       В разделе media удаление НЕ стирает файл, а перемещает его в
+       /uploads/.trash/<id>/ (рядом meta.json с исходным путём) — можно
+       восстановить или удалить навсегда из «Корзины». В остальных
+       разделах (экспорт/импорт/бэкапы — одноразовые) удаление обычное.
+       Путь вида media/.trash/… — полное удаление из корзины. */
+    public static function delete(PDO $pdo = null): void
     {
-        Auth::requireEditor();
+        $payload = Auth::requireEditor();
+        $pdo = $pdo ?? Database::get();
 
         $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
         $path = (string)($data['path'] ?? '');
 
         [$cfg, $key, $root, $abs, $rel] = self::resolve($path);
 
-        if (!$cfg['deletable']) jsonResponse(['error' => 'Этот раздел только для просмотра'], 403);
         if ($rel === '') jsonResponse(['error' => 'Нельзя удалить сам раздел'], 400);
 
-        if (is_dir($abs)) {
-            self::rrmdir($abs);
-        } elseif (is_file($abs)) {
-            @unlink($abs);
-        } else {
+        /* Корзина media: разрешаем полное удаление из /uploads/.trash */
+        if ($key === 'media' && str_starts_with($rel, '.trash/')) {
+            if (!is_dir($abs) && !is_file($abs)) jsonResponse(['error' => 'Не найдено'], 404);
+            is_dir($abs) ? self::rrmdir($abs) : @unlink($abs);
+            @unlink(dirname($abs) . '/meta.json');
+            AdminLog::add($pdo, AdminLog::actor($payload), 'files.trash-purge', $rel);
+            jsonResponse(['data' => ['ok' => true, 'purged' => true]]);
+        }
+
+        if (!$cfg['deletable'] && $key !== 'media') {
+            jsonResponse(['error' => 'Этот раздел только для просмотра'], 403);
+        }
+
+        if (!is_dir($abs) && !is_file($abs)) {
             jsonResponse(['error' => 'Не найдено'], 404);
         }
 
+        if ($key === 'media') {
+            /* Используемый товаром файл/папку в корзину нельзя — сломает
+               карточки (та же защита, что у переименования, Task 93/100). */
+            $pubUrl = rtrim((string)($cfg['public'] ?? ''), '/') . '/' . $rel;
+            if (self::isUsedByProducts(self::usedUrls($pdo), $pubUrl, is_dir($abs))) {
+                jsonResponse(['error' => 'Файл используется в товарах — сначала отвяжите его от товаров.'], 403);
+            }
+            $itemId = self::trashMove($root, $abs, $rel);
+            AdminLog::add($pdo, AdminLog::actor($payload), 'files.delete',
+                "media/{$rel} → корзина ({$itemId})");
+            jsonResponse(['data' => ['ok' => true, 'trashed' => true, 'item' => $itemId]]);
+        }
+
+        if (is_dir($abs)) {
+            self::rrmdir($abs);
+        } else {
+            @unlink($abs);
+        }
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.delete', "{$key}/{$rel}");
+
         jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /* ── КОРЗИНА ФАЙЛОВ (Task 100) ── */
+
+    private static function trashDir(): string
+    {
+        $dir = Paths::uploadsRoot() . '/.trash';
+        Paths::ensureDir($dir);
+        return $dir;
+    }
+
+    /** Переместить файл/папку в корзину. Возвращает id позиции. */
+    private static function trashMove(string $root, string $abs, string $rel): string
+    {
+        $itemId = date('Ymd-His') . '-' . substr(md5($rel . microtime()), 0, 6);
+        $itemDir = self::trashDir() . '/' . $itemId;
+        Paths::ensureDir($itemDir);
+
+        $dest = $itemDir . '/' . basename($rel);
+        if (!@rename($abs, $dest)) {
+            /* rename через устройства не проходит — копия + удаление */
+            if (is_dir($abs)) {
+                if (!@mkdir($dest, 0777, true)) throw new RuntimeException('trash mkdir failed');
+                foreach (new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($abs, FilesystemIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::LEAVES_ONLY
+                ) as $f) {
+                    $t = $dest . '/' . substr($f->getPathname(), strlen($abs) + 1);
+                    $td = dirname($t);
+                    if (!is_dir($td)) @mkdir($td, 0777, true);
+                    @copy($f->getPathname(), $t);
+                }
+                self::rrmdir($abs);
+            } else {
+                if (!@copy($abs, $dest)) throw new RuntimeException('trash copy failed');
+                @unlink($abs);
+            }
+        }
+
+        @file_put_contents($itemDir . '/meta.json', json_encode([
+            'orig'     => $rel,
+            'name'     => basename($rel),
+            'is_dir'   => is_dir($dest),
+            'moved_at' => date('c'),
+        ], JSON_UNESCAPED_UNICODE));
+
+        return $itemId;
+    }
+
+    /** GET /api/admin/files/trash — содержимое корзины (позиции старше 30 дней чистятся). */
+    public static function trashList(): void
+    {
+        Auth::requireEditor();
+
+        $trash = self::trashDir();
+        $items = [];
+        foreach (scandir($trash, SCANDIR_SORT_ASCENDING) ?: [] as $id) {
+            if ($id === '.' || $id === '..') continue;
+            $itemDir = $trash . '/' . $id;
+            if (!is_dir($itemDir)) continue;
+            $meta = json_decode((string)@file_get_contents($itemDir . '/meta.json'), true);
+            if (!is_array($meta)) continue;
+
+            /* Автоочистка: 30 дней в корзине — позиция удаляется */
+            $movedTs = strtotime((string)($meta['moved_at'] ?? '')) ?: (@filemtime($itemDir) ?: time());
+            if (time() - $movedTs > 30 * 86400) {
+                foreach (scandir($itemDir) ?: [] as $n) {
+                    if ($n === '.' || $n === '..' || $n === 'meta.json') continue;
+                    is_dir($itemDir . '/' . $n) ? self::rrmdir($itemDir . '/' . $n) : @unlink($itemDir . '/' . $n);
+                }
+                @unlink($itemDir . '/meta.json');
+                @rmdir($itemDir);
+                continue;
+            }
+
+            $size = 0;
+            foreach (scandir($itemDir) ?: [] as $n) {
+                if ($n === '.' || $n === '..' || $n === 'meta.json') continue;
+                $p = $itemDir . '/' . $n;
+                $size += is_dir($p) ? self::dirSize($p) : (@filesize($p) ?: 0);
+            }
+            $items[] = [
+                'id'       => $id,
+                'name'     => (string)($meta['name'] ?? $id),
+                'orig'     => (string)($meta['orig'] ?? ''),
+                'is_dir'   => (bool)($meta['is_dir'] ?? false),
+                'size'     => $size,
+                'moved_at' => date('c', $movedTs),
+            ];
+        }
+
+        /* Новее сверху */
+        usort($items, static fn($a, $b) => strcmp((string)$b['id'], (string)$a['id']));
+        jsonResponse(['data' => ['items' => $items]]);
+    }
+
+    /** POST /api/admin/files/restore {id} — вернуть файл/папку из корзины. */
+    public static function trashRestore(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $id = preg_replace('/[^a-z0-9\-]/i', '', (string)($data['id'] ?? ''));
+        if ($id === '') jsonResponse(['error' => 'Не указана позиция'], 422);
+
+        $itemDir = self::trashDir() . '/' . $id;
+        $meta = json_decode((string)@file_get_contents($itemDir . '/meta.json'), true);
+        if (!is_dir($itemDir) || !is_array($meta)) {
+            jsonResponse(['error' => 'Позиция не найдена'], 404);
+        }
+
+        $orig = (string)$meta['orig'];
+        if (str_contains($orig, '..') || str_starts_with($orig, '/')) {
+            jsonResponse(['error' => 'Некорректный путь в корзине'], 422);
+        }
+
+        $root = realpath(Paths::uploadsRoot());
+        $target = $root . '/' . $orig;
+        $finalTarget = $target;
+
+        if (file_exists($finalTarget)) {
+            /* На месте уже появился новый файл/папка — возвращаем рядом с суффиксом */
+            $dirName = pathinfo($target, PATHINFO_DIRNAME);
+            $base = basename($target);
+            $ext = pathinfo($target, PATHINFO_EXTENSION);
+            $stem = $ext !== '' ? substr($base, 0, -(strlen($ext) + 1)) : $base;
+            $i = 1;
+            do {
+                $candidate = $dirName . '/' . $stem . '-restored' . ($i > 1 ? "-{$i}" : '') . ($ext !== '' ? ".{$ext}" : '');
+                $i++;
+            } while (file_exists($candidate) && $i < 100);
+            $finalTarget = $candidate;
+        }
+
+        $tdir = dirname($finalTarget);
+        if (!is_dir($tdir)) @mkdir($tdir, 0777, true);
+
+        $src = $itemDir . '/' . (string)$meta['name'];
+        if (!file_exists($src)) {
+            jsonResponse(['error' => 'Файл в корзине не найден'], 404);
+        }
+        if (!@rename($src, $finalTarget)) {
+            jsonResponse(['error' => 'Не удалось вернуть файл'], 500);
+        }
+        @unlink($itemDir . '/meta.json');
+        @rmdir($itemDir);
+
+        $rel = ltrim(substr($finalTarget, strlen($root)), '/');
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.restore', "{$id} → {$rel}");
+        jsonResponse(['data' => ['ok' => true, 'path' => $rel]]);
+    }
+
+    /* ── НЕИСПОЛЬЗУЕМЫЕ ФАЙЛЫ (Task 103) ──
+       GET /api/admin/files/unused — файлы в /uploads, не привязанные
+       ни к одному товару (product_images + products.video_url). Корзина
+       (.trash) не учитывается. */
+    public static function unused(PDO $pdo): void
+    {
+        Auth::requireEditor();
+
+        $root = realpath(Paths::uploadsRoot());
+        if ($root === false) jsonResponse(['data' => ['items' => [], 'total_size' => 0]]);
+
+        $used = self::usedUrls($pdo);
+        $items = [];
+        $total = 0;
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+        $count = 0;
+        foreach ($it as $f) {
+            if (++$count > 20000) break;
+            $abs = $f->getPathname();
+            /* корзина и служебные файлы не участвуют */
+            if (str_contains($abs, DIRECTORY_SEPARATOR . '.trash' . DIRECTORY_SEPARATOR)) continue;
+            if (basename($abs) === 'meta.json') continue;
+            $rel = ltrim(substr($abs, strlen($root)), '/\\');
+            $rel = str_replace('\\', '/', $rel);
+            $url = '/uploads/' . $rel;
+            if (isset($used[$url])) continue;
+            $size = @filesize($abs) ?: 0;
+            $total += $size;
+            if (count($items) < 5000) {
+                $items[] = [
+                    'path' => $rel,
+                    'url'  => $url,
+                    'size' => $size,
+                    'mtime' => @filemtime($abs) ?: 0,
+                ];
+            }
+        }
+
+        jsonResponse(['data' => [
+            'items' => $items,
+            'total_size' => $total,
+            'total_files' => $count > 20000 ? '>20000' : count($items),
+        ]]);
+    }
+
+    /** POST /api/admin/files/unused-purge {paths: [rel,…]} — удалить неиспользуемые
+     *  НАВСЕГДА. Каждый путь перепроверяется: если файл успел привязаться — пропускаем. */
+    public static function unusedPurge(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $paths = (array)($data['paths'] ?? []);
+        if ($paths === []) jsonResponse(['error' => 'Не выбраны файлы'], 422);
+        if (count($paths) > 5000) jsonResponse(['error' => 'Слишком много путей'], 422);
+
+        $root = realpath(Paths::uploadsRoot());
+        $used = self::usedUrls($pdo);
+        $deleted = 0;
+        $skipped = 0;
+        foreach ($paths as $p) {
+            $rel = ltrim(str_replace('\\', '/', (string)$p), '/');
+            if ($rel === '' || str_contains($rel, '..') || str_starts_with($rel, '.trash')) {
+                $skipped++;
+                continue;
+            }
+            $abs = $root . '/' . $rel;
+            $real = realpath($abs);
+            if ($real === false || !str_starts_with($real, $root . DIRECTORY_SEPARATOR) || !is_file($real)) {
+                $skipped++;
+                continue;
+            }
+            if (isset($used['/uploads/' . $rel])) {
+                $skipped++; /* успел привязаться — не трогаем */
+                continue;
+            }
+            if (@unlink($real)) $deleted++;
+            else $skipped++;
+        }
+
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.unused-purge',
+            "удалено {$deleted}, пропущено {$skipped}");
+        jsonResponse(['data' => ['ok' => true, 'deleted' => $deleted, 'skipped' => $skipped]]);
     }
 
     /* ── СЖАТИЕ ВИДЕО (кнопка «Сжать» в редакторе товара) ──

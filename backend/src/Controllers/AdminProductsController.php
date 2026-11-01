@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../AdminLog.php';
 require_once __DIR__ . '/../Paths.php';
 
 class AdminProductsController
@@ -20,7 +21,7 @@ class AdminProductsController
                        price_kopecks, stock_qty, show_in_catalog, is_published,
                        category_id, video_url, packaging_material,
                        weight_g, length_cm, width_cm, height_cm,
-                       recipe_weight_g
+                       recipe_weight_g, deleted_at
                 FROM products WHERE 1=1';
         $params = [];
 
@@ -31,15 +32,21 @@ class AdminProductsController
         }
 
         if ($filter === 'catalog') {
-            $sql .= " AND show_in_catalog = 1 AND is_published = 1 AND type IN ('simple','bundle')";
+            $sql .= " AND deleted_at IS NULL AND show_in_catalog = 1 AND is_published = 1 AND type IN ('simple','bundle')";
         } elseif ($filter === 'hidden') {
-            $sql .= ' AND (show_in_catalog = 0 OR is_published = 0)';
+            $sql .= ' AND deleted_at IS NULL AND (show_in_catalog = 0 OR is_published = 0)';
         } elseif ($filter === 'bundles') {
-            $sql .= " AND type = 'bundle'";
+            $sql .= " AND deleted_at IS NULL AND type = 'bundle'";
         } elseif ($filter === 'simple') {
-            $sql .= " AND type = 'simple'";
+            $sql .= " AND deleted_at IS NULL AND type = 'simple'";
         } elseif ($filter === 'recipe') {
-            $sql .= " AND type = 'recipe'";
+            $sql .= " AND deleted_at IS NULL AND type = 'recipe'";
+        } elseif ($filter === 'deleted') {
+            /* Корзина: только мягко-удалённые (Task 100) */
+            $sql .= ' AND deleted_at IS NOT NULL';
+        } else {
+            /* По умолчанию удалённые (в корзине) не показываем */
+            $sql .= ' AND deleted_at IS NULL';
         }
 
         $sql .= ' ORDER BY id DESC LIMIT 500';
@@ -67,6 +74,25 @@ class AdminProductsController
         }
         foreach ($rows as &$row) {
             $row['thumb'] = $thumbByProduct[(int)$row['id']] ?? null;
+        }
+        unset($row);
+
+        /* Task 101: счётчики медиа одним запросом — в таблице метки
+           «нет фото» (незаполненный товар) и «видео N» (тяжёлые карточки). */
+        $mq = $pdo->query(
+            "SELECT product_id,
+                    SUM(media_type = 'image') AS imgs,
+                    SUM(media_type = 'video') AS vids
+             FROM product_images GROUP BY product_id"
+        );
+        $mediaByProduct = [];
+        foreach ($mq as $r) {
+            $mediaByProduct[(int)$r['product_id']] = [(int)$r['imgs'], (int)$r['vids']];
+        }
+        foreach ($rows as &$row) {
+            [$imgs, $vids] = $mediaByProduct[(int)$row['id']] ?? [0, 0];
+            $row['imgs'] = $imgs;
+            $row['vids'] = $vids;
         }
         unset($row);
 
@@ -120,7 +146,7 @@ class AdminProductsController
        ============================================================ */
     public static function create(PDO $pdo): void
     {
-        Auth::requireAuth();
+        $payload = Auth::requireEditor();
 
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
@@ -135,7 +161,6 @@ class AdminProductsController
         if (mb_strlen($name) > 255) {
             jsonResponse(['error' => 'Название длиннее 255 символов'], 422);
         }
-
         $type = $data['type'] ?? 'simple';
         if (!in_array($type, ['simple', 'bundle', 'recipe'], true)) {
             jsonResponse(['error' => 'type: simple | bundle | recipe'], 422);
@@ -241,6 +266,7 @@ class AdminProductsController
         }
 
         $newId = (int)$pdo->lastInsertId();
+        AdminLog::add($pdo, AdminLog::actor($payload ?? ['email' => 'unknown']), 'product.create', "#{$newId} {$name}");
 
         // Автозаполнение по рецепту (если передан recipe_weight_g и type = bundle)
         $recipeWeight = isset($data['recipe_weight_g']) && $data['recipe_weight_g'] !== '' && $data['recipe_weight_g'] !== null
@@ -274,7 +300,7 @@ class AdminProductsController
        ============================================================ */
     public static function update(PDO $pdo, int $id): void
     {
-        Auth::requireAuth();
+        $payload = Auth::requireEditor();
 
         $exists = $pdo->prepare('SELECT id, type FROM products WHERE id = ?');
         $exists->execute([$id]);
@@ -461,23 +487,43 @@ class AdminProductsController
             throw $e;
         }
 
+        /* Журнал: какие именно поля менялись (Task 104) */
+        $tracked = ['name','slug','type','sku','price_kopecks','stock_qty','category_id',
+                    'show_in_catalog','is_published','video_url','description','manufacturer'];
+        $changed = array_values(array_intersect($tracked, array_keys($data)));
+        AdminLog::add($pdo, AdminLog::actor($payload), 'product.update',
+            "#{$id}: " . ($changed !== [] ? implode(', ', $changed) : 'прочие поля'));
+
         $get = $pdo->prepare('SELECT * FROM products WHERE id = ?');
         $get->execute([$id]);
         jsonResponse(['data' => $get->fetch()]);
     }
 
     /* ============================================================
-       УДАЛЕНИЕ
+       УДАЛЕНИЕ (мягкое — корзина, Task 100)
+       По умолчанию товар помечается deleted_at и пропадает из всех
+       списков и витрины; файлы и привязки остаются — восстановление
+       мгновенное (POST /restore). Удалить НАВСЕГДА можно только уже
+       лежащий в корзине: DELETE ...?force=1 (та же проверка составов).
        ============================================================ */
     public static function destroy(PDO $pdo, int $id): void
     {
-        Auth::requireEditor();
+        $payload = Auth::requireEditor();
 
-        $exists = $pdo->prepare('SELECT id, type FROM products WHERE id = ?');
+        $force = ($_GET['force'] ?? '') === '1';
+
+        $exists = $pdo->prepare('SELECT id, type, name, deleted_at FROM products WHERE id = ?');
         $exists->execute([$id]);
         $row = $exists->fetch();
         if (!$row) {
             jsonResponse(['error' => 'Товар не найден'], 404);
+        }
+
+        if (!$force && $row['deleted_at'] !== null) {
+            jsonResponse(['error' => 'Товар уже в корзине'], 409);
+        }
+        if ($force && $row['deleted_at'] === null) {
+            jsonResponse(['error' => 'Полное удаление — только для товара из корзины'], 409);
         }
 
         // recipe может быть в рецептах
@@ -504,21 +550,275 @@ class AdminProductsController
             ], 422);
         }
 
-        $img = $pdo->prepare('SELECT url FROM product_images WHERE product_id = ?');
-        $img->execute([$id]);
-        foreach ($img->fetchAll() as $r) {
-            if (str_starts_with($r['url'], '/uploads/')) {
-                $path = Paths::publicRoot() . $r['url'];
-                if (is_file($path)) @unlink($path);
+        if ($force) {
+            /* Полное удаление: файлы и привязки вычищаются (старое поведение) */
+            $img = $pdo->prepare('SELECT url FROM product_images WHERE product_id = ?');
+            $img->execute([$id]);
+            foreach ($img->fetchAll() as $r) {
+                if (str_starts_with($r['url'], '/uploads/')) {
+                    $path = Paths::publicRoot() . $r['url'];
+                    if (is_file($path)) @unlink($path);
+                }
             }
+
+            $pdo->prepare('DELETE FROM bundle_items WHERE product_id = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM product_images WHERE product_id = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM weight_recipes WHERE product_id = ?')->execute([$id]);
+            $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$id]);
+            AdminLog::add($pdo, AdminLog::actor($payload), 'product.delete-forever', "#{$id} {$row['name']}");
+        } else {
+            /* Мягкое удаление — в корзину (файлы не трогаем) */
+            $pdo->prepare('UPDATE products SET deleted_at = datetime(\'now\') WHERE id = ?')
+                ->execute([$id]);
+            AdminLog::add($pdo, AdminLog::actor($payload), 'product.delete', "#{$id} {$row['name']}");
         }
 
-        $pdo->prepare('DELETE FROM bundle_items WHERE product_id = ?')->execute([$id]);
-        $pdo->prepare('DELETE FROM product_images WHERE product_id = ?')->execute([$id]);
-        $pdo->prepare('DELETE FROM weight_recipes WHERE product_id = ?')->execute([$id]);
-        $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$id]);
+        jsonResponse(['data' => ['ok' => true, 'soft' => !$force]]);
+    }
+
+    /* ============================================================
+       ВОССТАНОВЛЕНИЕ ИЗ КОРЗИНЫ
+       POST /api/admin/products/{id}/restore
+       ============================================================ */
+    public static function restore(PDO $pdo, int $id): void
+    {
+        $payload = Auth::requireEditor();
+
+        $stmt = $pdo->prepare('SELECT id, name, deleted_at FROM products WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            jsonResponse(['error' => 'Товар не найден'], 404);
+        }
+        if ($row['deleted_at'] === null) {
+            jsonResponse(['error' => 'Товар не удалён'], 409);
+        }
+
+        $pdo->prepare('UPDATE products SET deleted_at = NULL WHERE id = ?')->execute([$id]);
+        AdminLog::add($pdo, AdminLog::actor($payload), 'product.restore', "#{$id} {$row['name']}");
 
         jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /* ============================================================
+       ДУБЛИРОВАНИЕ ТОВАРА (Task 98)
+       POST /api/admin/products/{id}/duplicate
+       Копия с именем «… (копия)», уникальным slug, снятой публикацией
+       (черновик) и теми же картинками/составом. Категория и всё прочее
+       наследуются.
+       ============================================================ */
+    public static function duplicate(PDO $pdo, int $id): void
+    {
+        $payload = Auth::requireEditor();
+
+        $stmt = $pdo->prepare('SELECT * FROM products WHERE id = ?');
+        $stmt->execute([$id]);
+        $src = $stmt->fetch();
+        if (!$src) {
+            jsonResponse(['error' => 'Товар не найден'], 404);
+        }
+
+        /* Уникальный slug: <slug>-copy, -copy-2, -copy-3… */
+        $base = (string)$src['slug'];
+        $slug = $base . '-copy';
+        $n = 2;
+        $check = $pdo->prepare('SELECT 1 FROM products WHERE slug = ?');
+        while (true) {
+            $check->execute([$slug]);
+            if (!$check->fetchColumn()) break;
+            $slug = $base . '-copy-' . (++$n);
+        }
+
+        $name = (string)$src['name'] . ' (копия)';
+        if (mb_strlen($name) > 255) $name = mb_substr((string)$src['name'], 0, 245) . ' (копия)';
+
+        /* recipe остаётся вне каталога; живой товар копируется черновиком */
+        $show = $src['type'] === 'recipe' ? 0 : 0;
+        $published = 0;
+
+        $pdo->beginTransaction();
+        try {
+            $ins = $pdo->prepare(
+                'INSERT INTO products
+                    (sku, slug, name, description, manufacturer, type,
+                     price_kopecks, old_price_kopecks, category_id, video_url,
+                     packaging_material, weight_g, length_cm, width_cm, height_cm,
+                     recipe_weight_g, show_in_catalog, is_published, stock_qty)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $ins->execute([
+                $src['sku'], $slug, $name, $src['description'], $src['manufacturer'],
+                $src['type'], $src['price_kopecks'], $src['old_price_kopecks'],
+                $src['category_id'], $src['video_url'], $src['packaging_material'],
+                $src['weight_g'], $src['length_cm'], $src['width_cm'], $src['height_cm'],
+                $src['recipe_weight_g'], $show, $published, $src['stock_qty'],
+            ]);
+            $newId = (int)$pdo->lastInsertId();
+
+            /* Картинки и видео — те же файлы (URL общие), отдельные записи */
+            $pdo->prepare(
+                'INSERT INTO product_images (product_id, url, alt, media_type, sort_order)
+                 SELECT ?, url, alt, media_type, sort_order FROM product_images WHERE product_id = ?'
+            )->execute([$newId, $id]);
+
+            /* Состав набора */
+            $pdo->prepare(
+                'INSERT INTO bundle_items (product_id, component_id, quantity)
+                 SELECT ?, component_id, quantity FROM bundle_items WHERE product_id = ?'
+            )->execute([$newId, $id]);
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        AdminLog::add($pdo, AdminLog::actor($payload), 'product.duplicate', "#{$id} → #{$newId} {$name}");
+
+        jsonResponse(['data' => ['id' => $newId, 'slug' => $slug, 'name' => $name]], 201);
+    }
+
+    /* ============================================================
+       МАССОВЫЕ ОПЕРАЦИИ (Task 99)
+       POST /api/admin/products/bulk
+       { ids: [..], action: "status"|"category"|"price_percent"|"delete",
+         value: … }
+       Возвращает число изменённых и пропущенных (составы/рецепты).
+       ============================================================ */
+    public static function bulk(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) {
+            jsonResponse(['error' => 'Invalid JSON'], 400);
+        }
+
+        $ids = array_values(array_filter(array_map('intval', (array)($data['ids'] ?? [])), fn($v) => $v > 0));
+        if ($ids === []) {
+            jsonResponse(['error' => 'Не выбраны товары'], 422);
+        }
+        if (count($ids) > 500) {
+            jsonResponse(['error' => 'За раз — не больше 500 товаров'], 422);
+        }
+
+        $action = (string)($data['action'] ?? '');
+        $value = $data['value'] ?? null;
+
+        $in = implode(',', $ids);
+
+        switch ($action) {
+            case 'status': {
+                /* value: { show_in_catalog?: 0|1, is_published?: 0|1 } */
+                $set = [];
+                $params = [];
+                if (isset($value['show_in_catalog'])) {
+                    $set[] = 'show_in_catalog = ?';
+                    $params[] = (int)(bool)$value['show_in_catalog'];
+                }
+                if (isset($value['is_published'])) {
+                    $set[] = 'is_published = ?';
+                    $params[] = (int)(bool)$value['is_published'];
+                }
+                if ($set === []) {
+                    jsonResponse(['error' => 'Не указаны статусы'], 422);
+                }
+                /* recipe всегда вне каталога — не трогаем их show_in_catalog */
+                $extra = isset($value['show_in_catalog'])
+                    ? " AND (type <> 'recipe')" : '';
+                $sql = "UPDATE products SET " . implode(', ', $set)
+                     . " WHERE id IN ($in) AND deleted_at IS NULL" . $extra;
+                $st = $pdo->prepare($sql);
+                $st->execute($params);
+                $n = $st->rowCount();
+                AdminLog::add($pdo, AdminLog::actor($payload), 'product.bulk-status',
+                    count($ids) . ' шт → ' . json_encode($value, JSON_UNESCAPED_UNICODE) . " (изменено $n)");
+                jsonResponse(['data' => ['ok' => true, 'updated' => $n, 'skipped' => count($ids) - $n]]);
+            }
+
+            case 'category': {
+                if ($value === null || $value === '') {
+                    $sql = "UPDATE products SET category_id = NULL WHERE id IN ($in) AND deleted_at IS NULL";
+                    $n = $pdo->exec($sql);
+                    $label = 'без категории';
+                } else {
+                    $cid = (int)$value;
+                    $chk = $pdo->prepare('SELECT 1 FROM categories WHERE id = ?');
+                    $chk->execute([$cid]);
+                    if (!$chk->fetchColumn()) {
+                        jsonResponse(['error' => "Категория #$cid не найдена"], 422);
+                    }
+                    $st = $pdo->prepare(
+                        "UPDATE products SET category_id = ? WHERE id IN ($in) AND deleted_at IS NULL"
+                    );
+                    $st->execute([$cid]);
+                    $n = $st->rowCount();
+                    $label = "категория #$cid";
+                }
+                AdminLog::add($pdo, AdminLog::actor($payload), 'product.bulk-category',
+                    count($ids) . ' шт → ' . $label . " (изменено $n)");
+                jsonResponse(['data' => ['ok' => true, 'updated' => $n, 'skipped' => count($ids) - $n]]);
+            }
+
+            case 'price_percent': {
+                $percent = (float)($value ?? 0);
+                if ($percent === 0.0 || abs($percent) > 90) {
+                    jsonResponse(['error' => 'Процент от -90 до 90, не 0'], 422);
+                }
+                $k = 1 + $percent / 100;
+                /* Цены — в копейках; окрругляем до рубля */
+                $st = $pdo->prepare("SELECT id, price_kopecks FROM products WHERE id IN ($in) AND deleted_at IS NULL");
+                $st->execute();
+                $upd = $pdo->prepare('UPDATE products SET price_kopecks = ? WHERE id = ?');
+                $n = 0;
+                foreach ($st->fetchAll() as $r) {
+                    $np = max(0, (int)round(((int)$r['price_kopecks']) * $k / 100) * 100);
+                    if ($np !== (int)$r['price_kopecks']) {
+                        $upd->execute([$np, (int)$r['id']]);
+                        $n++;
+                    }
+                }
+                AdminLog::add($pdo, AdminLog::actor($payload), 'product.bulk-price',
+                    "$percent% → изменено $n из " . count($ids));
+                jsonResponse(['data' => ['ok' => true, 'updated' => $n, 'skipped' => count($ids) - $n]]);
+            }
+
+            case 'delete': {
+                /* Мягкое удаление выбранных; охраняемые (в составе/рецептах) — пропускаем */
+                $st = $pdo->prepare(
+                    "SELECT id, name, type FROM products WHERE id IN ($in) AND deleted_at IS NULL"
+                );
+                $st->execute();
+                $deleted = 0;
+                $skipped = [];
+                $chkRecipes = $pdo->prepare('SELECT COUNT(*) FROM weight_recipes WHERE product_id = ?');
+                $chkBundles = $pdo->prepare('SELECT COUNT(*) FROM bundle_items WHERE component_id = ?');
+                $soft = $pdo->prepare("UPDATE products SET deleted_at = datetime('now') WHERE id = ?");
+                foreach ($st->fetchAll() as $r) {
+                    $pid = (int)$r['id'];
+                    if ($r['type'] === 'recipe') {
+                        $chkRecipes->execute([$pid]);
+                        if ((int)$chkRecipes->fetchColumn() > 0) {
+                            $skipped[] = "{$r['name']} (в рецептах)";
+                            continue;
+                        }
+                    }
+                    $chkBundles->execute([$pid]);
+                    if ((int)$chkBundles->fetchColumn() > 0) {
+                        $skipped[] = "{$r['name']} (в составе наборов)";
+                        continue;
+                    }
+                    $soft->execute([$pid]);
+                    $deleted++;
+                }
+                AdminLog::add($pdo, AdminLog::actor($payload), 'product.bulk-delete',
+                    "удалено $deleted из " . count($ids) . ($skipped ? '; пропущены: ' . implode(', ', array_slice($skipped, 0, 5)) : ''));
+                jsonResponse(['data' => ['ok' => true, 'updated' => $deleted, 'skipped' => count($ids) - $deleted, 'skipped_names' => $skipped]]);
+            }
+
+            default:
+                jsonResponse(['error' => 'action: status | category | price_percent | delete'], 422);
+        }
     }
 
     private static function slugify(string $s): string

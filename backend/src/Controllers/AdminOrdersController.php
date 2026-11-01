@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../Auth.php';
+require_once __DIR__ . '/../AdminLog.php';
 require_once __DIR__ . '/../Crypto.php';
 
 class AdminOrdersController
@@ -61,6 +62,53 @@ class AdminOrdersController
         unset($o);
 
         jsonResponse(['data' => $orders]);
+    }
+
+    /** GET /api/admin/orders/unread?since_id=N — бейдж новых заказов (Task 97-106).
+     *  count_since — заказов с id > since_id (любой статус — заказ мог быстро
+     *  подтвердиться); count_new — всего в статусе «new»; max_id/latest — для
+     *  запоминания «прочитано» и всплывающего уведомления. */
+    public static function unread(PDO $pdo): void
+    {
+        Auth::requireAuth();
+
+        $sinceId = (int)($_GET['since_id'] ?? 0);
+        if ($sinceId < 0) $sinceId = 0;
+
+        $st = $pdo->prepare('SELECT COUNT(*) FROM orders WHERE id > ?');
+        $st->execute([$sinceId]);
+        $countSince = (int)$st->fetchColumn();
+
+        $countNew = (int)$pdo->query(
+            "SELECT COUNT(*) FROM orders WHERE status = 'new'"
+        )->fetchColumn();
+
+        $maxId = (int)$pdo->query('SELECT COALESCE(MAX(id), 0) FROM orders')->fetchColumn();
+
+        $latest = null;
+        if ($countSince > 0) {
+            $st = $pdo->prepare(
+                'SELECT id, order_number, customer_name, total_kopecks, created_at
+                 FROM orders WHERE id > ? ORDER BY id DESC LIMIT 1'
+            );
+            $st->execute([$sinceId]);
+            if ($row = $st->fetch()) {
+                $latest = [
+                    'id'            => (int)$row['id'],
+                    'order_number'  => $row['order_number'],
+                    'customer_name' => Crypto::decrypt($row['customer_name']),
+                    'total_kopecks' => (int)$row['total_kopecks'],
+                    'created_at'    => $row['created_at'],
+                ];
+            }
+        }
+
+        jsonResponse(['data' => [
+            'count_since' => $countSince,
+            'count_new'   => $countNew,
+            'max_id'      => $maxId,
+            'latest'      => $latest,
+        ]]);
     }
 
     public static function show(PDO $pdo, int $id): void
@@ -177,6 +225,10 @@ class AdminOrdersController
             )->execute([$id, $status, $comment !== '' ? $comment : null]);
 
             $pdo->exec('COMMIT');
+
+            /* Журнал действий (Task 104) */
+            AdminLog::add($pdo, AdminLog::actor(Auth::requireAuth()), 'order.status',
+                "#{$order['order_number']} → {$status}");
         } catch (Throwable $e) {
             $pdo->exec('ROLLBACK');
             jsonResponse(['error' => $e->getMessage()], 500);
