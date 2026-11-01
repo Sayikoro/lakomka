@@ -9,7 +9,7 @@
  * автоматически.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PAGE_TEXTS, TEXT_PREFIX } from "@/lib/page-texts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
@@ -22,12 +22,13 @@ export function PageTextsEditor() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const dirtyRef = useRef<Set<string>>(new Set());
+  /* Изменённые поля — состояние, а не ref: от него зависит рендер
+     (бейджи «свой текст», активность кнопки «Сохранить»). */
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
 
-  /* Загружаем сохранённые значения */
+  /* Загружаем сохранённые значения (loading уже true с монтирования) */
   useEffect(() => {
     let ok = true;
-    setLoading(true);
     fetch(`${API_URL}/admin/page-texts`, { credentials: "include" })
       .then((r) => r.json())
       .then((j) => {
@@ -35,7 +36,7 @@ export function PageTextsEditor() {
         const data = (j?.data ?? {}) as Record<string, string>;
         setSaved(data);
         setDrafts(data);
-        dirtyRef.current = new Set();
+        setDirty(new Set());
       })
       .catch(() => ok && setError("Не удалось загрузить тексты"))
       .finally(() => ok && setLoading(false));
@@ -51,12 +52,22 @@ export function PageTextsEditor() {
 
   function setDraft(key: string, value: string) {
     setDrafts((d) => ({ ...d, [key]: value }));
-    dirtyRef.current.add(key);
+    setDirty((s) => {
+      if (s.has(key)) return s;
+      const next = new Set(s);
+      next.add(key);
+      return next;
+    });
   }
 
   function resetField(key: string) {
     setDrafts((d) => ({ ...d, [key]: "" }));
-    dirtyRef.current.add(key);
+    setDirty((s) => {
+      if (s.has(key)) return s;
+      const next = new Set(s);
+      next.add(key);
+      return next;
+    });
   }
 
   async function save() {
@@ -66,7 +77,7 @@ export function PageTextsEditor() {
     try {
       /* Шлём только изменённые поля (пустая строка = сброс на дефолт) */
       const payload: Record<string, string> = {};
-      for (const key of dirtyRef.current) {
+      for (const key of dirty) {
         payload[key] = drafts[key] ?? "";
       }
       if (Object.keys(payload).length === 0) {
@@ -85,7 +96,7 @@ export function PageTextsEditor() {
         return;
       }
       setSaved((s) => ({ ...(s ?? {}), ...payload }));
-      dirtyRef.current = new Set();
+      setDirty(new Set());
       setSavedAt(new Date().toLocaleTimeString());
     } catch {
       setError("Ошибка сети");
@@ -163,7 +174,7 @@ export function PageTextsEditor() {
             <button
               type="button"
               onClick={save}
-              disabled={saving || dirtyRef.current.size === 0}
+              disabled={saving || dirty.size === 0}
               className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-6 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
             >
               {saving ? "Сохраняем…" : "Сохранить"}
@@ -181,7 +192,7 @@ export function PageTextsEditor() {
           {page?.texts.map((t) => {
             const value = drafts[t.key] ?? "";
             const def = t.def;
-            const changed = (saved?.[t.key] ?? "") !== "" || dirtyRef.current.has(t.key);
+            const changed = (saved?.[t.key] ?? "") !== "" || dirty.has(t.key);
             return (
               <div key={t.key} className={t.area ? "md:col-span-2" : ""}>
                 <label className={label}>
@@ -230,7 +241,8 @@ export function PageTextsEditor() {
         </div>
 
         <p className="text-xs leading-relaxed text-[var(--color-muted)]">
-          Подстановки: <code>{"{year}"}</code> — текущий год,{" "}
+          Изменённый текст появляется на витрине при следующем открытии страницы —
+          пересобирать сайт не нужно. Подстановки: <code>{"{year}"}</code> — текущий год,{" "}
           <code>{"{n}"}</code> / <code>{"{total}"}</code> — числа в счётчике
           каталога. Ключи хранения: <code>{TEXT_PREFIX}…</code> (для переноса
           между проектами достаточно скопировать эти строки).

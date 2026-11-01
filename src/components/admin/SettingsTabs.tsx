@@ -2,17 +2,17 @@
 
 import { useState } from "react";
 import { SettingsForm } from "./SettingsForm";
-import { PageTextsEditor } from "./PageTextsEditor";
 import { SiteUpdateTab } from "./SiteUpdateTab";
 import { AdminLogTab } from "./AdminLogTab";
 import type { AdminSettings } from "@/app/admin/settings/page";
 
 /**
  * Настройки с вкладками: «Основные» (почта/витрина/снегопад),
- * «Текст на страницах», «Обновление» и «Журнал» (Task 104).
+ * «Обновление» и «Журнал» (Task 104). «Текст на страницах» с Task 112
+ * живёт отдельной вкладкой верхнего уровня /admin/page-texts.
  */
 export function SettingsTabs({ settings }: { settings: AdminSettings }) {
-  const [tab, setTab] = useState<"main" | "texts" | "update" | "log">("main");
+  const [tab, setTab] = useState<"main" | "update" | "log">("main");
 
   const tabCls = (active: boolean) =>
     `rounded-full px-5 py-2 text-sm font-medium transition ${
@@ -27,9 +27,6 @@ export function SettingsTabs({ settings }: { settings: AdminSettings }) {
         <button type="button" onClick={() => setTab("main")} className={tabCls(tab === "main")}>
           Основные
         </button>
-        <button type="button" onClick={() => setTab("texts")} className={tabCls(tab === "texts")}>
-          Текст на страницах
-        </button>
         <button type="button" onClick={() => setTab("update")} className={tabCls(tab === "update")}>
           Обновление
         </button>
@@ -40,8 +37,6 @@ export function SettingsTabs({ settings }: { settings: AdminSettings }) {
 
       {tab === "main" ? (
         <SettingsForm initial={settings} />
-      ) : tab === "texts" ? (
-        <PageTextsEditor />
       ) : tab === "log" ? (
         <AdminLogTab />
       ) : (

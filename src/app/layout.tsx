@@ -82,7 +82,7 @@ export default async function RootLayout({
           <OrganizationJsonLd />
           <Header />
           <main className="flex-1">{children}</main>
-          <Footer texts={cfg.texts} />
+          <Footer />
           <CookieBanner />
         </TextsProvider>
       </body>

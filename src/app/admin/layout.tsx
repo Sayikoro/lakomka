@@ -131,6 +131,17 @@ export default function AdminLayout({
             >
               Файлы
             </Link>
+            {/* Тексты витрины редактируют редактор и супер-админ (Task 112):
+                раньше редактор прятался в «Настройках», теперь вкладка
+                верхнего уровня, как и просил владелец. */}
+            {(user?.role === "super_admin" || user?.role === "editor") && (
+              <Link
+                href="/admin/page-texts"
+                className="text-[var(--color-body)] hover:text-[var(--color-primary)]"
+              >
+                Текст на страницах
+              </Link>
+            )}
             {user?.role === "super_admin" && (
               <Link
                 href="/admin/users"

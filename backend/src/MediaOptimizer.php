@@ -215,6 +215,16 @@ class MediaOptimizer
             [true,  "$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", 'перекодировано в H.264 (без звука)'],
             [true,  "-nostdin $map -c:v libx264 -preset ultrafast -crf 26 $cap -c:a aac -b:a 96k", 'перекодировано в H.264 (упрощённый режим)'],
             [true,  "-nostdin $map -an -c:v libx264 -preset ultrafast -crf 26 $cap", 'перекодировано в H.264 (упрощённый режим, без звука)'],
+            /* Хвост для капризных сборок (Task 112): у владельца кодер
+               открывался («using SAR=…» в логе), но кодирование обрывалось
+               на ВСЕХ прежних попытках — добиваем лимитом очереди муксера
+               (классика старых 4.x «Too many packets buffered»), одним
+               потоком (меньше памяти под буферы кадров) и в последнем
+               шансу — вовсе без видео-фильтров. */
+            [true,  "-nostdin $map -c:v libx264 -preset veryfast -crf 26 $san -c:a aac -b:a 128k -max_muxing_queue_size 2048", 'перекодировано в H.264 (расширенный буфер муксера)'],
+            [true,  "-nostdin $map -threads 1 -c:v libx264 -preset ultrafast -crf 26 $san -c:a aac -b:a 96k", 'перекодировано в H.264 (однопоточный режим)'],
+            [true,  "-nostdin $map -threads 1 -an -c:v libx264 -preset ultrafast -crf 26 $san", 'перекодировано в H.264 (однопоточный, без звука)'],
+            [true,  "-nostdin $map -threads 1 -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p", 'перекодировано в H.264 (минимальный режим без фильтров)'],
         ];
 
         $method = null;
@@ -227,6 +237,10 @@ class MediaOptimizer
             @exec($cmd, $out, $code);
             $lastErr = self::ffmpegError((array)($out ?? []));
             if ($code !== 0 || !is_file($dst) || @filesize($dst) === 0) {
+                /* Полный вывод попытки — в журнал: если все попытки
+                   провалятся, админ увидит только сжатую причину, а здесь
+                   останется фактура для разбора (Task 112). */
+                self::debugLog("попытка \"{$label}\" — exit {$code}", array_merge([$cmd], (array)($out ?? [])));
                 @unlink($dst);
                 continue;
             }
@@ -348,6 +362,7 @@ class MediaOptimizer
                 $audioNote = $suffix;
                 break;
             }
+            self::debugLog('recompress попытка — exit ' . $code . ($suffix !== '' ? " ({$suffix})" : ''), array_merge([$cmd], (array)($out ?? [])));
             @unlink($tmp);
         }
         if (!$done) {
@@ -418,28 +433,86 @@ class MediaOptimizer
              . '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format=yuv420p')
              . ' -an -f null - 2>&1';
         @exec($cmd, $out, $code);
+        $out = array_values((array)$out);
+        /* Полный лог пробы — в журнал: у владельца (Task 112) проба падала,
+           но ни одна строка не подходила под маски ошибок, и в ответ уходила
+           ПЕРВАЯ попавшаяся строка приветствия x264 («using SAR=1/1») —
+           не причина, а шум. Теперь фактура хранится в media-debug.log. */
+        self::debugLog('probe (-f null) ' . basename($src) . ' — exit ' . $code, $out);
         if ($code === 0) {
             return 'кодер и параметры кадра в норме — сбой возникал при записи mp4-файла (место на диске, права или muxer)';
         }
-        foreach ((array)$out as $l) {
-            $l = trim((string)$l);
-            if ($l === '') continue;
-            if (preg_match('/(not divisible|Invalid pixel aspect|Impossible to convert|Unknown encoder|Error initializing filter|Failed to configure|Error opening encoder|x264 \[error\]|Error parsing option|Matched no streams|Invalid data)/i', $l)) {
-                return self::trimErr($l);
-            }
-        }
-        foreach ((array)$out as $l) {
-            $l = trim((string)$l);
-            if (preg_match('/^\[(libx264|x264)\b/i', $l)) return self::trimErr($l);
-        }
-        return '';
+        $pick = self::pickProbeReason($out);
+        return $pick !== '' ? $pick
+             : 'кодирование оборвалось после запуска кодера, точная причина не распознана — полный лог в storage/media-debug.log';
     }
 
-    /** Срезаем техношум адресов «[libx264 @ 0x5641…]» и ограничиваем длину */
+    /**
+     * Поиск НАСТОЯЩЕЙ причины в подробном логе пробы. Информационные строки
+     * приветствия x264 («using SAR=1/1», «using cpu capabilities…», профиль)
+     * ошибками не являются — раньше именно они уезжали в ответ админу
+     * вместо причины, когда ни одна маска не подходила (Task 112).
+     */
+    private static function pickProbeReason(array $out): string
+    {
+        // 1) строки с явным диагнозом — берём первую же
+        $hard = '/(not divisible|Invalid pixel aspect|Impossible to convert|Unknown encoder|Error initializing filter|Failed to configure|Error opening encoder|x264 \[error\]|Error parsing option|Matched no streams|Invalid data|Decoder \(codec [^)]*\) not found|Too many packets buffered|Conversion failed|Error while (decoding|filtering|processing|writing)|Error initializing output stream|non.?monoton|Cannot allocate memory|out of memory|Permission denied|No such file or directory|I\/O error|Invalid argument|Invalid NAL|decode_slice_header|corrupt|not supported|Unsupported)/i';
+        foreach ($out as $l) {
+            $l = trim((string)$l);
+            if ($l !== '' && preg_match($hard, $l)) return self::trimErr($l);
+        }
+        // 2) строки [libx264]/[x264]: строки с «error» — сразу; приветствия
+        //    кодера (SAR, cpu capabilities, профиль, версия, конфигурация)
+        //    пропускаем; из прочих запоминаем последнюю как запасной вариант
+        $benign = '/(using SAR|using cpu capabilities|264 - core|configuration:|profile .*, level|lookahead|slicethreads|framethreads|frame=|press \[q\])/i';
+        $fallback = '';
+        foreach ($out as $l) {
+            $l = trim((string)$l);
+            if (!preg_match('/^\[(lib)?x264\b/i', $l)) continue;
+            if (preg_match('/error/i', $l)) return self::trimErr($l);
+            if (preg_match($benign, $l)) continue;
+            $fallback = $l;
+        }
+        return $fallback !== '' ? self::trimErr($fallback) : '';
+    }
+
+    /** Срезаем техношум адресов «[libx264 @ 0x5641…]» (в т.ч. с пробелом
+     *  после @ — реальный формат av_log) и ограничиваем длину */
     private static function trimErr(string $l): string
     {
-        $l = preg_replace('/^\[[^\]]*@0x[0-9a-f]+\]\s*/i', '', $l) ?? $l;
+        $l = preg_replace('/^\[[^\]]*@\s*0x[0-9a-f]+\]\s*/i', '', $l) ?? $l;
         return mb_substr($l, 0, 180);
+    }
+
+    /**
+     * Отладочный журнал неудачных попыток (storage/media-debug.log).
+     * ffmpeg на живом хостинге капризнее песочницы: журнал хранит ПОЛНЫЙ
+     * вывод каждой попытки/пробы, чтобы причину можно было увидеть после
+     * факта, а не угадывать по одной строке в ответе админу. Всё @-тихо:
+     * проблемы журнала никогда не ломают оптимизацию.
+     */
+    private static function debugLog(string $title, array $lines): void
+    {
+        $file = __DIR__ . '/../storage/media-debug.log';
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        // ротация: журнал больше ~256 КБ — начинаем заново
+        if (is_file($file) && (@filesize($file) ?: 0) > 256 * 1024) {
+            @unlink($file);
+        }
+        $chunk = '==== ' . date('Y-m-d H:i:s') . ' — ' . $title . " ====\n";
+        $n = 0;
+        foreach ($lines as $l) {
+            if (++$n > 60) {
+                $chunk .= '… (ещё ' . (count($lines) - 60) . " строк урезано)\n";
+                break;
+            }
+            $l = trim((string)$l);
+            if ($l !== '') $chunk .= mb_substr($l, 0, 400) . "\n";
+        }
+        @file_put_contents($file, $chunk, FILE_APPEND | LOCK_EX);
     }
 
     /** Кодек первой видео-дорожки файла (по stderr «ffmpeg -i»); null — не разобрать */
@@ -478,7 +551,8 @@ class MediaOptimizer
             if ($pick === '') $pick = $lines[0];
         }
         // срезаем техношум «[mov,mp4,m4a,3gp,3g2,mj2 @ 0x5641…]» — оставляем суть
-        $pick = preg_replace('/^\[[^\]]*@0x[0-9a-f]+\]\s*/i', '', $pick) ?? $pick;
+        // (после @ бывает пробел — реальный формат av_log)
+        $pick = preg_replace('/^\[[^\]]*@\s*0x[0-9a-f]+\]\s*/i', '', $pick) ?? $pick;
         return mb_substr($pick, 0, 180);
     }
 

@@ -31,10 +31,12 @@ class PageTextsController
      * JSON: { "<key>": "<value>", ... } — апсерт пачкой.
      * Пустая строка = сбросить на дефолт (значение остаётся пустым,
      * витрина подставляет дефолт из реестра).
+     * Право записи — editor+ (Task 112): viewer по определению
+     * «только смотрит», раньше ему разрешали менять тексты витрины.
      */
     public static function update(PDO $pdo): void
     {
-        Auth::requireAuth();
+        Auth::requireEditor();
 
         $data = json_decode((string)file_get_contents('php://input'), true);
         if (!is_array($data)) {

@@ -1,7 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { IconMax, IconMail, IconWhatsapp } from "./contact-icons";
 import { PdfOpenButton, ViewCatalogsButton } from "@/components/pdf/PdfButtons";
-import { tFrom } from "@/lib/page-texts";
+import { useT } from "@/components/texts/TextsProvider";
 
 /* Ссылки-каналы — те же, что в попапе «Связаться с нами» (ContactDrawer) */
 const CHANNELS = [
@@ -25,9 +27,11 @@ const CHANNELS = [
 const linkCls =
   "transition-colors hover:text-[var(--color-primary)] underline-offset-4 hover:underline";
 
-export function Footer({ texts = {} }: { texts?: Record<string, string> }) {
-  const t = (key: string, vars?: Record<string, string | number>) =>
-    tFrom(texts, key, vars);
+/* Футер читает тексты из контекста (useT), а не из пропа: TextsProvider
+ * добирает свежие значения с API после монтирования (Task 112), поэтому
+ * правки адреса/реквизитов из админки видны без пересборки сайта. */
+export function Footer() {
+  const t = useT();
 
   return (
     <footer className="mt-8 border-t border-[var(--color-border)] bg-[var(--color-bg-soft)] md:mt-0">
