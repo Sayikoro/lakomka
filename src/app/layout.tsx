@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google";
 import "./globals.css";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { ShopChrome } from "@/components/layout/ShopChrome";
 import { SITE } from "@/lib/site";
 import { OrganizationJsonLd } from "@/components/seo/OrganizationJsonLd";
 import { RoutePreloader } from "@/components/ui/RoutePreloader";
@@ -80,9 +81,13 @@ export default async function RootLayout({
         <TextsProvider texts={cfg.texts}>
           <RoutePreloader />
           <OrganizationJsonLd />
-          <Header />
+          <ShopChrome>
+            <Header />
+          </ShopChrome>
           <main className="flex-1">{children}</main>
-          <Footer />
+          <ShopChrome>
+            <Footer />
+          </ShopChrome>
           <CookieBanner />
         </TextsProvider>
       </body>
