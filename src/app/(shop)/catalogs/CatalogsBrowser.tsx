@@ -5,10 +5,10 @@
  * с просмотром во флипбуке и скачиванием.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PdfViewerModal } from "@/components/pdf/PdfViewerModal";
 import { SmartImg } from "@/components/ui/SmartImg";
-import type { PdfDocInfo } from "@/components/pdf/PdfButtons";
+import { usePdfDocs, type PdfDocInfo } from "@/components/pdf/PdfButtons";
 
 interface Item {
   alias: string;
@@ -24,11 +24,32 @@ function formatSize(bytes: number): string {
 
 export function CatalogsBrowser({ items }: { items: Item[] }) {
   const [viewing, setViewing] = useState<Item | null>(null);
+  const docs = usePdfDocs();
+
+  /* Живые данные поверх запечённых (Task 111): страница экспортируется
+     статикой, поэтому описание/размер/дата/обложка из сборки устаревают
+     сразу после правки в админке («PDF» → описание) — админ должен видеть
+     результат без пересборки сайта. Пока /api/pdfs не загрузился — показ
+     запечённых данных: первый рендер совпадает с SSR, гидратация чистая. */
+  const live = useMemo<Item[]>(
+    () =>
+      items.map((item) => {
+        if (docs === null) return item;
+        const doc = docs[item.alias] ?? null;
+        return {
+          ...item,
+          title: doc?.title ?? item.title,
+          description: doc?.description || item.description,
+          doc,
+        };
+      }),
+    [items, docs],
+  );
 
   return (
     <>
       <div className="grid gap-6 md:grid-cols-2">
-        {items.map((item) => (
+        {live.map((item) => (
           <div
             key={item.alias}
             className="flex flex-col rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.25)]"

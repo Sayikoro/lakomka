@@ -3,9 +3,10 @@
 class ChunkedUpload
 {
     /* Task 56: было 200 MB — блоб-экспорт старого каталога (335 МБ) не проходил
-       («Превышен лимит 200 MB» в админке). Клиент (chunked-upload.ts) ограничен
-       1000 чанков × 512 КБ = 500 МБ — серверный лимит держим с запасом над ним. */
-    private const MAX_TOTAL = 512 * 1024 * 1024; // 512 MB
+       («Превышен лимит 200 MB» в админке). Task 111: 512 MB → 1024 MB —
+       импорт-архивы владельца 600–700 МБ тоже должны доходить. Клиент
+       (chunked-upload.ts) ограничен 2000 чанков × 512 КБ = 1 ГБ. */
+    private const MAX_TOTAL = 1024 * 1024 * 1024; // 1 GB
     private const MAX_AGE_HOURS = 24;
 
     private static function root(): string
@@ -50,8 +51,8 @@ class ChunkedUpload
         if ($chunkIndex < 0 || $totalChunks <= 0 || $chunkIndex >= $totalChunks) {
             throw new InvalidArgumentException('Некорректный chunk_index');
         }
-        if ($totalChunks > 1000) {
-            throw new InvalidArgumentException('Слишком много чанков');
+        if ($totalChunks > 2000) {
+            throw new InvalidArgumentException('Слишком много чанков (максимум 2000 = 1 ГБ)');
         }
 
         $root = self::root();
@@ -103,6 +104,20 @@ if (!is_dir($dir)) mkdir($dir, 0755, true);
             ];
         }
 
+        // Все чанки получены — проверяем место: пик = чанки + склеенный файл
+        $currentTotal = 0;
+        foreach ($received as $f) $currentTotal += (int)filesize($f);
+        $free = @disk_free_space($root);
+        if ($free !== false && $free < $currentTotal * 1.1) {
+            foreach ($received as $cp) @unlink($cp);
+            @unlink($metaPath);
+            @rmdir($dir);
+            throw new RuntimeException(
+                'На диске мало места (свободно ~' . round($free / 1024 / 1024) . ' МБ) — не хватает для сборки файла '
+                . self::fmtMb($currentTotal) . ', загрузка прервана'
+            );
+        }
+
         // Склеиваем
         sort($received);
         $finalName = $uploadId . '.zip';
@@ -127,6 +142,12 @@ if (!is_dir($dir)) mkdir($dir, 0755, true);
             'received' => $totalChunks,
             'total' => $totalChunks,
         ];
+    }
+
+    /** Человекочитаемый размер в МБ (для сообщений об ошибках) */
+    private static function fmtMb(int $bytes): string
+    {
+        return round($bytes / 1024 / 1024) . ' МБ';
     }
 
     /** Каталог финальных zip (тот же, что для склеенных чанков; сюда

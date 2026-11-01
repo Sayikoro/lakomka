@@ -322,7 +322,9 @@ class AdminFilesController
 
     private static function maxBytesFor(string $ext): int
     {
-        if (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true)) return 512 * 1024 * 1024;
+        // Task 111: видео 512 MB → 1 GB — потолок чанковой загрузки поднят
+        // до 1 ГБ, прежний лимит стал «ложным дном» ниже него
+        if (in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true)) return 1024 * 1024 * 1024;
         if ($ext === 'pdf') return 64 * 1024 * 1024;
         return 32 * 1024 * 1024; // картинки
     }

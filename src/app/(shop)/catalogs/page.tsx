@@ -35,7 +35,9 @@ export default async function CatalogsPage() {
   const [docs, cfg] = await Promise.all([getDocs(), getPublicSettings()]);
 
   /* Описание карточки: из админки (раздел «PDF») → иначе дефолт из
-     реестра «Текст на страницах» */
+     реестра «Текст на страницах». Эти значения — ЗАПЕЧЁННЫЙ фолбэк:
+     CatalogsBrowser поверх них подтягивает живой /api/pdfs, так что
+     правка описания в админке видна на сайте без пересборки (Task 111). */
   const items = [
     {
       alias: "catalog_1",

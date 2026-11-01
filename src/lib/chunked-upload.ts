@@ -1,4 +1,9 @@
 const CHUNK_SIZE = 512 * 1024; // 512 KB base64-encoded
+/* Клиентский бюджет: 2000 чанков × 512 КБ = 1 ГБ (Task 111: было 1000 × 512 КБ
+   = 500 МБ — импорт-архивы владельца 600–700 МБ не проходили). Сам размер
+   чанка не растём: POST-тело ~700 КБ проходит и дефолтный nginx
+   (client_max_body_size 1 МБ), и лимиты PHP shared-хостинга. */
+const MAX_CHUNKS = 2000;
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 function bufferToBase64(bytes: Uint8Array): string {
@@ -29,8 +34,8 @@ export async function uploadFileInChunks(
   onProgress?: (pct: number) => void
 ): Promise<ChunkedUploadResult> {
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  if (totalChunks > 1000) {
-    throw new Error("Файл слишком большой (>500 MB). Разделите на части.");
+  if (totalChunks > MAX_CHUNKS) {
+    throw new Error("Файл слишком большой (>1 GB). Разделите на части.");
   }
   const uploadId =
     "up-" +
