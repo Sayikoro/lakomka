@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /* ================= Типы ================= */
 
@@ -18,6 +18,9 @@ interface Candy {
   recipes_count: number;
   bundles_count: number;
   sets_count: number;
+  /* Task 117: фото конфеты (первая картинка) — видно в составе наборов на витрине */
+  image_url?: string | null;
+  image_id?: number | null;
 }
 
 interface SetItem {
@@ -77,6 +80,8 @@ export function CandiesManager() {
     { mode: "create" } | { mode: "edit"; set: CandySet } | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<Candy | null>(null);
+  /* Task 117: модалка фото конфеты (загрузка/замена/удаление) */
+  const [coverFor, setCoverFor] = useState<Candy | null>(null);
   // Task 90: кастомный набор удаляется сразу, без подтверждающего окна —
   // остаётся busy-состояние кнопки и красная плашка при ошибке
   const [deletingSetId, setDeletingSetId] = useState<number | null>(null);
@@ -186,6 +191,7 @@ export function CandiesManager() {
           candies={candies}
           onEdit={(c) => setCandyModal({ mode: "edit", candy: c })}
           onDelete={(c) => setDeleteTarget(c)}
+          onCover={(c) => setCoverFor(c)}
         />
       ) : (
         <SetsList
@@ -202,6 +208,7 @@ export function CandiesManager() {
           initial={candyModal.mode === "edit" ? candyModal.candy : null}
           onClose={() => setCandyModal(null)}
           onSaved={async () => { setCandyModal(null); await loadCandies(); }}
+          onCover={(c) => setCoverFor(c)}
         />
       )}
       {setModal && (
@@ -218,6 +225,13 @@ export function CandiesManager() {
           onDeleted={async () => { setDeleteTarget(null); await Promise.all([loadCandies(), loadSets()]); }}
         />
       )}
+      {coverFor && (
+        <CandyCoverModal
+          candy={coverFor}
+          onClose={() => setCoverFor(null)}
+          onChanged={async () => { setCoverFor(null); await loadCandies(); }}
+        />
+      )}
     </div>
   );
 }
@@ -228,10 +242,12 @@ function CandiesTable({
   candies,
   onEdit,
   onDelete,
+  onCover,
 }: {
   candies: Candy[];
   onEdit: (c: Candy) => void;
   onDelete: (c: Candy) => void;
+  onCover: (c: Candy) => void;
 }) {
   const [search, setSearch] = useState("");
 
@@ -259,6 +275,7 @@ function CandiesTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
+              <th className="p-3">Фото</th>
               <th className="p-3">Название</th>
               <th className="p-3">Производитель</th>
               <th className="p-3 text-right">Вес (г)</th>
@@ -270,13 +287,32 @@ function CandiesTable({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-[var(--color-muted)]">
+                <td colSpan={7} className="p-8 text-center text-[var(--color-muted)]">
                   {search ? "Ничего не найдено" : "Конфет пока нет — добавьте первую"}
                 </td>
               </tr>
             ) : (
               filtered.map((c) => (
                 <tr key={c.id} className="border-b border-[var(--color-border)] last:border-none">
+                  <td className="p-3">
+                    {/* Task 117: фото конфеты — клик открывает загрузку/замену */}
+                    <button
+                      type="button"
+                      onClick={() => onCover(c)}
+                      title={c.image_url ? "Заменить фото" : "Загрузить фото"}
+                      className="group relative block h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-soft)]"
+                    >
+                      {c.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.image_url} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-lg opacity-40 group-hover:opacity-70">🍬</span>
+                      )}
+                      <span className="absolute inset-0 hidden items-center justify-center bg-black/45 text-[10px] font-medium text-white group-hover:flex">
+                        {c.image_url ? "сменить" : "загрузить"}
+                      </span>
+                    </button>
+                  </td>
                   <td className="p-3">
                     <span className="font-medium text-[var(--color-heading)]">{c.name}</span>
                     {c.sku && <span className="ml-2 text-xs text-[var(--color-muted)]">{c.sku}</span>}
@@ -323,10 +359,12 @@ function CandyModal({
   initial,
   onClose,
   onSaved,
+  onCover,
 }: {
   initial: Candy | null;
   onClose: () => void;
   onSaved: () => void;
+  onCover: (c: Candy) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [sku, setSku] = useState(initial?.sku ?? "");
@@ -379,6 +417,29 @@ function CandyModal({
         </h2>
 
         <div className="space-y-4">
+          {/* Task 117: фото конфеты — превью + быстрая замена прямо в модалке.
+              У новой конфеты фото появляется после сохранения (нужен id). */}
+          {initial && (
+            <div className="flex items-center gap-3">
+              <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-soft)]">
+                {initial.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={initial.image_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-xl opacity-40">🍬</span>
+                )}
+              </div>
+              <div className="text-sm">
+                <button type="button" onClick={() => onCover(initial)}
+                  className="font-medium text-[var(--color-primary)] hover:underline">
+                  {initial.image_url ? "Заменить фото" : "Загрузить фото"}
+                </button>
+                <p className="text-xs text-[var(--color-muted)]">
+                  Фото видно в составе наборов на витрине
+                </p>
+              </div>
+            </div>
+          )}
           <div>
             <label className={labelCls}>Название *</label>
             <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
@@ -417,6 +478,11 @@ function CandyModal({
           </label>
           {initial && (
             <p className="text-xs text-[var(--color-muted)]">{usageLabel(initial)}</p>
+          )}
+          {!initial && (
+            <p className="text-xs text-[var(--color-muted)]">
+              Фото можно будет загрузить после сохранения конфеты.
+            </p>
           )}
         </div>
 
@@ -758,6 +824,124 @@ function SetModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/* ================= Модалка фото конфеты (Task 117) ================= */
+/* Загрузка/замена/удаление обложки — тот же эндпоинт, что и у
+   обложек рецептов: POST/DELETE /admin/products/{id}/cover */
+
+function CandyCoverModal({
+  candy,
+  onClose,
+  onChanged,
+}: {
+  candy: Candy;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function upload(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", files[0]);
+      const res = await fetch(`${apiUrl}/admin/products/${candy.id}/cover`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) { setError(json.error ?? "Не удалось загрузить фото"); return; }
+      onChanged();
+    } catch { setError("Ошибка сети"); }
+    finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Убрать фото у «${candy.name}»?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/products/${candy.id}/cover`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) { setError(json.error ?? "Не удалось убрать фото"); return; }
+      onChanged();
+    } catch { setError("Ошибка сети"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+      >
+        <h2 className="mb-2 text-lg font-medium text-[var(--color-heading)]">
+          {candy.image_url ? "Заменить фото" : "Загрузить фото"}
+        </h2>
+        <p className="mb-4 text-sm text-[var(--color-muted)]">{candy.name}</p>
+
+        <div className="relative mx-auto aspect-square w-full max-w-[240px] overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-bg-soft)]">
+          {candy.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={candy.image_url} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-5xl opacity-30">🍬</span>
+          )}
+        </div>
+
+        <p className="mt-3 text-center text-xs text-[var(--color-muted)]">
+          JPG, PNG, WebP или GIF до 8 МБ. Фото показывается в составе наборов на витрине.
+        </p>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        )}
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => void upload(e.target.files)}
+        />
+
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={busy}
+            className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-5 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
+          >
+            {busy ? "Работаем…" : candy.image_url ? "Заменить фото…" : "Выбрать файл…"}
+          </button>
+          {candy.image_url && (
+            <button
+              onClick={() => void remove()}
+              disabled={busy}
+              className="rounded-[var(--radius-btn)] border border-red-200 px-5 py-2 text-sm text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+            >
+              Убрать фото
+            </button>
+          )}
+          <button onClick={onClose} disabled={busy}
+            className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-5 py-2 text-sm text-[var(--color-heading)] transition hover:border-[var(--color-primary)] disabled:opacity-60">
+            Закрыть
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

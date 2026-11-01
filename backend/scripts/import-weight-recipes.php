@@ -174,6 +174,7 @@ $aliases = getAliases();
 
 $recipeRows = [];
 $missing = [];
+$productManufacturers = [];
 $totalCells = 0;
 $rowsProcessed = 0;
 $resolved = 0;
@@ -211,6 +212,16 @@ while (($row = fgetcsv($handle, 0, $delim, '"', '')) !== false) {
     }
 
     $resolved++;
+
+    /* Task 117: колонка «ПРОИЗВОДИТЕЛЬ» раньше читалась ($colMan), но
+       нигде не использовалась — импортированные конфеты оставались
+       без производителя. Запоминаем для заполнения пустых. */
+    if ($colMan !== null) {
+        $man = trim($row[$colMan] ?? '');
+        if ($man !== '') {
+            $productManufacturers[$pid] = mb_substr($man, 0, 255);
+        }
+    }
 
     foreach ($weightCols as $i => $w) {
         $val = trim($row[$i] ?? '');
@@ -266,8 +277,25 @@ try {
         }
     }
 
+    /* Task 117: заполняем производителя ТОЛЬКО у конфет, где он пуст —
+       ручные правки владельца не перезатираются. */
+    $manFilled = 0;
+    if (!empty($productManufacturers)) {
+        $updMan = $pdo->prepare(
+            "UPDATE products SET manufacturer = ?
+             WHERE id = ? AND (manufacturer IS NULL OR manufacturer = '')"
+        );
+        foreach ($productManufacturers as $pid => $man) {
+            $updMan->execute([$man, $pid]);
+            $manFilled += $updMan->rowCount();
+        }
+    }
+
     $pdo->exec('COMMIT');
     echo "OK: zagruzheno $totalEntries zapisej\n";
+    if ($manFilled > 0) {
+        echo "OK: zapolneno proizvoditelej: $manFilled (tol'ko pustye)\n";
+    }
 } catch (Throwable $e) {
     $pdo->exec('ROLLBACK');
     fwrite(STDERR, "ERROR: " . $e->getMessage() . "\n");

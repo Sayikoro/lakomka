@@ -398,6 +398,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
         AdminWeightRecipeController::uploadProductCover($pdo, (int)$m[1]);
     }
+    /* Task 117: убрать фото конфеты (справочник «Конфеты» → модалка фото) */
+    if (preg_match('#^/api/admin/products/(\d+)/cover$#', $path, $m) && $method === 'DELETE') {
+        require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
+        AdminWeightRecipeController::deleteProductCover($pdo, (int)$m[1]);
+    }
     /* ========== ADMIN: ORDERS ========== */
     if ($path === '/api/admin/orders' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';

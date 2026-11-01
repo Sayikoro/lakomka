@@ -267,8 +267,9 @@ class MediaOptimizer
             $probe = self::probeTranscode($bin, $path, $map);
             $reason = $probe !== '' ? ' (ffmpeg: ' . $probe . ')'
                      : ($lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '');
+            $hint = self::encoderFailHint($probe);
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
-                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
+                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл$hint"];
         }
 
         $after = @filesize($dst) ?: 0;
@@ -341,11 +342,27 @@ class MediaOptimizer
         $map = '-map ' . escapeshellarg('0:v:0') . ' -map ' . escapeshellarg('0:a:0?');
         $pad = '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2');
         $san = self::sanitizerFilter();
+        $cap = self::sanitizerFilter(true); // + ужатие до 1080p
         $attempts = [
             ["$map -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad -c:a aac -b:a 128k", ''],
             ["$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", ' (без звука)'],
             ["-nostdin $map -c:v libx264 -preset veryfast -crf 26 $san -c:a aac -b:a 128k", ''],
             ["-nostdin $map -an -c:v libx264 -preset veryfast -crf 26 $san", ' (без звука)'],
+            /* Task 117: хвост для капризных источников/серверов. У владельца
+               mp4 падал на ВСЕХ четырёх прежних попытках с «Error while
+               opening encoder… (bit_rate, rate, width or height)» — это
+               классика, когда кадр слишком крупный для памяти/лимитов
+               хостинга (4K с телефона) или битый framerate/SAR. Здесь
+               были только veryfast-попытки, и до ужатия до 1080p дело
+               никогда не доходило. Добавлены те же «санитайзеры», что
+               у каскада mov→mp4 (optimizeVideoFile): расширенный буфер
+               муксера, ужатие до 1080p + ultrafast, один поток. */
+            ["-nostdin $map -c:v libx264 -preset veryfast -crf 26 $san -c:a aac -b:a 128k -max_muxing_queue_size 2048", ' (расширенный буфер муксера)'],
+            ["-nostdin $map -c:v libx264 -preset ultrafast -crf 26 $cap -c:a aac -b:a 96k", ' (ужато до 1080p)'],
+            ["-nostdin $map -an -c:v libx264 -preset ultrafast -crf 26 $cap", ' (ужато до 1080p, без звука)'],
+            ["-nostdin $map -threads 1 -c:v libx264 -preset ultrafast -crf 26 $san -c:a aac -b:a 96k", ' (однопоточный режим)'],
+            ["-nostdin $map -threads 1 -an -c:v libx264 -preset ultrafast -crf 26 $san", ' (однопоточный, без звука)'],
+            ["-nostdin $map -threads 1 -an -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p", ' (минимальный режим)'],
         ];
 
         $lastErr = '';
@@ -369,8 +386,9 @@ class MediaOptimizer
             $probe = self::probeTranscode($bin, $path, $map);
             $reason = $probe !== '' ? ' (ffmpeg: ' . $probe . ')'
                      : ($lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '');
+            $hint = self::encoderFailHint($probe);
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
-                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
+                    'note' => "не удалось перекодировать видео$reason — оставлен исходный файл$hint"];
         }
 
         $after = @filesize($tmp) ?: 0;
@@ -413,6 +431,20 @@ class MediaOptimizer
             $base = "scale=w='min(1920,iw)':h=-2:flags=lanczos," . $base;
         }
         return '-vf ' . escapeshellarg($base);
+    }
+
+    /**
+     * Task 117: человекочитаемая подсказка, когда даже терпимый каскад
+     * не смог открыть кодер («Error while opening encoder… bit_rate,
+     * rate, width or height»). На практике это кадр, который не тянет
+     * хостинг (4K/высокий битрейт), либо битые метаданные источника.
+     */
+    private static function encoderFailHint(string $probe): string
+    {
+        if ($probe === '' || !preg_match('/(opening encoder|initializing output stream|not divisible|width|height)/i', $probe)) {
+            return '';
+        }
+        return '. Похоже, исходник слишком крупный/битый для этого сервера: попробуйте пережать ролик локально (например, в 1080p) и залить заново';
     }
 
     /**

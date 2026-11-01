@@ -26,7 +26,15 @@ class AdminCandyController
                        price_kopecks, stock_qty, weight_g, is_published,
                        (SELECT COUNT(*) FROM weight_recipes wr WHERE wr.product_id = p.id) AS recipes_count,
                        (SELECT COUNT(DISTINCT bi.product_id) FROM bundle_items bi WHERE bi.component_id = p.id) AS bundles_count,
-                       (SELECT COUNT(*) FROM candy_set_items csi WHERE csi.product_id = p.id) AS sets_count
+                       (SELECT COUNT(*) FROM candy_set_items csi WHERE csi.product_id = p.id) AS sets_count,
+                       /* Task 117: фото конфеты — показывается в справочнике,
+                          в составе наборов на витрине и в модалке редактирования */
+                       (SELECT url FROM product_images
+                        WHERE product_id = p.id AND media_type = 'image'
+                        ORDER BY sort_order LIMIT 1) AS image_url,
+                       (SELECT id FROM product_images
+                        WHERE product_id = p.id AND media_type = 'image'
+                        ORDER BY sort_order LIMIT 1) AS image_id
                 FROM products p
                 WHERE p.type = 'recipe'";
         $params = [];

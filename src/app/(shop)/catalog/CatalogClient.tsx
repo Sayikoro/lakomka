@@ -185,14 +185,19 @@ export function CatalogClient({
   }, [liveProducts]);
 
   // Инициализация ползунков после получения данных + категория из URL (?category=slug с главной)
+  // setState — в микротаске (react-hooks v6 запрещает синхронный setState в эффекте)
   useEffect(() => {
-    if (weightSteps.length && !boundsReady) {
-      setWeightIdx([0, weightSteps.length - 1]);
-      setPriceRange([priceBounds.min, priceBounds.max]);
-      setBoundsReady(true);
-    }
     const cat = new URLSearchParams(window.location.search).get("category");
-    if (cat) setCategory(cat);
+    if (cat) {
+      void Promise.resolve().then(() => setCategory(cat));
+    }
+    if (weightSteps.length && !boundsReady) {
+      void Promise.resolve().then(() => {
+        setWeightIdx([0, weightSteps.length - 1]);
+        setPriceRange([priceBounds.min, priceBounds.max]);
+        setBoundsReady(true);
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weightSteps.length]);
 
@@ -206,11 +211,17 @@ export function CatalogClient({
   /* Миниатюры-кнопки фильтров: пул первых картинок товаров категории,
      как на главной. Рандом выбирается только на клиенте после монтирования
      (иначе SSR и гидратация дают разные src → рассинхрон). До монтирования
-     показывается скелетон. */
+     показывается скелетон.
+     Task 117: пул строится из ЖИВЫХ товаров (liveProducts), а не из
+     запечённых: после оптимизации картинок ссылки в базе меняются
+     (jpg → webp), а свежие товары появляются на сервере — раньше
+     плитки категорий навсегда оставались со старыми URL и после
+     смены формата теряли картинки (404). Теперь при приходе живых
+     данных плитки пересобираются из актуальных ссылок. */
   const [pickedIcons, setPickedIcons] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     const poolByCategory = new Map<number, string[]>();
-    for (const p of products) {
+    for (const p of liveProducts) {
       if (p.category_id == null) continue;
       const img = p.images[0]?.url;
       if (!img) continue;
@@ -228,9 +239,9 @@ export function CatalogClient({
           : CATEGORY_ICONS[c.slug] ?? mockCategories[0].imageUrl
       );
     }
-    setPickedIcons(map);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // один раз на монтаж — каждая загрузка каталога даёт новый набор
+    // setState — в микротаске (react-hooks v6 запрещает синхронный setState в эффекте)
+    void Promise.resolve().then(() => setPickedIcons(map));
+  }, [liveProducts, categories]); // пересбор и на монтаже, и при приходе живых данных
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

@@ -57,6 +57,7 @@ class RecipeCsvParser
      *   weights: int[],
      *   rows: array<int, array<int, int>>,
      *   product_images: array<int, string>,  // pid => filename (базовое имя)
+     *   product_manufacturers: array<int, string>,  // pid => «ПРОИЗВОДИТЕЛЬ» (Task 117: раньше колонка читалась и терялась)
      *   missing: string[],
      *   rows_processed: int,
      *   resolved: int,
@@ -88,6 +89,10 @@ class RecipeCsvParser
 
         $colName  = $idx['НАИМЕНОВАНИЕ'] ?? $idx['Наименование'] ?? $idx['наименование'] ?? null;
         $colImage = $idx['КАРТИНКА'] ?? $idx['Картинка'] ?? $idx['картинка'] ?? null;
+        /* Task 117: колонка «ПРОИЗВОДИТЕЛЬ» в матрице рецептов есть,
+           но раньше парсер её игнорировал — импортированные конфеты
+           оставались без производителя («—» в справочнике). */
+        $colManuf = $idx['ПРОИЗВОДИТЕЛЬ'] ?? $idx['Производитель'] ?? $idx['производитель'] ?? null;
         if ($colName === null) {
             fclose($handle);
             throw new RuntimeException('Нет колонки НАИМЕНОВАНИЕ');
@@ -113,6 +118,7 @@ class RecipeCsvParser
 
         $recipeRows = [];
         $productImages = [];
+        $productManufacturers = [];
         $missing = [];
         $rowsProcessed = 0;
         $resolved = 0;
@@ -153,6 +159,13 @@ class RecipeCsvParser
                 }
             }
 
+            if ($colManuf !== null) {
+                $man = trim($row[$colManuf] ?? '');
+                if ($man !== '') {
+                    $productManufacturers[$pid] = mb_substr($man, 0, 255);
+                }
+            }
+
             foreach ($weightCols as $i => $w) {
                 $val = trim($row[$i] ?? '');
                 if ($val === '' || !is_numeric($val)) continue;
@@ -169,6 +182,7 @@ class RecipeCsvParser
             'weights' => array_values($weightCols),
             'rows' => $recipeRows,
             'product_images' => $productImages,
+            'product_manufacturers' => $productManufacturers,
             'missing' => array_values(array_unique($missing)),
             'rows_processed' => $rowsProcessed,
             'resolved' => $resolved,

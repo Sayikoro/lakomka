@@ -69,6 +69,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
     missing: string[];
     weights: number[];
     rows_processed?: number;
+    manufacturers_filled?: number;
     images?: { copied: number; missing_files: string[] };
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -453,6 +454,11 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
             Строк: <b>{importResult.rows_processed ?? "—"}</b>, найдено: <b>{importResult.resolved}</b>, записей: <b>{importResult.total_entries}</b>, граммовок: <b>{importResult.weights.length}</b>
             {importResult.images && (
               <>, картинок скопировано: <b>{importResult.images.copied}</b></>
+            )}
+            {!!importResult.manufacturers_filled && (
+              /* Task 117: импорт теперь заполняет производителя из CSV
+                 у конфет, где он был пуст */
+              <>, заполнено производителей: <b>{importResult.manufacturers_filled}</b></>
             )}
           </p>
           {importResult.images?.missing_files && importResult.images.missing_files.length > 0 && (

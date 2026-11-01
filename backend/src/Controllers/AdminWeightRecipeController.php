@@ -421,6 +421,43 @@ class AdminWeightRecipeController
         jsonResponse(['data' => ['url' => $relUrl]]);
     }
 
+    /** Task 117: DELETE /api/admin/products/{id}/cover — убрать фото конфеты
+        (обложку): файл cover.* с диска + запись в product_images. Нужен
+        справочнику конфет — раньше фото можно было только заменить. */
+    public static function deleteProductCover(PDO $pdo, int $productId): void
+    {
+        Auth::requireEditor();
+
+        $stmt = $pdo->prepare('SELECT slug FROM products WHERE id = ?');
+        $stmt->execute([$productId]);
+        $slug = $stmt->fetchColumn();
+        if ($slug === false) jsonResponse(['error' => 'Товар не найден'], 404);
+
+        $safeSlug = preg_replace('/[^a-z0-9\-]/', '', strtolower((string)$slug)) ?: "p$productId";
+
+        $sel = $pdo->prepare(
+            "SELECT id, url FROM product_images WHERE product_id = ? AND url LIKE ?"
+        );
+        $sel->execute([$productId, '/uploads/products/' . $safeSlug . '/cover.%']);
+        $rows = $sel->fetchAll() ?: [];
+        if ($rows === []) {
+            jsonResponse(['error' => 'У конфеты нет фото'], 404);
+        }
+
+        foreach ($rows as $r) {
+            if (str_starts_with($r['url'], '/uploads/')) {
+                $path = Paths::publicRoot() . $r['url'];
+                if (is_file($path)) @unlink($path);
+            }
+        }
+        $del = $pdo->prepare('DELETE FROM product_images WHERE id = ?');
+        foreach ($rows as $r) {
+            $del->execute([(int)$r['id']]);
+        }
+
+        jsonResponse(['data' => ['ok' => true, 'removed' => count($rows)]]);
+    }
+
     /* ============================================================
        ВНУТРЕННЕЕ
        ============================================================ */
@@ -529,6 +566,22 @@ class AdminWeightRecipeController
                 }
             }
 
+            // 1.5. Производители (Task 117): колонка «ПРОИЗВОДИТЕЛЬ» раньше
+            //      терялась — импортированные конфеты оставались без неё.
+            //      ЗАПОЛНЯЕМ ТОЛЬКО ПУСТЫЕ: ручные правки владельца не
+            //      перезатираются, CSV — источник для пропусков.
+            $stats['manufacturers_filled'] = 0;
+            if (!empty($parsed['product_manufacturers'])) {
+                $updMan = $pdo->prepare(
+                    "UPDATE products SET manufacturer = ?
+                     WHERE id = ? AND (manufacturer IS NULL OR manufacturer = '')"
+                );
+                foreach ($parsed['product_manufacturers'] as $pid => $man) {
+                    $updMan->execute([$man, $pid]);
+                    $stats['manufacturers_filled'] += $updMan->rowCount();
+                }
+            }
+
             // 2. Картинки
             if (!empty($pidToImage)) {
                 $slugStmt = $pdo->prepare('SELECT slug, name FROM products WHERE id = ?');
@@ -588,6 +641,7 @@ class AdminWeightRecipeController
                 'resolved' => $parsed['resolved'],
                 'total_entries' => $parsed['total_entries'],
                 'missing' => $parsed['missing'],
+                'manufacturers_filled' => $stats['manufacturers_filled'] ?? 0,
                 'images' => $stats,
             ],
         ]);
