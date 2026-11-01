@@ -34,9 +34,24 @@ interface RunResult {
   before: number;
   after: number;
   ok: boolean;
-  skipped: boolean; // «уже сжато», «не тяжелеет» — не ошибка
+  skipped: boolean; // «уже сжато», «не тяжелеет», «файла нет» — не ошибка
   message: string;
   newUrl?: string;
+}
+
+interface FixItem {
+  where?: string;
+  from?: string;
+  to?: string;
+  url?: string;
+}
+
+interface FixReport {
+  checked: number;
+  unchanged: number;
+  converted?: FixItem[];
+  fixed: FixItem[];
+  lost: FixItem[];
 }
 
 function fmtSize(bytes: number): string {
@@ -58,6 +73,9 @@ export function MassMediaOptimizer() {
   const [current, setCurrent] = useState("");
   const [results, setResults] = useState<RunResult[] | null>(null);
   const stopFlagRef = useRef(false);
+  /* Task 116: починка битых ссылок на картинки (после массовой оптимизации) */
+  const [fixing, setFixing] = useState(false);
+  const [fixReport, setFixReport] = useState<FixReport | null>(null);
 
   const open = (k: Kind) => {
     setKind(k);
@@ -157,6 +175,34 @@ export function MassMediaOptimizer() {
     URL.revokeObjectURL(a.href);
   }
 
+  async function runFix() {
+    if (fixing) return;
+    if (!window.confirm(
+      "Проверить все картинки товаров и витрины?\n\n"
+      + "Сервер сверит каждую ссылку с файлами на диске: если файла нет, а рядом лежит картинка с тем же именем в другом формате — ссылка будет исправлена. Ничего не удаляется."
+    )) return;
+    setFixing(true);
+    setFixReport(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/files/fix-image-refs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: "{}",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.data?.ok) {
+        setFixReport(json.data as FixReport);
+      } else {
+        window.alert(json.error ?? `Ошибка ${res.status}`);
+      }
+    } catch {
+      window.alert("Ошибка сети");
+    } finally {
+      setFixing(false);
+    }
+  }
+
   async function run() {
     if (!kind || chosen.length === 0) return;
     stopFlagRef.current = false;
@@ -189,10 +235,16 @@ export function MassMediaOptimizer() {
         } else {
           const msg = json.error ?? `Ошибка ${res.status}`;
           /* «уже сжато / не меньше оригинала / недоступен ffmpeg» — пропуск,
-             а не сбой: файл остался как есть, повторять не нужно */
-          const skipped = /уже|не меньше|не удалось перекодировать|ffmpeg на сервере недоступен/i.test(msg)
-            && res.status === 422;
-          acc.push({ url: e.url, name: e.name, before: e.size, after: e.size, ok: false, skipped, message: msg });
+             а не сбой: файл остался как есть, повторять не нужно.
+             404 (Task 116) — тоже пропуск: файла нет на диске (уже
+             конвертирован/удалён), список устарел — это не поломка. */
+          const skipped = res.status === 404
+            || (/уже|не меньше|не удалось перекодировать|ffmpeg на сервере недоступен/i.test(msg)
+              && res.status === 422);
+          const full = res.status === 404 && !/обновите список/i.test(msg)
+            ? `${msg} (список устарел)`
+            : msg;
+          acc.push({ url: e.url, name: e.name, before: e.size, after: e.size, ok: false, skipped, message: full });
         }
       } catch {
         acc.push({ url: e.url, name: e.name, before: e.size, after: e.size, ok: false, skipped: false, message: "Ошибка сети" });
@@ -219,7 +271,60 @@ export function MassMediaOptimizer() {
         <span className="text-xs text-[var(--color-muted)]">
           файлы обрабатываются друг за другом, в конце — отчёт «до/после»
         </span>
+        <button type="button" onClick={runFix} disabled={fixing}
+          title="Битые ссылки на картинки: база смотрит на файл, которого нет на диске (после оптимизации/переноса). Сервер перенаправит ссылки на существующие файлы в тех же папках"
+          className="ml-auto rounded-[var(--radius-btn)] border-2 border-amber-400 px-4 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-400 hover:text-white disabled:opacity-50">
+          {fixing ? "Проверяем…" : "🔗 Починить ссылки на картинки"}
+        </button>
       </div>
+
+      {/* Отчёт починки ссылок (Task 116) */}
+      {fixReport && (
+        <div className="mb-4 rounded-[var(--radius-card)] border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p className="font-semibold text-amber-900">
+            Проверено ссылок: {fixReport.checked} · в порядке: {fixReport.unchanged}
+            {fixReport.converted && fixReport.converted.length > 0 && <> · доконвертировано в WebP: {fixReport.converted.length}</>}
+            {fixReport.fixed.length > 0 && <> · исправлено: {fixReport.fixed.length}</>}
+            {fixReport.lost.length > 0 && <span className="text-red-700"> · потеряно: {fixReport.lost.length}</span>}
+          </p>
+          {fixReport.converted && fixReport.converted.length > 0 && (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+              {fixReport.converted.map((f, i) => (
+                <li key={`c-${i}`}>
+                  <b>{f.where}</b>: {f.from} — создан {f.to}
+                </li>
+              ))}
+            </ul>
+          )}
+          {fixReport.fixed.length > 0 && (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+              {fixReport.fixed.map((f, i) => (
+                <li key={`f-${i}`}>
+                  <b>{f.where}</b>: {f.from} → <b>{f.to}</b>
+                </li>
+              ))}
+            </ul>
+          )}
+          {fixReport.lost.length > 0 && (
+            <>
+              <p className="mt-2 text-xs text-red-800">
+                Файлов нет ни в одном формате — картинки придётся перезалить в товаре:
+              </p>
+              <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+                {fixReport.lost.map((l, i) => (
+                  <li key={`l-${i}`}>
+                    <b>{l.where}</b>: {l.url}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <button type="button" onClick={() => setFixReport(null)}
+            className="mt-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-white px-3 py-1 text-xs hover:bg-[var(--color-bg-soft)]">
+            Скрыть
+          </button>
+        </div>
+      )}
 
       {kind && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -258,6 +363,12 @@ export function MassMediaOptimizer() {
                       className="ml-2 underline decoration-dotted"
                       onClick={() => setManualSelected(new Set())}>снять все</button>
                   </p>
+                  {kind === "image" && (
+                    <p className="mb-2 rounded-lg bg-[var(--color-bg-soft)] p-2 text-xs text-[var(--color-body)]">
+                      ℹ️ Одинаковые имена (0.jpg, 1.jpg…) в папках разных товаров — это нормально:
+                      у каждого товара своя папка, ничего переименовывать и удалять не нужно.
+                    </p>
+                  )}
                   {entries.length === 0 ? (
                     <p className="text-[var(--color-muted)]">
                       {kind === "video"
@@ -348,6 +459,12 @@ export function MassMediaOptimizer() {
                       className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-1.5 text-sm hover:bg-[var(--color-bg-soft)]">
                       Прогнать снова
                     </button>
+                    {kind === "image" && report.failed.length > 0 && (
+                      <button type="button" onClick={runFix} disabled={fixing}
+                        className="rounded-[var(--radius-btn)] border-2 border-amber-400 px-4 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-400 hover:text-white disabled:opacity-50">
+                        🔗 Починить ссылки на картинки
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

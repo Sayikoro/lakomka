@@ -79,6 +79,31 @@ class AdminFilesController
         } catch (PDOException) {
             // старая схема без products.video_url — пропускаем
         }
+        /* Task 116: витринные настройки тоже держат файлы (hero-слайды,
+           снежинка). Без этого «Неиспользуемые» считали их мусором,
+           а удаление ломало бы витрину. */
+        try {
+            foreach ($pdo->query("SELECT key, value FROM settings WHERE key IN ('hero_image','snow_flake','hero_slides')") as $r) {
+                $raw = (string)$r['value'];
+                if ($raw === '') continue;
+                if ($r['key'] === 'hero_slides') {
+                    $slides = json_decode($raw, true);
+                    if (!is_array($slides)) continue;
+                    foreach ($slides as $s) {
+                        if (!is_array($s)) continue;
+                        foreach (['url', 'image'] as $fld) {
+                            $u = (string)($s[$fld] ?? '');
+                            if ($u !== '') { $urls[$u] = true; $urls[preg_replace('#/+#', '/', $u) ?? $u] = true; }
+                        }
+                    }
+                } elseif (str_starts_with($raw, '/uploads/')) {
+                    $urls[$raw] = true;
+                    $urls[preg_replace('#/+#', '/', $raw) ?? $raw] = true;
+                }
+            }
+        } catch (PDOException) {
+            // нет таблицы settings — пропускаем
+        }
         return $urls;
     }
 
@@ -826,6 +851,10 @@ class AdminFilesController
             if (basename($abs) === 'meta.json') continue;
             $rel = ltrim(substr($abs, strlen($root)), '/\\');
             $rel = str_replace('\\', '/', $rel);
+            /* pdfs/ — обложки и сами каталоги: привязаны к pdfs-таблице
+               по имени ({alias}.jpg зашито в PdfController), в БД ссылок
+               на них нет. Считать их «мусором» нельзя (Task 116). */
+            if (strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) continue;
             $url = '/uploads/' . $rel;
             if (isset($used[$url])) continue;
             $size = @filesize($abs) ?: 0;
@@ -847,8 +876,10 @@ class AdminFilesController
         ]]);
     }
 
-    /** POST /api/admin/files/unused-purge {paths: [rel,…]} — удалить неиспользуемые
-     *  НАВСЕГДА. Каждый путь перепроверяется: если файл успел привязаться — пропускаем. */
+    /** POST /api/admin/files/unused-purge {paths: [rel,…]} — убрать неиспользуемые
+     *  файлы В КОРЗИНУ (.trash, восстановимо 30 дней — Task 116; раньше было
+     *  безвозвратное unlink). Каждый путь перепроверяется: если файл успел
+     *  привязаться — пропускаем. */
     public static function unusedPurge(PDO $pdo): void
     {
         $payload = Auth::requireEditor();
@@ -864,7 +895,8 @@ class AdminFilesController
         $skipped = 0;
         foreach ($paths as $p) {
             $rel = ltrim(str_replace('\\', '/', (string)$p), '/');
-            if ($rel === '' || str_contains($rel, '..') || str_starts_with($rel, '.trash')) {
+            if ($rel === '' || str_contains($rel, '..') || str_starts_with($rel, '.trash')
+                || strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) {
                 $skipped++;
                 continue;
             }
@@ -878,13 +910,176 @@ class AdminFilesController
                 $skipped++; /* успел привязаться — не трогаем */
                 continue;
             }
-            if (@unlink($real)) $deleted++;
-            else $skipped++;
+            try {
+                self::trashMove($root, $real, $rel);
+                $deleted++; /* не unlink, а в корзину — восстановимо (Task 116) */
+            } catch (RuntimeException) {
+                $skipped++;
+            }
         }
 
         AdminLog::add($pdo, AdminLog::actor($payload), 'files.unused-purge',
-            "удалено {$deleted}, пропущено {$skipped}");
+            "в корзину {$deleted}, пропущено {$skipped}");
         jsonResponse(['data' => ['ok' => true, 'deleted' => $deleted, 'skipped' => $skipped]]);
+    }
+
+    /* ── ПОЧИНИТЬ БИТЫЕ ССЫЛКИ НА КАРТИНКИ (Task 116) ──
+       POST /api/admin/files/fix-image-refs
+       Сканирует product_images и витринные настройки (hero_image,
+       snow_flake, hero_slides): если файла по ссылке НЕТ на диске, а в ТОЙ
+       ЖЕ папке лежит картинка с тем же именем, но другим расширением
+       (jpg/png/webp) — ссылка переписывается на существующий файл. Если в
+       папке ничего подходящего нет — ссылка попадает в «потерянные»
+       (честный список, файл придётся перезалить). Ничего не удаляет.
+       Лечит последствия массовой оптимизации: база смотрит на .webp,
+       которого на диске нет, рядом лежит исходный jpg. */
+    public static function fixImageRefs(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        /* $url приходит в виде «/uploads/…», а склеиваем мы его с КОРНЕМ
+           САЙТА (publicRoot) — не с uploadsRoot, иначе получается
+           «uploads/uploads/…» и все ссылки казались потерянными. */
+        $root = realpath(Paths::publicRoot());
+        if ($root === false || !is_dir($root . '/uploads')) {
+            jsonResponse(['error' => 'Папка /uploads недоступна'], 500);
+        }
+
+        $exts = ['webp', 'jpg', 'jpeg', 'png'];
+
+        $resolve = static function (string $url) use ($root): ?string {
+            if (!str_starts_with($url, '/uploads/')) return null;
+            /* $url начинается с /uploads/, $root — корень сайта (public):
+               склейка даёт public/uploads/… (в первой версии сегмент
+               /uploads/ терялся — все ссылки казались потерянными). */
+            $real = realpath($root . str_replace('\\', '/', $url));
+            return ($real !== false && str_starts_with($real, $root . DIRECTORY_SEPARATOR) && is_file($real))
+                ? $real : null;
+        };
+        $norm = static fn (string $u): string => preg_replace('#/+#', '/', $u) ?? $u;
+        /* Существующий сиблинг в ТОЙ ЖЕ папке: тот же ствол, другое расширение. */
+        $sibling = static function (string $url) use ($resolve, $exts): ?string {
+            $dir = rtrim(dirname($url), '/');
+            $stem = pathinfo($url, PATHINFO_FILENAME);
+            foreach ($exts as $ext) {
+                $cand = $dir . '/' . $stem . '.' . $ext;
+                if ($cand === $url) continue;
+                if ($resolve($cand) !== null) return $cand;
+            }
+            return null;
+        };
+        /* Залечить одну ссылку. Приоритет: 1) файл есть → ок; 2) ссылка
+           смотрит на .webp, а рядом исходник jpg/png → ДОКОНВЕРТИРОВАТЬ webp
+           на месте (перезаписать ссылки на исходник заодно — retargetImageRefs);
+           3) иначе → переписать ссылку на существующий сиблинг;
+           4) ничего нет → lost.
+           Возвращает [статус, urlДляПереписывания|null, ответ_сервера]:
+           ok — трогать не надо; converted — ссылка валидна, файл создан;
+           fixed — переписать на urlДляПереписывания; lost — файлов нет. */
+        $heal = static function (string $raw) use ($resolve, $norm, $sibling, $pdo): array {
+            $url = $norm($raw);
+            if ($resolve($url) !== null) return ['ok', null, null];
+            $sib = $sibling($url);
+            if ($sib === null) return ['lost', null, null];
+            $refExt = strtolower(pathinfo($url, PATHINFO_EXTENSION));
+            $sibExt = strtolower(pathinfo($sib, PATHINFO_EXTENSION));
+            if ($refExt === 'webp' && in_array($sibExt, ['jpg', 'jpeg', 'png'], true)) {
+                $opt = MediaOptimizer::optimizeImageFile((string)$resolve($sib));
+                if ($opt['converted']) {
+                    $newUrl = rtrim(dirname($sib), '/') . '/' . $opt['name'];
+                    self::retargetImageRefs($pdo, $sib, $newUrl);
+                    return ['converted', $newUrl, null];
+                }
+            }
+            return ['fixed', $sib, null];
+        };
+
+        $checked = 0; $unchanged = 0;
+        $fixed = []; $lost = []; $converted = [];
+
+        /* product_images */
+        try {
+            $rows = $pdo->query("SELECT id, url FROM product_images WHERE media_type = 'image' AND url LIKE '%uploads/%'")->fetchAll();
+        } catch (PDOException) {
+            $rows = [];
+        }
+        foreach ($rows as $r) {
+            $checked++;
+            [$st, $to] = $heal((string)$r['url']);
+            if ($st === 'ok') { $unchanged++; continue; }
+            if ($st === 'converted') {
+                $converted[] = ['where' => 'картинка товара #' . $r['id'], 'from' => $r['url'], 'to' => $to];
+            } elseif ($st === 'fixed' && $to !== null) {
+                $pdo->prepare('UPDATE product_images SET url = ? WHERE id = ?')->execute([$to, (int)$r['id']]);
+                $fixed[] = ['where' => 'картинка товара #' . $r['id'], 'from' => $r['url'], 'to' => $to];
+            } else {
+                $lost[] = ['where' => 'картинка товара #' . $r['id'], 'url' => $r['url']];
+            }
+        }
+
+        /* settings: hero_image / snow_flake — простые значения; hero_slides — JSON */
+        try {
+            $st = $pdo->query("SELECT key, value FROM settings WHERE key IN ('hero_image','snow_flake','hero_slides')");
+            foreach ($st as $row) {
+                $raw = (string)$row['value'];
+                if ($raw === '') continue;
+                if ($row['key'] === 'hero_slides') {
+                    $slides = json_decode($raw, true);
+                    if (!is_array($slides)) continue;
+                    $changed = false;
+                    foreach ($slides as $i => &$s) {
+                        if (!is_array($s)) continue;
+                        foreach (['url', 'image'] as $fld) {
+                            $v = (string)($s[$fld] ?? '');
+                            if ($v === '' || !str_starts_with($norm($v), '/uploads/')) continue;
+                            $checked++;
+                            [$cst, $to] = $heal($v);
+                            if ($cst === 'ok') { $unchanged++; continue; }
+                            if ($cst === 'converted') {
+                                $converted[] = ['where' => 'слайд hero #' . ((int)$i + 1) . " ({$fld})", 'from' => $v, 'to' => $to];
+                            } elseif ($cst === 'fixed' && $to !== null) {
+                                $s[$fld] = $to; $changed = true;
+                                $fixed[] = ['where' => 'слайд hero #' . ((int)$i + 1) . " ({$fld})", 'from' => $v, 'to' => $to];
+                            } else {
+                                $lost[] = ['where' => 'слайд hero #' . ((int)$i + 1) . " ({$fld})", 'url' => $v];
+                            }
+                        }
+                    }
+                    unset($s);
+                    if ($changed) {
+                        $pdo->prepare("UPDATE settings SET value = ? WHERE key = 'hero_slides'")
+                            ->execute([json_encode($slides, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+                    }
+                } else {
+                    if (!str_starts_with($norm($raw), '/uploads/')) continue;
+                    $checked++;
+                    [$cst, $to] = $heal($raw);
+                    if ($cst === 'ok') { $unchanged++; continue; }
+                    if ($cst === 'converted') {
+                        $converted[] = ['where' => "настройка {$row['key']}", 'from' => $raw, 'to' => $to];
+                    } elseif ($cst === 'fixed' && $to !== null) {
+                        $pdo->prepare('UPDATE settings SET value = ? WHERE key = ?')->execute([$to, $row['key']]);
+                        $fixed[] = ['where' => "настройка {$row['key']}", 'from' => $raw, 'to' => $to];
+                    } else {
+                        $lost[] = ['where' => "настройка {$row['key']}", 'url' => $raw];
+                    }
+                }
+            }
+        } catch (PDOException) {
+            // нет settings — пропускаем
+        }
+
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.fix-image-refs',
+            "проверено {$checked}, доконвертировано " . count($converted)
+            . ", исправлено " . count($fixed) . ", потеряно " . count($lost));
+        jsonResponse(['data' => [
+            'ok' => true,
+            'checked' => $checked,
+            'unchanged' => $unchanged,
+            'converted' => $converted,
+            'fixed' => $fixed,
+            'lost' => $lost,
+        ]]);
     }
 
     /* ── СЖАТИЕ ВИДЕО (кнопка «Сжать» в редакторе товара) ──
@@ -1044,22 +1239,24 @@ class AdminFilesController
             jsonResponse(['error' => 'Обложки PDF конвертировать нельзя — имя обложки жёстко зашито в каталогах'], 422);
         }
 
+        /* Task 116: прежний locateUploaded-фолбэк (поиск по имени по всему
+           дереву) ДЛЯ КАРТИНОК УДАЛЁН. Имена картинок неуникальны — в папке
+           каждого товара лежит свой 0.jpg/1.jpg; если точного файла нет,
+           фолбэк конвертировал ПЕРВУЮ попавшуюся чужую картинку с тем же
+           именем (удаляя её оригинал!) и переписывал ссылки просящего товара
+           на чужую папку — тот самый класс «разные файлы — одно название».
+           Очередь оптимизатора всегда присылает точные пути из списка диска,
+           а если файла нет — честный 404 и подсказка обновить список. */
         $uploadsRoot = realpath(Paths::uploadsRoot());
-        $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
-        $locatedUrl = $url;
+        $realFile = ($uploadsRoot !== false)
+            ? realpath(Paths::publicRoot() . $url)
+            : false;
 
-        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)) {
-            $found = self::locateUploaded($url);
-            if ($found === null) {
-                jsonResponse(['error' => 'Файл ' . basename($url)
-                    . ' не найден в /uploads — возможно, он удалён или уже конвертирован'], 404);
-            }
-            $realFile = $found['abs'];
-            $locatedUrl = $found['url'];
-        }
-        if (!is_file($realFile)
+        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)
             || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
-            jsonResponse(['error' => 'Файл не найден на сервере'], 404);
+            jsonResponse(['error' => 'Файл ' . basename($url)
+                . ' не найден на сервере — он уже конвертирован, перемещён или удалён.'
+                . ' Закройте окно и откройте список заново — он возьмёт актуальные файлы.'], 404);
         }
 
         $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
@@ -1068,11 +1265,17 @@ class AdminFilesController
         }
 
         $opt = MediaOptimizer::optimizeImageFile($realFile);
-        if (!$opt['converted']) {
-            jsonResponse(['error' => $opt['note'] ?: 'Не удалось конвертировать картинку в WebP'], 422);
+        /* Task 116: ссылочные переписывания — ТОЛЬКО когда файл реально
+           записан на диск (imagewebp/rename у GD могут молча не пройти на
+           переполненной квоте хостинга). Иначе база уедет на .webp, а файла
+           не будет — те самые 404 на витрине. */
+        $newPath = dirname($realFile) . '/' . $opt['name'];
+        if (!$opt['converted'] || !is_file($newPath) || filesize($newPath) === 0) {
+            jsonResponse(['error' => ($opt['note'] ?: 'Не удалось конвертировать картинку в WebP')
+                . ' — файл не записан, ссылки в базе не тронуты. Проверьте свободное место/права на папке.'], 422);
         }
 
-        $newUrl = rtrim(dirname($locatedUrl), '/') . '/' . $opt['name'];
+        $newUrl = rtrim(dirname($url), '/') . '/' . $opt['name'];
         $refs = self::retargetImageRefs($pdo, $url, $newUrl);
 
         jsonResponse(['data' => [
@@ -1191,6 +1394,19 @@ class AdminFilesController
         } catch (UnexpectedValueException) {
             return null; // дерево не прочиталось (права и т.п.)
         }
+
+        /* Task 116: НЕОДНОЗНАЧНОСТЬ. Если одно и то же имя лежит в нескольких
+           разных папках (0.mov у каждого товара — обычное дело), выбор
+           «самого свежего» — это конвертация ЧУЖОГО файла и переписывание
+           ссылок просящего товара на чужую папку. Такие имена фолбэк
+           больше не угадывает — точный путь знает только запросчик. */
+        $multiDir = static function (array $list): bool {
+            $dirs = [];
+            foreach ($list as $f) { $dirs[dirname($f)] = true; }
+            return count($dirs) > 1;
+        };
+        if ($multiDir($same)) $same = [];
+        if ($multiDir($ci)) $ci = [];
 
         $pick = static function (array $list) use ($root): ?string {
             if ($list === []) return null;

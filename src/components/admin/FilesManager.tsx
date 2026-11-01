@@ -518,7 +518,7 @@ export function FilesManager() {
     if (unusedSelected.size === 0) return;
     if (
       !window.confirm(
-        `Удалить навсегда ${unusedSelected.size} файл(ов)?\nОни не привязаны к товарам, но вернуть их будет нельзя.`
+        `Убрать в корзину ${unusedSelected.size} файл(ов)?\nОни не привязаны к товарам и настройкам витрины.\nКорзина хранит файлы 30 дней — всё можно восстановить.`
       )
     )
       return;
@@ -538,7 +538,7 @@ export function FilesManager() {
       }
       setUploadNote({
         ok: true,
-        text: `Удалено неиспользуемых файлов: ${json.data?.deleted ?? 0}` +
+        text: `Убрано в корзину: ${json.data?.deleted ?? 0}` +
           (json.data?.skipped ? ` · пропущено: ${json.data.skipped}` : ""),
       });
       await loadUnused();

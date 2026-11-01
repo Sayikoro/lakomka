@@ -65,6 +65,8 @@ if [ "$MODE" = "media" ]; then
   rm -rf "$PKG_M"
   mkdir -p "$PKG_M"
   cp -a "$PKG/uploads" "$PKG_M/uploads"
+  # мусор песочницы (корзина) в медиа-синк не едет
+  rm -rf "$PKG_M/uploads/.trash"
   printf '{"type":"media","media_sync":true,"version":"%s","built_at":"%s","git":"%s"}\n' \
     "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)" > "$PKG_M/update-manifest.json"
   MEDIA_ZIP="$ROOT/download/lakomka-media-$VERSION.zip"
@@ -110,6 +112,8 @@ rm -f "$PKG/backend/storage/github-token.txt"
 rm -f "$PKG/backend/storage/github-release-cache.json"
 rm -f "$PKG/backend/storage/deploy-archive-meta.json"
 rm -f "$PKG/backend/UPDATE_ROOT"
+# корзина песочницы (.trash) в деплой-пакет не едет
+rm -rf "$PKG/uploads/.trash"
 cp "$ROOT/scripts/deploy/.htaccess" "$PKG/.htaccess"
 cp "$ROOT/scripts/deploy/README-DEPLOY.md" "$PKG/README-DEPLOY.md"
 # страница обновления: дубль входа и на развёрнутом сайте (там есть и /admin)

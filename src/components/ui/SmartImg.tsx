@@ -19,6 +19,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image, { type ImageProps } from "next/image";
 
+/* Task 116: самовосстановление битых картинок. Если файл по ссылке
+ * отсутствует (404 — например, после массовой оптимизации база смотрит
+ * на .webp, которого на сервере нет, а исходный jpg лежит рядом),
+ * пробуем ту же папку, то же имя, другие расширения, пока что-то не
+ * откроется. Работает ТОЛЬКО для /uploads/**, максимум по одному разу
+ * на каждый вариант. */
+const IMG_FALLBACK_EXTS = ["webp", "jpg", "jpeg", "png"] as const;
+
+function nextFallbackSrc(src: string, tried: string[]): string | null {
+  const clean = src.split("?")[0];
+  const m = /^(\/uploads\/.+\/)([^/]+)\.(webp|jpe?g|png)$/i.exec(clean);
+  if (!m) return null;
+  const dir = m[1];
+  const stem = m[2];
+  const ext = m[3].toLowerCase();
+  for (const e of IMG_FALLBACK_EXTS) {
+    if (e === ext) continue;
+    const cand = `${dir}${stem}.${e}`;
+    if (!tried.includes(cand)) return cand;
+  }
+  return null;
+}
+
 type SmartImageProps = Omit<ImageProps, "onLoad" | "onError"> & {
   /** Доп. классы на скелетоне (например скругление) */
   skeletonClassName?: string;
@@ -34,15 +57,45 @@ export function SmartImage({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  /* Task 116: текущий src может заменяться на сиблинга с другим
+     расширением, если основной файл 404 */
+  const [curSrc, setCurSrc] = useState(rest.src);
+  const [tried, setTried] = useState<string[]>([]);
+  const [prevPropSrc, setPrevPropSrc] = useState(rest.src);
+  /* Проп src сменился (карусель/новый товар) — сбрасываем фолбэк-цепочку.
+     Официальный паттерн React «adjusting state when a prop changes». */
+  if (prevPropSrc !== rest.src) {
+    setPrevPropSrc(rest.src);
+    setCurSrc(rest.src);
+    setTried([]);
+  }
 
   const handleLoad = useCallback(() => {
     setLoaded(true);
     onLoad?.();
   }, [onLoad]);
 
-  /* Картинка могла догрузиться до гидратации (кеш) — onLoad уже не придёт */
+  const handleError = useCallback(() => {
+    const cand = nextFallbackSrc(String(curSrc), tried);
+    if (cand) {
+      setTried([...tried, cand]);
+      setFailed(false);
+      setLoaded(false);
+      setCurSrc(cand);
+      return;
+    }
+    setFailed(true);
+  }, [curSrc, tried]);
+
+  /* Картинка могла догрузиться до гидратации: и успех из кеша (onLoad не
+     придёт), и ОШИБКА из кеша (onError не придёт — например, файл 404,
+     а React ещё не навесил обработчики). Оба случая добираем вручную. */
   useEffect(() => {
     const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth === 0) {
+      handleError();
+      return;
+    }
     if (img && img.complete && img.naturalWidth > 0) {
       setLoaded(true);
       onLoad?.();
@@ -60,9 +113,10 @@ export function SmartImage({
       )}
       <Image
         {...rest}
+        src={curSrc}
         ref={imgRef}
         onLoad={handleLoad}
-        onError={() => setFailed(true)}
+        onError={handleError}
         className={`${className ?? ""} transition-opacity duration-500 ease-out ${
           loaded || failed ? "opacity-100" : "opacity-0"
         }`}
@@ -98,15 +152,48 @@ export function SmartImg({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  /* Task 116: текущий src — может заменяться на сиблинга с другим
+     расширением, когда основной файл 404 (ссылки в базе уехали на .webp,
+     а файл на сервере остался jpg) */
+  const [curSrc, setCurSrc] = useState(src);
+  const [tried, setTried] = useState<string[]>([]);
+  const [prevPropSrc, setPrevPropSrc] = useState(src);
+  /* Проп src сменился (карусель/новый товар) — сбрасываем фолбэк-цепочку */
+  if (prevPropSrc !== src) {
+    setPrevPropSrc(src);
+    setCurSrc(src);
+    setTried([]);
+  }
 
   const handleLoad = useCallback(() => {
     setLoaded(true);
     onLoad?.();
   }, [onLoad]);
 
-  /* Картинка из кеша могла загрузиться до гидратации */
+  const handleError = useCallback(
+    (e?: React.SyntheticEvent<HTMLImageElement, Event>) => {
+      const cand = nextFallbackSrc(curSrc, tried);
+      if (cand) {
+        setTried([...tried, cand]);
+        setFailed(false);
+        setLoaded(false);
+        setCurSrc(cand);
+        return;
+      }
+      setFailed(true); // всё перепробовали — пустой фон
+      if (e) onError?.(e);
+    },
+    [curSrc, tried, onError]
+  );
+
+  /* Картинка из кеша: и успех (onLoad не придёт), и ошибка до гидратации
+     (onError не придёт) — добираем оба случая вручную (Task 116) */
   useEffect(() => {
     const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth === 0) {
+      handleError();
+      return;
+    }
     if (img && img.complete && img.naturalWidth > 0) {
       setLoaded(true);
       onLoad?.();
@@ -139,13 +226,10 @@ export function SmartImg({
       <img
         {...rest}
         ref={imgRef}
-        src={src}
+        src={curSrc}
         alt={alt}
         onLoad={handleLoad}
-        onError={(e) => {
-          setFailed(true); // ошибка: убираем скелетон, показываем пустой фон
-          onError?.(e);
-        }}
+        onError={handleError}
         className={`${className} transition-opacity duration-500 ease-out ${
           loaded ? "opacity-100" : "opacity-0"
         }`}

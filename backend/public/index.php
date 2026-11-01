@@ -516,6 +516,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::unusedPurge($pdo);
     }
+    /* Task 116: починить битые ссылки на картинки (после массовой оптимизации) */
+    if ($path === '/api/admin/files/fix-image-refs' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::fixImageRefs($pdo);
+    }
     if ($path === '/api/admin/files/download' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::download();
