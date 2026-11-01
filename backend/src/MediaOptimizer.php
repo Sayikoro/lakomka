@@ -196,13 +196,25 @@ class MediaOptimizer
         // в фильтрах для sh спецсимволы, без экранирования команды падают)
         $map = '-map ' . escapeshellarg('0:v:0') . ' -map ' . escapeshellarg('0:a:0?');
         $pad = '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2'); // чётные размеры (требование x264/браузеров)
+        $san = self::sanitizerFilter();      // + квадратные пиксели, CFR 30, форс 4:2:0 8-bit
+        $cap = self::sanitizerFilter(true);  // + ужатие до 1080p, ultrafast
 
-        // [перекодировать?, аргументы ffmpeg, подпись метода]
+        /* Каскад — от самого бережного к самому терпимому. Первые 4 попытки —
+           прежние (проверены годом работы), остальные 3 — «санитайзеры» для
+           серверов с капризной сборкой ffmpeg (на живом хостинге старые 4.x
+           падали на инициализации кодера без внятной причины): другой способ
+           передачи пиксельного формата (format-фильтр вместо флага -pix_fmt),
+           принудительные квадратные пиксели/CFR/чётные размеры, лимит 1080p
+           и ultrafast (меньше памяти под lookahead). -nostdin — на всякий
+           случай, если stdin воркера не закрыт (ffmpeg тогда ждёт команды). */
         $attempts = [
             [false, '-c copy', 'контейнер mov → mp4 (без потери качества)'],
             [false, "$map -c copy", 'контейнер mov → mp4 (без потери качества)'],
             [true,  "$map -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad -c:a aac -b:a 128k", 'перекодировано в H.264'],
+            [true,  "-nostdin $map -c:v libx264 -preset veryfast -crf 26 $san -c:a aac -b:a 128k", 'перекодировано в H.264'],
             [true,  "$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", 'перекодировано в H.264 (без звука)'],
+            [true,  "-nostdin $map -c:v libx264 -preset ultrafast -crf 26 $cap -c:a aac -b:a 96k", 'перекодировано в H.264 (упрощённый режим)'],
+            [true,  "-nostdin $map -an -c:v libx264 -preset ultrafast -crf 26 $cap", 'перекодировано в H.264 (упрощённый режим, без звука)'],
         ];
 
         $method = null;
@@ -233,7 +245,14 @@ class MediaOptimizer
         }
 
         if ($method === null) {
-            $reason = $lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '';
+            /* Все попытки провалились. Общая строка от ffmpeg («Error while opening
+               encoder…») не объясняет причину — старые 4.x прячут её под -loglevel
+               error. Прогоняем кодирование «в никуда» на подробном логе и достаём
+               настоящую причину (или честно говорим, что кодер в норме, а сбой —
+               при записи файла). */
+            $probe = self::probeTranscode($bin, $path, $map);
+            $reason = $probe !== '' ? ' (ffmpeg: ' . $probe . ')'
+                     : ($lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '');
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
                     'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
         }
@@ -300,15 +319,19 @@ class MediaOptimizer
         if (function_exists('ini_set')) { @ini_set('memory_limit', '512M'); }
 
         // Кодируем во временный файл рядом: оригинал не пострадает при сбое,
-        // замена — атомарный rename. Каскад из двух попыток: со звуком и без.
+        // замена — атомарный rename. Каскад: обычные попытки + санитайзеры
+        // (см. комментарий к каскаду в optimizeVideoFile).
         $tmp = dirname($path) . '/.min-tmp-' . bin2hex(random_bytes(4)) . '.mp4';
         $escapedSrc = escapeshellarg($path);
         $escapedTmp = escapeshellarg($tmp);
         $map = '-map ' . escapeshellarg('0:v:0') . ' -map ' . escapeshellarg('0:a:0?');
         $pad = '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2');
+        $san = self::sanitizerFilter();
         $attempts = [
             ["$map -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad -c:a aac -b:a 128k", ''],
             ["$map -an -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p $pad", ' (без звука)'],
+            ["-nostdin $map -c:v libx264 -preset veryfast -crf 26 $san -c:a aac -b:a 128k", ''],
+            ["-nostdin $map -an -c:v libx264 -preset veryfast -crf 26 $san", ' (без звука)'],
         ];
 
         $lastErr = '';
@@ -328,7 +351,9 @@ class MediaOptimizer
             @unlink($tmp);
         }
         if (!$done) {
-            $reason = $lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '';
+            $probe = self::probeTranscode($bin, $path, $map);
+            $reason = $probe !== '' ? ' (ffmpeg: ' . $probe . ')'
+                     : ($lastErr !== '' ? ' (ffmpeg: ' . $lastErr . ')' : '');
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
                     'note' => "не удалось перекодировать видео$reason — оставлен исходный файл"];
         }
@@ -356,6 +381,67 @@ class MediaOptimizer
     }
 
     /* ─────────────────────────── ВНУТРЕННЕЕ ─────────────────────────── */
+
+    /**
+     * Фильтр-цепочка «санитайзера»: чётные размеры, квадратные пиксели (бьёт
+     * экзотический SAR), постоянные 30 fps (бьёт битый framerate), форс 8-bit
+     * 4:2:0 через format-фильтр — без флага -pix_fmt, который на некоторых
+     * сборках ffmpeg по-другому доезжает до кодера. С $cap=true — ещё и ужатие
+     * до 1080p (меньше памяти у x264) и ultrafast в аргументах вызывающего.
+     */
+    private static function sanitizerFilter(bool $cap = false): string
+    {
+        $base = 'pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,fps=30,format=yuv420p';
+        if ($cap) {
+            // min() не даёт растянуть мелкие видео; одиночные кавычки внутри
+            // строки фильтра — это уровень filtergraph (защита запятой в min())
+            $base = "scale=w='min(1920,iw)':h=-2:flags=lanczos," . $base;
+        }
+        return '-vf ' . escapeshellarg($base);
+    }
+
+    /**
+     * Диагностика провала кодирования: прогон «в никуда» (-f null) с подробным
+     * логом. Если и там кодер открывается — значит сбой был при записи mp4
+     * (место/права/muxer), иначе выцепляем первопричину из полного лога:
+     * при -loglevel error старые 4.x выдают только общую строку
+     * «Error while opening encoder…», пряча конкретику выше по выводу.
+     *
+     * @return string человекочитаемая причина; '' — причину выцепить не удалось
+     */
+    private static function probeTranscode(string $bin, string $src, string $map): string
+    {
+        $out = [];
+        $cmd = escapeshellarg($bin) . ' -y -hide_banner -loglevel info -i ' . escapeshellarg($src)
+             . ' ' . $map
+             . ' -c:v libx264 -preset veryfast -crf 26 '
+             . '-vf ' . escapeshellarg('pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format=yuv420p')
+             . ' -an -f null - 2>&1';
+        @exec($cmd, $out, $code);
+        if ($code === 0) {
+            return 'кодер и параметры кадра в норме — сбой возникал при записи mp4-файла (место на диске, права или muxer)';
+        }
+        foreach ((array)$out as $l) {
+            $l = trim((string)$l);
+            if ($l === '') continue;
+            if (preg_match('/(not divisible|Invalid pixel aspect|Impossible to convert|Unknown encoder|Error initializing filter|Failed to configure|Error opening encoder|x264 \[error\]|Error parsing option|Matched no streams|Invalid data)/i', $l)) {
+                return self::trimErr($l);
+            }
+        }
+        foreach ((array)$out as $l) {
+            $l = trim((string)$l);
+            if (preg_match('/^\[(libx264|x264)\b/i', $l)) return self::trimErr($l);
+        }
+        return '';
+    }
+
+    /** Срезаем техношум адресов «[libx264 @ 0x5641…]» и ограничиваем длину */
+    private static function trimErr(string $l): string
+    {
+        $l = preg_replace('/^\[[^\]]*@0x[0-9a-f]+\]\s*/i', '', $l) ?? $l;
+        return mb_substr($l, 0, 180);
+    }
+
     /** Кодек первой видео-дорожки файла (по stderr «ffmpeg -i»); null — не разобрать */
     private static function videoCodec(string $bin, string $file): ?string
     {
