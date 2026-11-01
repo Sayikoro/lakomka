@@ -41,6 +41,8 @@ export interface Product {
   height_cm?: number | null;
   recipe_weight_g?: number | null;
   show_in_catalog: number;
+  /** Остаток на складе (для SEO-разметки «в наличии/нет в наличии») */
+  stock_qty?: number | null;
   media: ProductMedia[];
   images: ProductImage[];
   bundle_items?: BundleItem[];

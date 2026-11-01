@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartLine, Product } from "@/lib/types";
+import { ymReachGoal } from "@/lib/metrika";
 
 interface CartState {
   lines: CartLine[];
@@ -21,6 +22,14 @@ export const useCart = create<CartState>()(
 
       add: (product, qty = 1) =>
         set((state) => {
+          /* Цель Метрики «добавление в корзину» (Task 107) — все кнопки
+             «В корзину» витрины проходят через этот метод стора */
+          ymReachGoal("add_to_cart", {
+            product_id: product.id,
+            product: product.name,
+            price: Math.round(product.price_kopecks / 100),
+            quantity: qty,
+          });
           const existing = state.lines.find((l) => l.product.id === product.id);
           if (existing) {
             return {

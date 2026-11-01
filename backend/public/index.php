@@ -422,6 +422,12 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminSettingsController.php';
         AdminSettingsController::testEmail($pdo);
     }
+    /* Telegram-уведомления: проверка бота из админки (Task 108) */
+    if ($path === '/api/admin/settings/test-telegram' && $method === 'POST') {
+        Auth::requireSuperAdmin();
+        require_once __DIR__ . '/../src/Controllers/AdminSettingsController.php';
+        AdminSettingsController::testTelegram($pdo);
+    }
 
     /* ========== ADMIN: PRODUCTS ========== */
         if ($path === '/api/admin/products/import-zip' && $method === 'POST') {

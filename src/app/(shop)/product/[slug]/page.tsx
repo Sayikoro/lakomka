@@ -62,8 +62,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     other: {
       "product:price:amount": String(priceRub),
       "product:price:currency": "RUB",
+      /* Наличие — по реальному остатку (Task 109, синхронно с ProductJsonLd) */
       "product:availability":
-        product.show_in_catalog === 1 ? "in stock" : "out of stock",
+        product.show_in_catalog === 1 &&
+        (product.stock_qty == null || product.stock_qty > 0)
+          ? "in stock"
+          : "out of stock",
     },
   };
 }

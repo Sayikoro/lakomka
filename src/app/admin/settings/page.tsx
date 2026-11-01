@@ -24,6 +24,12 @@ export interface AdminSettings {
   product_card_template: string;
   /* видео в карточке каталога: "1" = показывать, "0" = скрыть */
   card_video_enabled: string;
+  /* Яндекс.Метрика: номер счётчика (только цифры), пусто = счётчика нет */
+  ym_id: string;
+  /* Telegram-уведомления (Task 108) */
+  tg_bot_token: string;
+  tg_bot_token_set: boolean;
+  tg_chat_id: string;
   /* снегопад */
   snow_enabled: string;
   snow_count: string;
@@ -55,6 +61,10 @@ const DEFAULTS: AdminSettings = {
   product_card_template: "new",
   /* видео в карточке показываем по умолчанию (историческое поведение) */
   card_video_enabled: "1",
+  ym_id: "",
+  tg_bot_token: "",
+  tg_bot_token_set: false,
+  tg_chat_id: "",
   snow_enabled: "0",
   snow_count: "110",
   snow_count_mobile: "60",

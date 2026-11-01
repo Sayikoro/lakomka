@@ -29,6 +29,8 @@ export interface ShopFrontSettings {
   product_card_template: "classic" | "new";
   /** Показывать видео в карточке каталога (много видео = тяжёлая страница) */
   card_video_enabled: boolean;
+  /** Яндекс.Метрика: номер счётчика; пусто = счётчик не вшит (Task 107) */
+  ym_id: string;
   /** Снегопад */
   snow: SnowSettings;
   /** Тексты страниц («Текст на страницах»): ключ из реестра → значение;
@@ -45,6 +47,7 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   hero_slides: [],
   product_card_template: "new",
   card_video_enabled: true,
+  ym_id: "",
   snow: DEFAULT_SNOW_SETTINGS,
   texts: {},
 };
@@ -55,6 +58,7 @@ interface ApiPublicSettings {
   hero_slides?: HeroSlide[];
   product_card_template?: string;
   card_video_enabled?: boolean;
+  ym_id?: string;
   snow?: Parameters<typeof parseSnowConfig>[0];
   texts?: Record<string, unknown>;
 }
@@ -91,6 +95,8 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
       /* По умолчанию видео показываем (историческое поведение); false —
          только когда владелец явно выключил галочку в админке */
       card_video_enabled: d.card_video_enabled !== false,
+      /* Счётчик Метрики: бэкенд отдаёт только валидные цифры или пусто */
+      ym_id: typeof d.ym_id === "string" ? d.ym_id : "",
       snow: parseSnowConfig(d.snow),
       texts: parseTexts(d.texts),
     };

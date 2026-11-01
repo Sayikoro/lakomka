@@ -191,6 +191,21 @@ class OrderController
                     ->execute([$emailSent, $emailError, $orderId]);
             }
 
+            // Telegram-уведомление админу (Task 108) — рядом с письмом, после
+            // COMMIT; любая ошибка (сеть, неверный токен) НЕ ломает ответ заказа.
+            try {
+                require_once __DIR__ . '/../Telegram.php';
+                [$tgOk, $tgErr] = Telegram::sendMessage(
+                    $pdo,
+                    self::telegramText($orderNumber, $name, $phone, $method, $address, $comment, $total, $lines)
+                );
+                if (!$tgOk) {
+                    error_log('[telegram] ' . $tgErr);
+                }
+            } catch (Throwable $tg) {
+                error_log('[telegram] ' . $tg->getMessage());
+            }
+
             jsonResponse([
                 'data' => [
                     'order_id'      => $orderId,
@@ -209,6 +224,51 @@ class OrderController
     private static function fail(string $message, int $status = 400): never
     {
         jsonResponse(['error' => $message], $status);
+    }
+
+    /* ============================================================
+       ТЕКСТ TELEGRAM-СООБЩЕНИЯ О ЗАКАЗЕ (Task 108)
+       ============================================================ */
+
+    /** Человекочитаемые названия способов доставки (как в чекауте витрины) */
+    private const DELIVERY_LABELS = [
+        'pickup' => 'Самовывоз',
+        'city'   => 'Доставка по городу',
+        'region' => 'Доставка по краю',
+        'tk'     => 'Транспортная компания',
+    ];
+
+    private static function money(int $kopecks): string
+    {
+        return number_format($kopecks / 100, 0, '.', ' ') . ' ₽';
+    }
+
+    private static function telegramText(
+        string $orderNumber,
+        string $name,
+        string $phone,
+        string $method,
+        string $address,
+        string $comment,
+        int $total,
+        array $lines
+    ): string {
+        $delivery = self::DELIVERY_LABELS[$method] ?? $method;
+        $text  = "🛒 Новый заказ {$orderNumber} на " . self::money($total) . "\n";
+        $text .= "\n👤 {$name} — ☎ {$phone}";
+        $text .= "\n🚚 {$delivery}";
+        if ($address !== '') {
+            $text .= "\n📍 {$address}";
+        }
+        if ($comment !== '') {
+            $text .= "\n💬 {$comment}";
+        }
+        $text .= "\n\nТовары:";
+        foreach ($lines as $l) {
+            $sum = self::money((int)$l['price_kopecks'] * (int)$l['qty']);
+            $text .= "\n• {$l['product_name']} × {$l['qty']} — {$sum}";
+        }
+        return $text;
     }
 
     /* ============================================================

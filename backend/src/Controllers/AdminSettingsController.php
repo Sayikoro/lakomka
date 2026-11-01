@@ -26,6 +26,12 @@ class AdminSettingsController
         'card_video_enabled',
         /* медиа-галерея: папка поиска видео (пусто = искать везде) */
         'gallery_video_folder',
+        /* витрина: Яндекс.Метрика (номер счётчика, пусто = счётчика нет) */
+        'ym_id',
+        /* Telegram-уведомления о заказах (Task 108): токен — секрет,
+           маскируется как smtp_pass; chat_id — число или @username канала */
+        'tg_bot_token',
+        'tg_chat_id',
         /* витрина: снегопад */
         'snow_enabled',
         'snow_count',
@@ -101,6 +107,11 @@ class AdminSettingsController
             if ($k === 'smtp_pass') {
                 $out[$k] = ($map[$k] ?? '') !== '' ? '••••••••' : '';
                 $out['smtp_pass_set'] = ($map[$k] ?? '') !== '';
+            } elseif ($k === 'tg_bot_token') {
+                /* Токен бота — такой же секрет, как smtp_pass: наружу только
+                   маска + флаг «задан», пустое поле = не менять (см. update) */
+                $out[$k] = ($map[$k] ?? '') !== '' ? '••••••••' : '';
+                $out['tg_bot_token_set'] = ($map[$k] ?? '') !== '';
             } elseif ($k === 'snow_count' && ($map[$k] ?? '') === '') {
                 $out[$k] = (string)self::SNOW_DEFAULTS['count'];
             } elseif ($k === 'snow_count_mobile' && ($map[$k] ?? '') === '') {
@@ -127,7 +138,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -162,6 +173,12 @@ class AdminSettingsController
            много и страница каталога грузится тяжело. */
         $cardVideo = ($map['card_video_enabled'] ?? '1') === '0' ? false : true;
 
+        /* Яндекс.Метрика: счётчик вшивается в страницы витрины только
+           когда номер задан. tg_* наружу НЕ отдаётся — токен секрет. */
+        $ymId = preg_match('/^\d{4,}$/', trim((string)($map['ym_id'] ?? '')))
+            ? trim((string)$map['ym_id'])
+            : '';
+
         /* Тексты страниц: ключи text_* отдаются без префикса */
         $texts = [];
         foreach ($map as $k => $v) {
@@ -176,6 +193,7 @@ class AdminSettingsController
             'hero_slides'           => $slides,
             'product_card_template' => $template,
             'card_video_enabled'    => $cardVideo,
+            'ym_id'                 => $ymId,
             'snow'                  => self::snowConfig($map),
             'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
@@ -260,6 +278,39 @@ class AdminSettingsController
                 jsonResponse(['error' => 'snow_flake: локальный путь (/…) или URL'], 422);
             }
         }
+        /* Яндекс.Метрика: только цифры (номер счётчика) или пусто.
+           Метка «счётчик появляется после F5» — на фронте. */
+        if (isset($data['ym_id'])) {
+            $ymId = trim((string)$data['ym_id']);
+            if ($ymId !== '' && !preg_match('/^\d{4,}$/', $ymId)) {
+                jsonResponse(['error' => 'ym_id: номер счётчика — только цифры (например 12345678) или пусто'], 422);
+            }
+            $data['ym_id'] = $ymId;
+        }
+        /* Telegram (Task 108): пустой токен = не менять (как smtp_pass);
+           вставленная маска — честная ошибка; формат 123456789:AA… проверяем
+           мягко (цифры, двоеточие, минимум 20 символов хвоста), чтобы не
+           душить новые форматы токенов. chat_id: число (для групп —
+           отрицательное, для каналов с префиксом -100) или @username. */
+        if (isset($data['tg_bot_token'])) {
+            $tok = trim((string)$data['tg_bot_token']);
+            if ($tok !== '') {
+                if (preg_match('/^[\x{2022}\x{00B7}\x{2027}\x{25CF}\x{2219}\x{002A}\x{002E}\s]+$/u', $tok)) {
+                    jsonResponse(['error' => 'В поле токена вставлена маска (••••••••), а не токен. Вставьте токен от @BotFather.'], 422);
+                }
+                if (!preg_match('#^\d{6,}:[A-Za-z0-9_-]{20,}$#', $tok)) {
+                    jsonResponse(['error' => 'Похоже, это не токен бота. Ожидается вид 123456789:AAEl… — скопируйте его у @BotFather.'], 422);
+                }
+            }
+            $data['tg_bot_token'] = $tok;
+        }
+        if (isset($data['tg_chat_id'])) {
+            $chat = trim((string)$data['tg_chat_id']);
+            if ($chat !== '' && !preg_match('/^-?\d{3,}$|^@[A-Za-z][A-Za-z0-9_]{3,63}$/', $chat)) {
+                jsonResponse(['error' => 'tg_chat_id: число (для групп/каналов может быть отрицательным, напр. -1001234567890) или @username канала'], 422);
+            }
+            $data['tg_chat_id'] = $chat;
+        }
         /* Папка видео для медиа-галереи: относительный путь внутри /uploads.
            Пользователь вводит имя папки руками — не душим символами (скобки,
            тире и т.п. допустимы), запрещаем только «..» (traversal): реальную
@@ -294,6 +345,8 @@ class AdminSettingsController
 
             // Пустой пароль — не перезаписываем (значит не меняли)
             if ($k === 'smtp_pass' && $data[$k] === '') continue;
+            // Пустой токен Telegram — не перезаписываем (значит не меняли)
+            if ($k === 'tg_bot_token' && $data[$k] === '') continue;
             // Защита от сохранения «маски»: строка только из буллетов/точек — это
             // скопированные точки из поля пароля (например, «••••••••»), а не пароль.
             // Такой мусор в БД ломает SMTP-авторизацию («Could not authenticate»).
@@ -355,6 +408,28 @@ class AdminSettingsController
             }
 
             jsonResponse(['data' => ['ok' => true, 'message' => 'Письмо отправлено (или записано в log)']]);
+        } catch (Throwable $e) {
+            jsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /** POST /api/admin/settings/test-telegram — проверка бота и chat_id (Task 108).
+        Берёт СОХРАНЁННЫЕ настройки (не из payload) — сначала «Сохранить». */
+    public static function testTelegram(PDO $pdo): void
+    {
+        Auth::requireAuth();
+
+        require_once __DIR__ . '/../Telegram.php';
+
+        try {
+            [$ok, $err] = Telegram::sendMessage(
+                $pdo,
+                '✅ Тестовое сообщение из админки Лакомки. Уведомления о заказах работают!'
+            );
+            if (!$ok) {
+                jsonResponse(['error' => 'Сообщение НЕ отправлено: ' . $err], 500);
+            }
+            jsonResponse(['data' => ['ok' => true, 'message' => 'Сообщение отправлено в чат — проверьте Telegram']]);
         } catch (Throwable $e) {
             jsonResponse(['error' => $e->getMessage()], 500);
         }

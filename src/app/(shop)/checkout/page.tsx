@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { ymReachGoal } from "@/lib/metrika";
 import { useT } from "@/components/texts/TextsProvider";
 
 const schema = z
@@ -128,6 +129,14 @@ export default function CheckoutPage() {
         setSubmitError(json.error ?? "Не удалось создать заказ");
         return;
       }
+
+      /* Цель Метрики «заказ оформлен» (Task 107) — только при успехе API */
+      ymReachGoal("order_created", {
+        order: json.data.order_number,
+        total: Math.round(
+          lines.reduce((s, l) => s + l.product.price_kopecks * l.qty, 0) / 100
+        ),
+      });
 
       clear();
       router.push(`/order/?number=${encodeURIComponent(json.data.order_number)}`);

@@ -19,6 +19,10 @@ export function SettingsForm({ initial }: Props) {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
+  /* Telegram-тест (Task 108) */
+  const [tgStatus, setTgStatus] = useState<string | null>(null);
+  const [tgTesting, setTgTesting] = useState(false);
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   /* ── Витрина: слайды hero ── */
@@ -171,6 +175,9 @@ export function SettingsForm({ initial }: Props) {
           snow_size: String(Math.max(4, Math.min(120, parseInt(form.snow_size || "31", 10) || 31))),
           snow_color: /^#[0-9a-fA-F]{6}$/.test(form.snow_color || "") ? form.snow_color : "",
           snow_flake: form.snow_flake.trim(),
+          ym_id: form.ym_id.trim(),
+          tg_bot_token: form.tg_bot_token, // пустая строка = не менять
+          tg_chat_id: form.tg_chat_id.trim(),
         }),
       });
       const json = await res.json();
@@ -179,7 +186,7 @@ export function SettingsForm({ initial }: Props) {
         return;
       }
       setSavedAt(new Date().toLocaleTimeString());
-      setForm((f) => ({ ...f, smtp_pass: "" })); // после сохранения очищаем поле пароля
+      setForm((f) => ({ ...f, smtp_pass: "", tg_bot_token: "" })); // после сохранения очищаем поля секретов
       router.refresh();
     } catch {
       setError("Ошибка сети");
@@ -205,6 +212,25 @@ export function SettingsForm({ initial }: Props) {
       setTestStatus("✗ Ошибка сети");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function sendTestTelegram() {
+    setTgStatus(null);
+    setTgTesting(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+      const res = await fetch(`${apiUrl}/admin/settings/test-telegram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      const json = await res.json();
+      setTgStatus(res.ok ? `✓ ${json.data.message}` : `✗ ${json.error}`);
+    } catch {
+      setTgStatus("✗ Ошибка сети");
+    } finally {
+      setTgTesting(false);
     }
   }
 
@@ -350,6 +376,87 @@ export function SettingsForm({ initial }: Props) {
           </>
         )}
 
+      </div>
+
+      {/* ── Аналитика и уведомления: Метрика + Telegram (Task 107/108) ── */}
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+        <h2 className="text-lg font-semibold text-[var(--color-heading)]">
+          Аналитика и уведомления
+        </h2>
+
+        <div>
+          <label className={label}>Яндекс.Метрика — номер счётчика</label>
+          <input
+            type="text"
+            value={form.ym_id}
+            onChange={(e) => setField("ym_id", e.target.value)}
+            className={input}
+            placeholder="12345678"
+            data-testid="ym-id-input"
+          />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Только цифры из metrika.yandex.ru («Счётчик создан» → номер). Пусто = счётчика нет.
+            Появляется на витрине по F5; цели «add_to_cart» и «order_created» отправляются автоматически.
+          </p>
+        </div>
+
+        <hr className="border-[var(--color-border)]" />
+
+        <div>
+          <label className={label}>
+            Telegram — токен бота{" "}
+            {form.tg_bot_token_set && (
+              <span className="text-xs font-normal text-[var(--color-muted)]">(уже установлен, оставь пустым чтобы не менять)</span>
+            )}
+          </label>
+          <input
+            type="password"
+            value={form.tg_bot_token}
+            onChange={(e) => setField("tg_bot_token", e.target.value)}
+            className={input}
+            placeholder={form.tg_bot_token_set ? "••••••••" : "123456789:AAEl…"}
+            autoComplete="new-password"
+            data-testid="tg-token-input"
+          />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Создайте бота у @BotFather (команда /newbot) и скопируйте его токен.
+          </p>
+        </div>
+
+        <div>
+          <label className={label}>Telegram — chat_id</label>
+          <input
+            type="text"
+            value={form.tg_chat_id}
+            onChange={(e) => setField("tg_chat_id", e.target.value)}
+            className={input}
+            placeholder="123456789 или @имя_канала"
+            data-testid="tg-chat-id-input"
+          />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Узнать свой id можно у бота @getmyid_bot. Для группы/канала id отрицательный (напр. -1001234567890);
+            сначала напишите боту в этот чат одно сообщение. Пусто = уведомления выключены.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={sendTestTelegram}
+            disabled={tgTesting}
+            className="rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-1.5 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)] hover:text-white disabled:opacity-60"
+            data-testid="tg-test-btn"
+          >
+            {tgTesting ? "Отправляем…" : "Отправить тест в Telegram"}
+          </button>
+          {tgStatus && (
+            <span className="text-sm text-[var(--color-body)]">{tgStatus}</span>
+          )}
+        </div>
+        <p className="text-xs text-[var(--color-muted)]">
+          Тест и уведомления используют СОХРАНЁННЫЕ настройки — сначала нажмите «Сохранить».
+          Ошибка доставки в Telegram никогда не мешает заказу — он оформится, а письмо придёт как обычно.
+        </p>
       </div>
 
       {/* ── Витрина: hero и шаблон карточки товара ── */}

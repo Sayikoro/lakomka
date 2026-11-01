@@ -61,6 +61,7 @@ export interface ApiProduct {
   height_cm?: number | null;
   recipe_weight_g?: number | null;
   show_in_catalog: number;
+  stock_qty?: number | null;
   video_url?: string | null;
   component_ids?: number[];
   images?: ApiImage[];
@@ -138,6 +139,7 @@ export function normalizeProduct(p: ApiProduct): Product {
     height_cm: p.height_cm ?? null,
     recipe_weight_g: p.recipe_weight_g ?? null,
     show_in_catalog: p.show_in_catalog,
+    stock_qty: p.stock_qty ?? null,
     media,
     images,
     bundle_items: p.type === "bundle" ? bundle_items : undefined,
