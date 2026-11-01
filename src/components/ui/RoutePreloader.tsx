@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { FUNNY_PHRASES } from "@/lib/funny-phrases";
+
+/** Через сколько секунд после клика, если адрес так и не сменился,
+ * выполняется жёсткий (полный) переход по ссылке. */
+const NAV_WATCHDOG_MS = 8000;
+/** Через сколько после смены адреса проверяем, что страница реально
+ * отрисовалась; если нет — чистим сегмент-кэш и перезагружаем. */
+const BLANK_REPAIR_MS = 2500;
+/** Флаг «уже перезагружались на этом адресе» — защита от циклов. */
+const REPAIR_FLAG = "lakomka-blank-repair";
 
 export function RoutePreloader() {
   const pathname = usePathname();
@@ -11,6 +20,20 @@ export function RoutePreloader() {
 
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Сторож навигации: { href, timer } — если SPA-переход не сменил
+   * адрес за NAV_WATCHDOG_MS, выполняем location.assign(href).
+   * Статические HTML-страницы отдаёт сам Apache, поэтому полный
+   * переход срабатывает всегда — пользователь не остаётся один на один
+   * с висящим прелоадером («кликнул, крутилось — и ничего»). */
+  const navWatchRef = useRef<{ href: string; from: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const cancelNavWatch = useCallback(() => {
+    if (navWatchRef.current) {
+      clearTimeout(navWatchRef.current.timer);
+      navWatchRef.current = null;
+    }
+  }, []);
 
   /* ---- Ротация фраз пока виден ---- */
   useEffect(() => {
@@ -24,6 +47,8 @@ export function RoutePreloader() {
 
   /* ---- Смена pathname → скрываем ---- */
   useEffect(() => {
+    // Навигация состоялась — сторож больше не нужен
+    cancelNavWatch();
     // Если шоу-таймер не успел сработать — отменяем его
     if (showTimerRef.current) {
       clearTimeout(showTimerRef.current);
@@ -33,16 +58,67 @@ export function RoutePreloader() {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => setVisible(false), 100);
 
+    /* Второй контур: адрес сменился, а страница ТАК И НЕ ОТРИСОВАЛАСЬ
+     * (сегмент-кэш Next отравлен мусорным/битым ответом или рендер упал —
+     * на витрине это выглядит как «прелоадер покрутился, а страничка не
+     * загрузилась», и так на каждом клике, пока кэш вкладки не очищен).
+     * Проверка двухступенчатая (2.5с + ещё 2с), чтобы не мешать медленным
+     * устройствам дорендерить. Лечение: чистим sessionStorage сегмент-кэша
+     * и делаем жёсткую перезагрузку — серверный HTML всегда валиден.
+     * Один раз на адрес (защита от цикла). */
+    const path = pathname;
+    const isBlank = () => {
+      try {
+        // <main> отсутствует или пуст = страница не отрисовалась.
+        // Шапка/подвал на витрине постоянны, поэтому тело целиком
+        // неинформативно — смотрим только на контент main.
+        // <main> есть на всех страницах (витрина, 404, админка).
+        const mainText = (document.querySelector("main")?.textContent ?? "").trim();
+        return mainText.length < 20;
+      } catch {
+        return false; // DOM недоступен — страницу считаем живой
+      }
+    };
+    let repair2: ReturnType<typeof setTimeout> | null = null;
+    const repair = setTimeout(() => {
+      if (!isBlank()) return; // страница отрисовалась — лечить нечего
+      // ещё 2с терпения: медленное устройство может дорендерить
+      repair2 = setTimeout(() => {
+        if (!isBlank()) return;
+        let already = "";
+        try {
+          already = sessionStorage.getItem(REPAIR_FLAG) ?? "";
+        } catch {
+          already = path; // storage недоступен — не рискуем циклом
+        }
+        if (already === path) return; // уже перезагружались на этом адресе
+        try {
+          sessionStorage.clear(); // отравленный сегмент-кэш — вон
+          sessionStorage.setItem(REPAIR_FLAG, path);
+        } catch {
+          /* ignore */
+        }
+        setVisible(true); // оверлей остаётся до выгрузки
+        window.location.reload();
+      }, 2000);
+    }, BLANK_REPAIR_MS);
+
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      clearTimeout(repair);
+      if (repair2) clearTimeout(repair2);
     };
-  }, [pathname]);
+  }, [pathname, cancelNavWatch]);
 
   /* ---- Safety: если прелоадер висит >10 сек, скрываем ---- */
   useEffect(() => {
     if (!visible) return;
     const safety = setTimeout(() => setVisible(false), 10000);
-    return () => clearTimeout(safety);
+    safetyTimerRef.current = safety;
+    return () => {
+      clearTimeout(safety);
+      if (safetyTimerRef.current === safety) safetyTimerRef.current = null;
+    };
   }, [visible]);
 
   /* ---- Перехват кликов на внутренние ссылки ---- */
@@ -87,14 +163,36 @@ export function RoutePreloader() {
       showTimerRef.current = setTimeout(() => {
         setVisible(true);
       }, 150);
+
+      // Сторож: адрес не сменился за NAV_WATCHDOG_MS → полный переход.
+      // (Повторные клики перезаряжают сторож на новую ссылку.)
+      cancelNavWatch();
+      const from = window.location.href;
+      const watch = setTimeout(() => {
+        navWatchRef.current = null;
+        // Пока таймер тикал, адрес мог смениться программно (router.push,
+        // смена query) — тогда жёсткий переход не нужен
+        if (window.location.href === from) {
+          // Оверлей остаётся до выгрузки документа: не даём safety-таймеру
+          // спрятать прелоадер посреди жёсткого перехода
+          if (safetyTimerRef.current) {
+            clearTimeout(safetyTimerRef.current);
+            safetyTimerRef.current = null;
+          }
+          setVisible(true);
+          window.location.assign(link.href);
+        }
+      }, NAV_WATCHDOG_MS);
+      navWatchRef.current = { href: link.href, from, timer: watch };
     };
 
     document.addEventListener("click", onClick);
     return () => {
       document.removeEventListener("click", onClick);
       if (showTimerRef.current) clearTimeout(showTimerRef.current);
+      cancelNavWatch();
     };
-  }, [pathname]);
+  }, [pathname, cancelNavWatch]);
 
   return (
     <div

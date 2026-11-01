@@ -16,6 +16,7 @@ interface VersionInfo {
 interface LastUpdate {
   applied_at?: string | null;
   mode?: string | null;
+  kind?: string | null;
   files?: number | null;
   failed?: number | null;
   version?: string | null;
@@ -27,12 +28,14 @@ interface UpdateStatus {
   mode: "deployed" | "staging" | "none";
   version: VersionInfo | null;
   last_update: LastUpdate | null;
+  last_media_sync?: LastUpdate | null;
 }
 
 interface ApplyResult {
   ok: boolean;
   applied_at: string;
   mode: string;
+  media_sync?: boolean;
   files: number;
   failed: number;
   failed_list?: string[];
@@ -102,6 +105,11 @@ function humanSize(bytes: number): string {
  * Архив собирается в песочнице: MODE=update bash scripts/build-static.sh.
  * Обновляет функционал (страницы, стили, скрипты, PHP), НЕ трогает
  * медиа (uploads/) и базу данных (заказы, настройки SMTP).
+ *
+ * МЕДИА-АРХИВ (task 113): lakomka-media-*.zip (MODE=media) применяется тем же
+ * входом, но в обратном режиме — дозаливает ТОЛЬКО uploads/**: картинки и видео
+ * товаров, добавленные после первичного деплоя, попадают на сервер без
+ * пересборки страниц (иначе — сотни 404 на витрине).
  */
 export function SiteUpdateTab() {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
@@ -249,8 +257,12 @@ export function SiteUpdateTab() {
     setError(null);
     setResult(null);
 
+    // lakomka-media-*.zip применяется в обратном режиме — только uploads/**
+    const isMedia = /^lakomka-media-.*\.zip$/i.test(file.name);
     const ok = window.confirm(
-      "Применить обновление сайта?\n\nФайлы сайта (страницы, стили, скрипты, PHP) будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений."
+      isMedia
+        ? "Применить МЕДИА-архив?\n\nНа сервер будут добавлены/перезаписаны только файлы картинок и видео (uploads/). Страницы, скрипты и база данных (заказы, товары, настройки) останутся без изменений."
+        : "Применить обновление сайта?\n\nФайлы сайта (страницы, стили, скрипты, PHP) будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений."
     );
     if (!ok) return;
 
@@ -325,6 +337,16 @@ export function SiteUpdateTab() {
                         status.last_update.version ? ` · версия ${status.last_update.version}` : ""
                       }`
                     : "обновлений ещё не было"}
+                </dd>
+              </div>
+              <div>
+                <dt className={labelCls}>Последний медиа-синк</dt>
+                <dd className={valueCls}>
+                  {status?.last_media_sync
+                    ? `${fmtDate(status.last_media_sync.applied_at)} · файлов: ${status.last_media_sync.files ?? "?"}${
+                        status.last_media_sync.version ? ` · версия ${status.last_media_sync.version}` : ""
+                      }`
+                    : "медиа ещё не досылались"}
                 </dd>
               </div>
               <div>
@@ -453,11 +475,13 @@ export function SiteUpdateTab() {
 
         {ghDone && (
           <div className="mt-4 rounded-[var(--radius-card)] border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-            <p className="font-medium">Сайт обновлён с GitHub</p>
+            <p className="font-medium">{ghDone.media_sync ? "Медиа обновлены (с GitHub)" : "Сайт обновлён с GitHub"}</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5">
-              <li>Файлов обновлено: {ghDone.files}</li>
+              <li>Файлов {ghDone.media_sync ? "дослано" : "обновлено"}: {ghDone.files}</li>
               {ghDone.version && <li>Версия: {ghDone.version}</li>}
-              <li>Медиа пропущено: {ghDone.skipped_media} · защищённых файлов пропущено: {ghDone.skipped_protected}</li>
+              {!ghDone.media_sync && (
+                <li>Медиа пропущено: {ghDone.skipped_media} · защищённых файлов пропущено: {ghDone.skipped_protected}</li>
+              )}
               {ghDone.failed > 0 && <li className="text-red-700">Не удалось обновить: {ghDone.failed}</li>}
             </ul>
           </div>
@@ -475,6 +499,12 @@ export function SiteUpdateTab() {
         <p className="mt-1">
           Медиа-файлы (<code>uploads/</code>) и база данных — заказы, товары и настройки
           SMTP на сервере сохраняются.
+        </p>
+        <p className="mt-2 font-medium">Медиа-архив (<code>lakomka-media-*.zip</code>)</p>
+        <p className="mt-1">
+          Работает наоборот: добавляет/перезаписывает ТОЛЬКО картинки и видео
+          (<code>uploads/</code>), не трогая страницы и базу. Его стоит прогонять после
+          добавления товаров с новыми фото — иначе на витрине будут битые картинки.
         </p>
       </div>
 
@@ -530,11 +560,13 @@ export function SiteUpdateTab() {
 
         {result && (
           <div className="mt-4 rounded-[var(--radius-card)] border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-            <p className="font-medium">Сайт обновлён</p>
+            <p className="font-medium">{result.media_sync ? "Медиа обновлены" : "Сайт обновлён"}</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5">
-              <li>Файлов обновлено: {result.files}</li>
+              <li>Файлов {result.media_sync ? "дослано" : "обновлено"}: {result.files}</li>
               {result.version && <li>Версия: {result.version}</li>}
-              <li>Медиа пропущено: {result.skipped_media} · защищённых файлов пропущено: {result.skipped_protected}</li>
+              {!result.media_sync && (
+                <li>Медиа пропущено: {result.skipped_media} · защищённых файлов пропущено: {result.skipped_protected}</li>
+              )}
               {result.failed > 0 && <li className="text-red-700">Не удалось обновить: {result.failed}</li>}
             </ul>
             {result.failed_list && result.failed_list.length > 0 && (

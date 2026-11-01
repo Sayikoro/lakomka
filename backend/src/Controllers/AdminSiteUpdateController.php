@@ -19,6 +19,14 @@ require_once __DIR__ . '/../ChunkedUpload.php';
  *    chunked-uploads, last-update.json, config.local.php, UPDATE_ROOT;
  *  - архив обязан выглядеть как архив сайта (index.html / .htaccess / _next / backend).
  *
+ * МЕДИА-АРХИВ (task 113): если в update-manifest.json стоит "media_sync": true,
+ * архив применяется в обратном режиме — разрешены ТОЛЬКО пути uploads/**
+ * (досыпать картинки/видео товаров на сервер без пересборки страниц).
+ * Канал обновления обычно возит статику БЕЗ медиа, поэтому медиа, добавленное
+ * в песочнице после первичного деплоя, на сервере отсутствует → сотни 404
+ * на витрине. Медиа-архив собирает scripts/build-static.sh в режиме MODE=media.
+ * Журнал — backend/storage/last-media-sync.json (last-update.json не трогается).
+ *
  * Статус и журнал: backend/version.json (версия пакета) и
  * backend/storage/last-update.json (когда и что применялось).
  */
@@ -69,15 +77,18 @@ class AdminSiteUpdateController
         if ($target['root'] !== '') {
             $versionPath = $target['root'] . '/backend/version.json';
             $journalPath = $target['root'] . '/backend/storage/last-update.json';
+            $mediaPath = $target['root'] . '/backend/storage/last-media-sync.json';
         } else {
             $versionPath = self::backendDir() . '/version.json';
             $journalPath = self::backendDir() . '/storage/last-update.json';
+            $mediaPath = self::backendDir() . '/storage/last-media-sync.json';
         }
 
         jsonResponse(['data' => [
-            'mode'        => $target['mode'],
-            'version'     => self::readJson($versionPath),
-            'last_update' => self::readJson($journalPath),
+            'mode'            => $target['mode'],
+            'version'         => self::readJson($versionPath),
+            'last_update'     => self::readJson($journalPath),
+            'last_media_sync' => self::readJson($mediaPath),
         ]]);
     }
 
@@ -120,15 +131,21 @@ class AdminSiteUpdateController
             $reject('Не удалось открыть ZIP-архив — файл повреждён?', 422);
         }
 
-        /* ---------- разбор содержимого ---------- */
+        /* ---------- разбор содержимого ----------
+         * Проход 1: снимок имён (Zip Slip) и поиск манифеста —
+         * он определяет режим применения (обычный / медиа).
+         * Проход 2: сбор файлов, разрешённых к распаковке. */
         $allowed = [];
         $skippedMedia = 0;
         $skippedProtected = 0;
         $totalSize = 0;
         $hasSiteMarker = false;
         $manifest = null;
+        $mediaSync = false;
         $count = $zip->numFiles;
 
+        $entries = [];
+        $manifestIdx = null;
         for ($i = 0; $i < $count; $i++) {
             $name = $zip->getNameIndex($i);
             if ($name === false) continue;
@@ -147,14 +164,37 @@ class AdminSiteUpdateController
                     $reject("Опасный путь в архиве — обновление отклонено: {$name}", 422);
                 }
             }
+            if ($norm === 'update-manifest.json' && $manifestIdx === null) $manifestIdx = $i;
+            $entries[] = [$i, $norm];
+        }
 
-            if ($norm === 'update-manifest.json') {
-                $m = json_decode((string)$zip->getFromIndex($i), true);
-                if (is_array($m)) $manifest = $m;
-                continue; // метаданные не копируем в корень сайта
+        if ($manifestIdx !== null) {
+            $m = json_decode((string)$zip->getFromIndex($manifestIdx), true);
+            if (is_array($m)) {
+                $manifest = $m;
+                $mediaSync = !empty($m['media_sync']);
             }
+        }
+
+        foreach ($entries as [$i, $norm]) {
+            if ($norm === 'update-manifest.json') continue; // метаданные не копируем в корень сайта
 
             $first = explode('/', $norm)[0];
+
+            /* МЕДИА-РЕЖИМ: только uploads/** — досыпаем картинки/видео.
+             * Всё остальное (страницы, backend, .htaccess) — отказ: медиа-архив
+             * не должен уметь переписывать код сайта. */
+            if ($mediaSync) {
+                if ($first !== 'uploads') {
+                    $zip->close();
+                    $reject("Медиа-архив (media_sync) может содержать только файлы внутри uploads/ — найдено «{$norm}»", 422);
+                }
+                $stat = $zip->statIndex($i);
+                $totalSize += (int)($stat['size'] ?? 0);
+                $allowed[] = $norm;
+                continue;
+            }
+
             if ($first === 'index.html' || $first === '.htaccess' || $first === '_next' || $first === 'backend') {
                 $hasSiteMarker = true;
             }
@@ -189,7 +229,7 @@ class AdminSiteUpdateController
             $zip->close();
             $reject('В архиве нет файлов для обновления', 422);
         }
-        if (!$hasSiteMarker) {
+        if (!$mediaSync && !$hasSiteMarker) {
             $zip->close();
             $reject('Это не архив сайта «Лакомки»: нет index.html / .htaccess / _next / backend', 422);
         }
@@ -237,6 +277,7 @@ class AdminSiteUpdateController
         $info = [
             'applied_at' => date('c'),
             'mode'       => $target['mode'],
+            'kind'       => $mediaSync ? 'media' : 'site',
             'files'      => $applied,
             'failed'     => count($failed),
             'version'    => $manifest['version']  ?? null,
@@ -245,7 +286,9 @@ class AdminSiteUpdateController
         ];
         $journalDir = $root . '/backend/storage';
         if (!is_dir($journalDir)) @mkdir($journalDir, 0755, true);
-        @file_put_contents($journalDir . '/last-update.json', json_encode($info, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        // медиа-синк пишется в СВОЙ журнал: last-update.json остаётся про сайт
+        $journalName = $mediaSync ? 'last-media-sync.json' : 'last-update.json';
+        @file_put_contents($journalDir . '/' . $journalName, json_encode($info, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
         ChunkedUpload::removeFile($fileName);
 
@@ -253,6 +296,7 @@ class AdminSiteUpdateController
             'ok'                 => true,
             'applied_at'         => $info['applied_at'],
             'mode'               => $info['mode'],
+            'media_sync'         => $mediaSync,
             'files'              => $info['files'],
             'failed'             => $info['failed'],
             'failed_list'        => array_slice($failed, 0, 20),

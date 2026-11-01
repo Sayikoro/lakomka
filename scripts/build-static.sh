@@ -5,6 +5,9 @@
 #   bash scripts/build-static.sh               # полный деплой-пакет (по умолчанию)
 #   MODE=update bash scripts/build-static.sh   # только архив обновления
 #   MODE=both    bash scripts/build-static.sh  # оба архива сразу
+#   MODE=media   bash scripts/build-static.sh  # только МЕДИА-архив (uploads/**)
+#                                              # из ГОТОВОГО .deploy-package (без пересборки;
+#                                              # сначала запустить full/both)
 #
 # Результат в download/:
 #   lakomka-deploy-static.zip        — ПЕРВЫЙ деплой: вся статика + ВСЕ медиа
@@ -16,6 +19,13 @@
 #                                      Применение: Настройки → «Обновление»
 #                                      (песочница) или страница /update
 #                                      на развёрнутом сайте.
+#   lakomka-media-<версия>.zip       — МЕДИА-СИНК: только uploads/** с манифестом
+#                                      media_sync:true. Досыпает картинки/видео
+#                                      товаров на сервер (канал обновления возит
+#                                      статику БЕЗ медиа, поэтому всё, что
+#                                      добавилось после первого деплоя, надо
+#                                      доносить этим архивом). Применение там же:
+#                                      Настройки → «Обновление».
 #
 # Что делает:
 #   1) полная проверка типов;
@@ -38,8 +48,31 @@ PKG="$ROOT/.deploy-package"
 PKG_U="$ROOT/.deploy-package-update"
 MODE="${MODE:-full}"
 
-if [[ "$MODE" != "full" && "$MODE" != "update" && "$MODE" != "both" ]]; then
-  echo "MODE должен быть full | update | both (получено: $MODE)"; exit 1
+if [[ "$MODE" != "full" && "$MODE" != "update" && "$MODE" != "both" && "$MODE" != "media" ]]; then
+  echo "MODE должен быть full | update | both | media (получено: $MODE)"; exit 1
+fi
+
+if [ "$MODE" = "media" ]; then
+  # МЕДИА-АРХИВ из готового пакета: Next.js НЕ пересобирается (быстро),
+  # версия берётся из version.json пакета — архив всегда соответствует
+  # той сборке, рядом с которой выпускается.
+  if [ ! -f "$PKG/backend/version.json" ]; then
+    echo "MODE=media нужен готовый пакет .deploy-package — сначала запустите MODE=full или MODE=both"; exit 1
+  fi
+  VERSION=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$PKG/backend/version.json" | head -1)
+  [ -n "$VERSION" ] || { echo "не удалось прочитать версию из $PKG/backend/version.json"; exit 1; }
+  PKG_M="$ROOT/.deploy-package-media"
+  rm -rf "$PKG_M"
+  mkdir -p "$PKG_M"
+  cp -a "$PKG/uploads" "$PKG_M/uploads"
+  printf '{"type":"media","media_sync":true,"version":"%s","built_at":"%s","git":"%s"}\n' \
+    "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)" > "$PKG_M/update-manifest.json"
+  MEDIA_ZIP="$ROOT/download/lakomka-media-$VERSION.zip"
+  rm -f "$MEDIA_ZIP"
+  ( cd "$PKG_M" && zip -qr "$MEDIA_ZIP" . )
+  echo "медиа-архив: $MEDIA_ZIP ($(du -sh "$MEDIA_ZIP" | cut -f1))"
+  echo "    файлы: $(cd "$PKG_M" && find uploads -type f | wc -l) в uploads/ + манифест media_sync"
+  exit 0
 fi
 
 echo "[0/5] полная проверка типов…"
