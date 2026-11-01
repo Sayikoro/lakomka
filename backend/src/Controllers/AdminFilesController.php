@@ -294,6 +294,80 @@ class AdminFilesController
         ]]);
     }
 
+    /* ── СПИСОК КАРТИНОК ПОД /uploads (массовая оптимизация в WebP) ──
+       GET /api/admin/files/images[?folder=]
+       Тот же обход дерева, что у videos(): jpg/jpeg/png с размерами.
+       Папка pdfs исключена — обложки каталогов жёстко именуются {alias}.jpg
+       в PdfController, конвертация сломала бы ссылки на них.
+       used — картинка подключена к товарам (product_images). */
+    public static function images(PDO $pdo): void
+    {
+        Auth::requireEditor();
+
+        $param = $_GET['folder'] ?? '';
+        $folder = trim(str_replace('\\', '/', (string)$param), " /\t\n\r\0\x0B");
+        $folder = preg_replace('#/+#', '/', $folder) ?? '';
+        if ($folder !== '' && preg_match('#(^|/)\.\.(/|$)#', $folder)) {
+            jsonResponse(['error' => 'Путь к папке картинок: внутри /uploads, без «..»'], 422);
+        }
+
+        $root = realpath(Paths::uploadsRoot());
+        $base = $root === false ? false : ($folder === '' ? $root : realpath($root . '/' . $folder));
+        $entries = [];
+        if ($root !== false && $base !== false && is_dir($base)
+            && ($base === $root || str_starts_with($base, $root . DIRECTORY_SEPARATOR))) {
+            /* Ссылки из БД — одним запросом, чтобы честно пометить используемые */
+            $referenced = [];
+            try {
+                foreach ($pdo->query("SELECT url FROM product_images WHERE media_type = 'image'") as $r) {
+                    $norm = preg_replace('#/+#', '/', (string)$r['url']) ?? '';
+                    $referenced[strtolower($norm)] = true;
+                }
+            } catch (PDOException) {
+                // нет таблицы — считаем все картинки неиспользуемыми
+            }
+
+            $exts = ['jpg', 'jpeg', 'png'];
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator(
+                    $base,
+                    FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME
+                ),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $file) {
+                $f = (string)$file;
+                $rel = ltrim(substr($f, strlen($root)), '/\\');
+                /* .trash и pdfs — мимо: корзина восстанавливается по именам,
+                   обложки PDF привязаны к имени .jpg (см. комментарий выше) */
+                if (strcasecmp(substr($rel, 0, 7), '.trash/') === 0
+                    || strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                if (!in_array($ext, $exts, true)) continue;
+                $url = '/uploads/' . str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+                $dir = dirname($rel);
+                $entries[] = [
+                    'name'   => basename($f),
+                    'folder' => $dir === '.' ? '' : $dir,
+                    'url'    => $url,
+                    'size'   => @filesize($f) ?: 0,
+                    'mtime'  => @filemtime($f) ?: 0,
+                    'used'   => isset($referenced[strtolower($url)]),
+                ];
+            }
+            usort($entries, static fn (array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
+            if (count($entries) > 2000) $entries = array_slice($entries, 0, 2000);
+        }
+
+        jsonResponse(['data' => [
+            'folder'  => $folder,
+            'count'   => count($entries),
+            'entries' => $entries,
+        ]]);
+    }
+
     /* ── ЗАГРУЗКА ФАЙЛА В ХРАНИЛИЩЕ (медиа и др. разделы) ──
        POST /api/admin/files/upload  JSON:
          { file_path: "up-xxxx.zip" (собранный chunk-файл из storage/chunked-uploads),
@@ -942,6 +1016,144 @@ class AdminFilesController
             // старая схема без products.video_url — пропускаем
         }
         return $refs;
+    }
+
+    /* ── ОПТИМИЗАЦИЯ КАРТИНКИ В WEBP (Task 114, «Картинки → WebP») ──
+       POST /api/admin/files/compress-image  body: { url: "/uploads/…/file.jpg" }
+       jpg/jpeg/png → webp (GD), файл заменяется, ссылки переписываются:
+       product_images.url + настройки витрины (hero_image, hero_slides,
+       snow_flake). Вебп вышел не меньше оригинала → честный отказ без
+       изменений (файл и база не тронуты). */
+
+    public static function compressImage(PDO $pdo): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $url = trim((string)($data['url'] ?? ''));
+        if ($url === '') jsonResponse(['error' => 'Укажите URL файла'], 422);
+
+        $rel = str_starts_with($url, '/uploads/') ? substr($url, strlen('/uploads/')) : null;
+        if ($rel === null || $rel === '' || str_contains($rel, '..')) {
+            jsonResponse(['error' => 'Сжимать можно только файлы из /uploads/'], 422);
+        }
+        /* pdfs/ — обложки каталогов именуются {alias}.jpg в PdfController;
+           конвертация в .webp сломала бы ссылку на обложку. */
+        $rel = ltrim($rel, '/');
+        if (strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) {
+            jsonResponse(['error' => 'Обложки PDF конвертировать нельзя — имя обложки жёстко зашито в каталогах'], 422);
+        }
+
+        $uploadsRoot = realpath(Paths::uploadsRoot());
+        $realFile = $uploadsRoot === false ? false : realpath(Paths::publicRoot() . $url);
+        $locatedUrl = $url;
+
+        if ($uploadsRoot === false || $realFile === false || !is_file($realFile)) {
+            $found = self::locateUploaded($url);
+            if ($found === null) {
+                jsonResponse(['error' => 'Файл ' . basename($url)
+                    . ' не найден в /uploads — возможно, он удалён или уже конвертирован'], 404);
+            }
+            $realFile = $found['abs'];
+            $locatedUrl = $found['url'];
+        }
+        if (!is_file($realFile)
+            || !str_starts_with($realFile, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            jsonResponse(['error' => 'Файл не найден на сервере'], 404);
+        }
+
+        $ext = strtolower(pathinfo($realFile, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
+            jsonResponse(['error' => 'Конвертировать можно картинки jpg, jpeg и png'], 422);
+        }
+
+        $opt = MediaOptimizer::optimizeImageFile($realFile);
+        if (!$opt['converted']) {
+            jsonResponse(['error' => $opt['note'] ?: 'Не удалось конвертировать картинку в WebP'], 422);
+        }
+
+        $newUrl = rtrim(dirname($locatedUrl), '/') . '/' . $opt['name'];
+        $refs = self::retargetImageRefs($pdo, $url, $newUrl);
+
+        jsonResponse(['data' => [
+            'ok'           => true,
+            'url'          => $newUrl,
+            'old_url'      => $url,
+            'before'       => $opt['before'],
+            'after'        => $opt['after'],
+            'note'         => $opt['note'],
+            'refs_updated' => $refs,
+        ]]);
+    }
+
+    /** Переписать ссылки на КАРТИНКУ: product_images.url и витринные
+        настройки (hero_image, hero_slides JSON, snow_flake — только если
+        значение начинается с /uploads/). Возвращает число обновлённых мест. */
+    private static function retargetImageRefs(PDO $pdo, string $fromUrl, string $toUrl): int
+    {
+        $refs = 0;
+        $variants = self::urlVariants($fromUrl);
+
+        $in = implode(',', array_fill(0, count($variants), '?'));
+        $upd = $pdo->prepare("UPDATE product_images SET url = ? WHERE url IN ($in)");
+        $upd->execute([$toUrl, ...$variants]);
+        $refs += $upd->rowCount();
+
+        foreach (['hero_image', 'snow_flake'] as $key) {
+            $sel = $pdo->prepare('SELECT value FROM settings WHERE key = ?');
+            $sel->execute([$key]);
+            $val = (string)($sel->fetchColumn() ?: '');
+            if ($val === '' || !str_starts_with($val, '/uploads/')) continue;
+            $newVal = self::swapUrlIn($val, $variants, $toUrl);
+            if ($newVal !== $val) {
+                $pdo->prepare('UPDATE settings SET value = ? WHERE key = ?')->execute([$newVal, $key]);
+                $refs++;
+            }
+        }
+
+        $sel = $pdo->prepare("SELECT value FROM settings WHERE key = 'hero_slides'");
+        $sel->execute();
+        $raw = (string)($sel->fetchColumn() ?: '');
+        if ($raw !== '') {
+            $slides = json_decode($raw, true);
+            if (is_array($slides)) {
+                $changed = false;
+                foreach ($slides as &$s) {
+                    if (!is_array($s)) continue;
+                    foreach (['url', 'image'] as $field) {
+                        $v = (string)($s[$field] ?? '');
+                        if ($v === '' || !str_starts_with($v, '/uploads/')) continue;
+                        $nv = self::swapUrlIn($v, $variants, $toUrl);
+                        if ($nv !== $v) { $s[$field] = $nv; $changed = true; }
+                    }
+                }
+                unset($s);
+                if ($changed) {
+                    $pdo->prepare("UPDATE settings SET value = ? WHERE key = 'hero_slides'")
+                        ->execute([json_encode($slides, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+                    $refs++;
+                }
+            }
+        }
+
+        return $refs;
+    }
+
+    /** Варианты одного URL для WHERE IN: как записан в базе + нормализованный. */
+    private static function urlVariants(string $url): array
+    {
+        $norm = preg_replace('#/+#', '/', $url) ?? $url;
+        return $norm === $url ? [$url] : [$url, $norm];
+    }
+
+    /** Заменить $url (или его нормализованный вариант) в строке-значении.
+        Точное совпадение → новый URL; иначе (на всякий случай) не трогаем. */
+    private static function swapUrlIn(string $value, array $variants, string $toUrl): string
+    {
+        foreach ($variants as $v) {
+            if ($value === $v) return $toUrl;
+        }
+        return $value;
     }
 
     /** Поиск файла по всему /uploads, когда точный URL не существует.

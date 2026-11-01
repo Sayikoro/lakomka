@@ -9,16 +9,48 @@ class AdminWeightRecipeController
 {
     private const COVER_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
 
+    /** Settings-ключ с «ручными» граммовками (созданы кнопкой, пустые группы) */
+    private const CUSTOM_WEIGHTS_KEY = 'weight_custom_groups';
+
     public static function list(PDO $pdo): void
     {
         Auth::requireEditor();
-        $rows = $pdo->query(<<<SQL
-            SELECT weight_g, COUNT(*) AS items_count, SUM(quantity) AS total_qty
-            FROM weight_recipes
-            GROUP BY weight_g
-            ORDER BY weight_g
-        SQL)->fetchAll();
-        jsonResponse(['data' => $rows]);
+
+        /* Task 114: граммовки теперь из трёх источников — рецепты (CSV/вручную),
+           «свои позиции» (weight_recipe_items) и пустые группы, созданные
+           кнопкой «+ Своя граммовка» (маркер в settings). */
+        $map = [];
+        foreach ($pdo->query(
+            'SELECT weight_g, COUNT(*) AS items_count, SUM(quantity) AS total_qty
+             FROM weight_recipes GROUP BY weight_g'
+        )->fetchAll() as $r) {
+            $map[(int)$r['weight_g']] = [
+                'weight_g'    => (int)$r['weight_g'],
+                'items_count' => (int)$r['items_count'],
+                'total_qty'   => (int)$r['total_qty'],
+                'has_custom'  => false,
+            ];
+        }
+        foreach ($pdo->query(
+            'SELECT weight_g, COUNT(*) AS c, SUM(quantity) AS q
+             FROM weight_recipe_items GROUP BY weight_g'
+        )->fetchAll() as $r) {
+            $w = (int)$r['weight_g'];
+            if (!isset($map[$w])) {
+                $map[$w] = ['weight_g' => $w, 'items_count' => 0, 'total_qty' => 0, 'has_custom' => false];
+            }
+            $map[$w]['items_count'] += (int)$r['c'];
+            $map[$w]['total_qty'] += (int)$r['q'];
+            $map[$w]['has_custom'] = true;
+        }
+        foreach (self::customWeights($pdo) as $w) {
+            if (!isset($map[$w])) {
+                $map[$w] = ['weight_g' => $w, 'items_count' => 0, 'total_qty' => 0, 'has_custom' => false];
+            }
+        }
+        ksort($map);
+
+        jsonResponse(['data' => array_values($map)]);
     }
 
     public static function show(PDO $pdo, int $weightG): void
@@ -29,6 +61,7 @@ class AdminWeightRecipeController
                    p.id AS product_id, p.name AS product_name,
                    p.manufacturer AS product_manufacturer,
                    p.sku AS product_sku,
+                   p.weight_g AS product_weight_g,
                    (SELECT url FROM product_images
                     WHERE product_id = p.id AND media_type = 'image'
                     ORDER BY sort_order LIMIT 1) AS product_image_url
@@ -38,8 +71,167 @@ class AdminWeightRecipeController
             ORDER BY p.name
         SQL);
         $stmt->execute([$weightG]);
-        jsonResponse(['data' => $stmt->fetchAll()]);
+        $rows = $stmt->fetchAll() ?: [];
+
+        /* Свои позиции (Task 114): состав без карточки товара — упаковка,
+           открытка и т.п. Идут после конфет, сортировка — по sort_order/id. */
+        $cstmt = $pdo->prepare(
+            'SELECT id, weight_g, name, quantity FROM weight_recipe_items
+             WHERE weight_g = ? ORDER BY sort_order, id'
+        );
+        $cstmt->execute([$weightG]);
+        $custom = array_map(static fn(array $r): array => [
+            'id'       => (int)$r['id'],
+            'weight_g' => (int)$r['weight_g'],
+            'name'     => (string)$r['name'],
+            'quantity' => (int)$r['quantity'],
+        ], $cstmt->fetchAll() ?: []);
+
+        jsonResponse(['data' => $rows, 'custom' => $custom]);
     }
+
+    /* ─────────────────────────────────────────────────────────────
+       Task 114: СВОИ ГРАММОВКИ И СВОИ ПОЗИЦИИ
+       ───────────────────────────────────────────────────────────── */
+
+    /** POST /api/admin/weight-recipes/weights {weight_g} — создать пустую
+        граммовку (маркер в settings, чтобы группа не «испарилась» до того,
+        как в ней появятся позиции). */
+    public static function createWeight(PDO $pdo): void
+    {
+        Auth::requireEditor();
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $w = (int)($data['weight_g'] ?? 0);
+        if ($w <= 0 || $w > 1000000) {
+            jsonResponse(['error' => 'Вес — целое число граммов от 1 до 1 000 000'], 422);
+        }
+
+        $weights = self::customWeights($pdo);
+        if (!in_array($w, $weights, true)) {
+            $weights[] = $w;
+            sort($weights);
+            self::saveCustomWeights($pdo, $weights);
+        }
+        jsonResponse(['data' => ['ok' => true, 'weights' => $weights]]);
+    }
+
+    /** DELETE /api/admin/weight-recipes/{w} — удалить граммовку целиком:
+        конфеты рецепта, свои позиции и маркер пустой группы. */
+    public static function deleteWeight(PDO $pdo, int $weightG): void
+    {
+        Auth::requireEditor();
+        $pdo->prepare('DELETE FROM weight_recipes WHERE weight_g = ?')->execute([$weightG]);
+        $pdo->prepare('DELETE FROM weight_recipe_items WHERE weight_g = ?')->execute([$weightG]);
+        $weights = array_values(array_filter(
+            self::customWeights($pdo),
+            static fn(int $w): bool => $w !== $weightG
+        ));
+        self::saveCustomWeights($pdo, $weights);
+        jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /** POST /api/admin/weight-recipes/{w}/custom {name, quantity} — своя позиция. */
+    public static function addCustom(PDO $pdo, int $weightG): void
+    {
+        Auth::requireEditor();
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $name = trim((string)($data['name'] ?? ''));
+        $qty = (int)($data['quantity'] ?? 1);
+        if ($name === '') jsonResponse(['error' => 'Укажите название позиции'], 422);
+        if (mb_strlen($name) > 255) jsonResponse(['error' => 'Название длиннее 255 символов'], 422);
+        if ($qty <= 0) jsonResponse(['error' => 'Количество — целое число больше 0'], 422);
+
+        $pdo->prepare(
+            'INSERT INTO weight_recipe_items (weight_g, name, quantity) VALUES (?, ?, ?)'
+        )->execute([$weightG, $name, $qty]);
+
+        jsonResponse(['data' => ['ok' => true, 'id' => (int)$pdo->lastInsertId()]]);
+    }
+
+    /** POST /api/admin/weight-recipes/{w}/custom/{id} {name?, quantity?} — правка. */
+    public static function updateCustom(PDO $pdo, int $weightG, int $id): void
+    {
+        Auth::requireEditor();
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $cur = $pdo->prepare('SELECT name, quantity FROM weight_recipe_items WHERE id = ? AND weight_g = ?');
+        $cur->execute([$id, $weightG]);
+        $row = $cur->fetch();
+        if (!$row) jsonResponse(['error' => 'Позиция не найдена'], 404);
+
+        $name = array_key_exists('name', $data) ? trim((string)$data['name']) : (string)$row['name'];
+        $qty = array_key_exists('quantity', $data) ? (int)$data['quantity'] : (int)$row['quantity'];
+        if ($name === '') jsonResponse(['error' => 'Название не может быть пустым'], 422);
+        if (mb_strlen($name) > 255) jsonResponse(['error' => 'Название длиннее 255 символов'], 422);
+        if ($qty <= 0) jsonResponse(['error' => 'Количество — целое число больше 0'], 422);
+
+        $pdo->prepare('UPDATE weight_recipe_items SET name = ?, quantity = ? WHERE id = ?')
+            ->execute([$name, $qty, $id]);
+        jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /** DELETE /api/admin/weight-recipes/{w}/custom/{id} — убрать позицию. */
+    public static function removeCustom(PDO $pdo, int $weightG, int $id): void
+    {
+        Auth::requireEditor();
+        $pdo->prepare('DELETE FROM weight_recipe_items WHERE id = ? AND weight_g = ?')
+            ->execute([$id, $weightG]);
+        jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /** POST /api/admin/weight-recipes/product-weight {product_id, weight_g} —
+        задать/убрать вес конфеты прямо из таблицы рецепта (пусто/0 → NULL).
+        «Кастомные товары, у которых нет веса, но они есть в составе». */
+    public static function setProductWeight(PDO $pdo): void
+    {
+        Auth::requireEditor();
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $productId = (int)($data['product_id'] ?? 0);
+        if ($productId <= 0) jsonResponse(['error' => 'product_id обязателен'], 422);
+
+        $exists = $pdo->prepare('SELECT 1 FROM products WHERE id = ?');
+        $exists->execute([$productId]);
+        if (!$exists->fetchColumn()) jsonResponse(['error' => 'Товар не найден'], 404);
+
+        $raw = $data['weight_g'] ?? null;
+        if ($raw === null || $raw === '' || (int)$raw === 0) {
+            $weight = null;
+        } else {
+            $weight = (int)$raw;
+            if ($weight < 0 || $weight > 1000000) {
+                jsonResponse(['error' => 'Вес — целое число граммов от 1 до 1 000 000 или пусто'], 422);
+            }
+        }
+
+        $pdo->prepare('UPDATE products SET weight_g = ? WHERE id = ?')->execute([$weight, $productId]);
+        jsonResponse(['data' => ['ok' => true, 'weight_g' => $weight]]);
+    }
+
+    /** @return int[] «Ручные» граммовки из settings (пустые группы). */
+    private static function customWeights(PDO $pdo): array
+    {
+        $stmt = $pdo->prepare("SELECT value FROM settings WHERE key = ?");
+        $stmt->execute([self::CUSTOM_WEIGHTS_KEY]);
+        $raw = (string)($stmt->fetchColumn() ?: '');
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) return [];
+        $out = [];
+        foreach ($decoded as $v) {
+            $w = (int)$v;
+            if ($w > 0 && $w <= 1000000) $out[] = $w;
+        }
+        return array_values(array_unique($out));
+    }
+
+    private static function saveCustomWeights(PDO $pdo, array $weights): void
+    {
+        $json = json_encode(array_map('intval', $weights), JSON_UNESCAPED_UNICODE);
+        $stmt = $pdo->prepare(
+            'INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+        );
+        $stmt->execute([self::CUSTOM_WEIGHTS_KEY, $json]);
+    }
+
 
     public static function upsert(PDO $pdo, int $weightG): void
     {

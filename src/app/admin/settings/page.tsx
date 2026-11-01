@@ -26,6 +26,8 @@ export interface AdminSettings {
   card_video_enabled: string;
   /* Яндекс.Метрика: номер счётчика (только цифры), пусто = счётчика нет */
   ym_id: string;
+  /* Встраиваемый блок Метрики целиком (Task 114), пусто = блока нет */
+  metrika_code: string;
   /* Telegram-уведомления (Task 108) */
   tg_bot_token: string;
   tg_bot_token_set: boolean;
@@ -62,6 +64,7 @@ const DEFAULTS: AdminSettings = {
   /* видео в карточке показываем по умолчанию (историческое поведение) */
   card_video_enabled: "1",
   ym_id: "",
+  metrika_code: "",
   tg_bot_token: "",
   tg_bot_token_set: false,
   tg_chat_id: "",
@@ -80,7 +83,6 @@ export default function AdminSettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setError(null);
     try {
       const res = await fetch(`${apiUrl}/admin/settings`, {
         credentials: "include",
@@ -98,7 +100,7 @@ export default function AdminSettingsPage() {
   }, [apiUrl]);
 
   useEffect(() => {
-    void load();
+    void Promise.resolve().then(load);
   }, [load]);
 
   return (

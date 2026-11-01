@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ProductsTable } from "@/components/admin/ProductsTable";
 import { ProductsImportExport } from "@/components/admin/ProductsImportExport";
+import { MassMediaOptimizer } from "@/components/admin/MassMediaOptimizer";
 
 export interface AdminProduct {
   id: number;
@@ -35,7 +36,6 @@ export default function AdminProductsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setError(null);
     try {
       const res = await fetch(`${apiUrl}/admin/products`, {
         credentials: "include",
@@ -55,8 +55,29 @@ export default function AdminProductsPage() {
   }, [apiUrl]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/admin/products`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!alive) return;
+        if (!res.ok) {
+          setError(json.error ?? `Ошибка ${res.status}`);
+          setProducts([]);
+          return;
+        }
+        setProducts((json.data as AdminProduct[]) ?? []);
+      } catch (e) {
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : "Ошибка сети");
+        setProducts([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [apiUrl]);
 
   return (
     <div>
@@ -87,6 +108,7 @@ export default function AdminProductsPage() {
         </div>
       ) : (
         <>
+          <MassMediaOptimizer />
           <ProductsImportExport />
           <ProductsTable initialProducts={products ?? []} reload={load} />
         </>

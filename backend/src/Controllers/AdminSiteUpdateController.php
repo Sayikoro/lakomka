@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../ChunkedUpload.php';
+require_once __DIR__ . '/../AdminLog.php';
 
 /**
  * Обновление развёрнутого статического сайта архивом
@@ -365,7 +366,188 @@ class AdminSiteUpdateController
             'size'   => $size,
             'mtime'  => $mtime,
             'sha256' => $meta['sha256'],
+            'snapshots' => self::snapshotsList(),
         ]]);
+    }
+
+    /* ============================================================
+       СНАПШОТ ТЕКУЩЕГО САЙТА (Task 114)
+       «Деплой-архив из развёрнутого сайта»: zip целиком с того,
+       что сейчас лежит на сервере — витрина + backend + uploads +
+       database.sqlite + секреты. Годится для резервной копии и для
+       развёртывания сайта на другом хостинге. Служебный мусор
+       (логи, чанки, временные папки, старые снапшоты) не пакуется.
+       ============================================================ */
+
+    /** Куда складываются снапшоты. */
+    private static function snapshotsDir(): string
+    {
+        $dir = self::backendDir() . '/storage/site-snapshots';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        return $dir;
+    }
+
+    /** Строгое имя снапшота: lakomka-site-YYYYMMDD-HHMM.zip (или -xNNN при
+        коллизии — два снапшота в одну минуту). */
+    private static function validSnapshotName(string $name): bool
+    {
+        return (bool)preg_match('/^lakomka-site-\d{8}-\d{4}(-x\d{3})?\.zip$/', $name);
+    }
+
+    /** @return array<int, array{name:string,size:int,mtime:int}> */
+    private static function snapshotsList(): array
+    {
+        $dir = self::snapshotsDir();
+        $out = [];
+        foreach (scandir($dir, SCANDIR_SORT_DESCENDING) ?: [] as $f) {
+            if (!self::validSnapshotName((string)$f)) continue;
+            $p = $dir . '/' . $f;
+            if (!is_file($p)) continue;
+            $out[] = [
+                'name'  => $f,
+                'size'  => (int)@filesize($p) ?: 0,
+                'mtime' => (int)@filemtime($p) ?: 0,
+            ];
+        }
+        return $out;
+    }
+
+    /** POST /api/admin/site-update/deploy-archive/create — собрать снапшот. */
+    public static function snapshotCreate(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        $target = self::resolveTarget();
+        if ($target['mode'] === 'none') {
+            jsonResponse(['error' => 'Развёрнутый сайт не обнаружен — снапшотить нечего'], 422);
+        }
+        $root = $target['root'];
+        if (!class_exists('ZipArchive')) {
+            jsonResponse(['error' => 'Расширение zip не установлено в PHP'], 500);
+        }
+
+        $dir = self::snapshotsDir();
+        $name = 'lakomka-site-' . date('Ymd-Hi') . '.zip';
+        $dest = $dir . '/' . $name;
+        if (is_file($dest)) { // два снапшота в одну минуту — суффикс -xNNN
+            $name = 'lakomka-site-' . date('Ymd-Hi') . '-x' . substr((string)time(), -3) . '.zip';
+            $dest = $dir . '/' . $name;
+        }
+
+        @set_time_limit(0);
+        @ini_set('memory_limit', '512M');
+
+        $zip = new ZipArchive();
+        $res = @$zip->open($dest, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        if ($res !== true) {
+            jsonResponse(['error' => 'Не удалось создать архив (место на диске или права?)'], 500);
+        }
+
+        $snapDir = realpath($dir);
+        $rootLen = strlen(rtrim($root, '/')) + 1;
+        $files = 0;
+        $bytes = 0;
+        $skipped = 0;
+        $MAX_FILES = 40000;
+        $MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 ГБ — страховка от runaway
+        $started = microtime(true);
+
+        /* Что НЕ пакуем: снапшоты сами себя, временные папки обновления,
+           чанки загрузок, журналы, бэкапы БД (живая база пакуется как есть),
+           экспортные зипы и каталог деплой-архива с машины сборки. */
+        $skipDir = static function (string $rel, bool $isDir) use ($root, $snapDir): bool {
+            $norm = str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+            if ($isDir) $norm = rtrim($norm, '/') . '/';
+            $abs = $root . '/' . $norm;
+            if ($snapDir !== false && str_starts_with($abs, $snapDir . '/')) return true;
+            foreach ([
+                'backend/storage/site-snapshots/',
+                'backend/storage/chunked-uploads/',
+                'backend/storage/logs/',
+                'backend/storage/backups/',
+                '.update-tmp-',
+                'exports/',
+                'download/',
+            ] as $bad) {
+                if (str_starts_with($norm, $bad)) return true;
+            }
+            return false;
+        };
+
+        try {
+            $it = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $file) {
+                $abs = (string)$file;
+                $rel = substr($abs, $rootLen);
+                if ($rel === '' || $rel === false) continue;
+                $rel = str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+
+                if ($skipDir($rel, false)) { $skipped++; continue; }
+                $base = basename($rel);
+                if ($base === '' || $base === '.' || $base === '..') continue;
+                if (str_ends_with($base, '.zip') && str_starts_with($base, 'lakomka-site-')) { $skipped++; continue; }
+
+                $size = @filesize($abs) ?: 0;
+                if ($files >= $MAX_FILES || $bytes + $size > $MAX_BYTES) {
+                    $zip->close();
+                    @unlink($dest);
+                    jsonResponse(['error' => 'Сайт слишком большой для снапшота (лимит 3 ГБ)'], 422);
+                }
+                if (!$zip->addFile($abs, $rel)) { $skipped++; continue; }
+                $files++;
+                $bytes += $size;
+            }
+            if ($files === 0) {
+                $zip->close();
+                @unlink($dest);
+                jsonResponse(['error' => 'В корне сайта не нашлось файлов для архива'], 422);
+            }
+            if (!$zip->close()) {
+                @unlink($dest);
+                jsonResponse(['error' => 'Не удалось записать архив (место на диске?)'], 500);
+            }
+        } catch (Throwable $e) {
+            @$zip->close();
+            @unlink($dest);
+            jsonResponse(['error' => 'Обход файлов не удался: ' . $e->getMessage()], 500);
+        }
+
+        $size = (int)@filesize($dest) ?: 0;
+        $info = [
+            'ok'         => true,
+            'name'       => $name,
+            'size'       => $size,
+            'files'      => $files,
+            'skipped'    => $skipped,
+            'bytes'      => $bytes,
+            'duration_s' => round(microtime(true) - $started, 1),
+            'sha256'     => $size > 0 ? (hash_file('sha256', $dest) ?: null) : null,
+            'created_at' => date('c'),
+        ];
+        AdminLog::add($pdo, AdminLog::actor($payload), 'site.snapshot',
+            "{$name}: {$files} файлов, " . round($size / 1048576, 1) . ' МБ');
+
+        jsonResponse(['data' => $info]);
+    }
+
+    /** POST /api/admin/site-update/deploy-archive/delete {name} — удалить снапшот. */
+    public static function snapshotDelete(): void
+    {
+        Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $name = (string)($data['name'] ?? '');
+        if (!self::validSnapshotName($name)) {
+            jsonResponse(['error' => 'Некорректное имя снапшота'], 422);
+        }
+        $path = self::snapshotsDir() . '/' . $name;
+        if (!is_file($path)) jsonResponse(['error' => 'Снапшот не найден'], 404);
+        if (!@unlink($path)) jsonResponse(['error' => 'Не удалось удалить файл'], 500);
+
+        jsonResponse(['data' => ['ok' => true]]);
     }
 
     /** GET /api/admin/site-update/deploy-archive/download — отдача архива. */
@@ -373,11 +555,29 @@ class AdminSiteUpdateController
     {
         Auth::requireEditor();
 
+        /* ?name=lakomka-site-….zip — скачать снапшот вместо сборного архива */
+        $snapName = trim((string)($_GET['name'] ?? ''));
+        if ($snapName !== '') {
+            if (!self::validSnapshotName($snapName)) {
+                jsonResponse(['error' => 'Некорректное имя снапшота'], 422);
+            }
+            $snapPath = self::snapshotsDir() . '/' . $snapName;
+            if (!is_file($snapPath)) {
+                jsonResponse(['error' => 'Снапшот не найден'], 404);
+            }
+            self::streamZipDownload($snapPath);
+        }
+
         $path = self::resolveDeployArchive();
         if ($path === null) {
             jsonResponse(['error' => 'Деплой-архив не найден — соберите его: MODE=full bash scripts/build-static.sh'], 404);
         }
+        self::streamZipDownload($path);
+    }
 
+    /** Стриминг zip с поддержкой Range (206) — общая панель загрузок админки. */
+    private static function streamZipDownload(string $path): void
+    {
         $size = filesize($path);
         if ($size === false) {
             jsonResponse(['error' => 'Не удалось прочитать файл'], 500);

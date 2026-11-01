@@ -18,7 +18,17 @@ export interface WeightRecipeRow {
   product_name: string;
   product_manufacturer: string | null;
   product_sku: string | null;
+  /** Вес конфеты (г) — для товаров без веса показываем редактор (Task 114) */
+  product_weight_g?: number | null;
   product_image_url: string | null;
+}
+
+/* Task 114: «своя позиция» — состав без карточки товара (упаковка, открытка…) */
+export interface CustomItem {
+  id: number;
+  weight_g: number;
+  name: string;
+  quantity: number;
 }
 
 interface Component {
@@ -65,6 +75,17 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
 
   const [coverFor, setCoverFor] = useState<WeightRecipeRow | null>(null);
 
+  /* Task 114: свои граммовки и свои позиции */
+  const [customItems, setCustomItems] = useState<CustomItem[]>([]);
+  const [newWeightOpen, setNewWeightOpen] = useState(false);
+  const [newWeight, setNewWeight] = useState("");
+  const [newWeightErr, setNewWeightErr] = useState<string | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customQty, setCustomQty] = useState(1);
+  const [customErr, setCustomErr] = useState<string | null>(null);
+  const [savingWeight, setSavingWeight] = useState<number | null>(null);
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   async function load(weight: number) {
@@ -77,13 +98,14 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
         credentials: "include",
       });
       if (!res.ok) { setError("Не удалось загрузить рецепт"); return; }
-      const json = (await res.json()) as { data: WeightRecipeRow[] };
+      const json = (await res.json()) as { data: WeightRecipeRow[]; custom?: CustomItem[] };
       setRows(json.data ?? []);
+      setCustomItems(json.custom ?? []);
     } catch { setError("Ошибка сети"); }
     finally { setLoading(false); }
   }
 
-  if (selected !== null && rows.length === 0 && !loading && !error) {
+  if (selected !== null && rows.length === 0 && customItems.length === 0 && !loading && !error) {
     load(selected);
   }
 
@@ -115,6 +137,139 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
       setRows((list) => list.filter((r) => r.product_id !== row.product_id));
       refreshWeightsMeta();
     } catch { setError("Ошибка удаления"); }
+  }
+
+  /* ── Task 114: свои граммовки ── */
+  async function createWeightGroup() {
+    const w = parseInt(newWeight, 10);
+    if (!Number.isFinite(w) || w <= 0) { setNewWeightErr("Введите вес в граммах (целое число)"); return; }
+    if (weights.some((x) => x.weight_g === w)) {
+      setNewWeightErr(`Граммовка ${w} г уже есть`);
+      return;
+    }
+    setNewWeightErr(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/weight-recipes/weights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ weight_g: w }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setNewWeightErr(json.error ?? "Не удалось создать"); return; }
+      setNewWeightOpen(false);
+      setNewWeight("");
+      setRows([]);
+      setCustomItems([]);
+      setSelected(w);
+      await refreshWeightsMeta();
+    } catch { setNewWeightErr("Ошибка сети"); }
+  }
+
+  async function deleteWeightGroup() {
+    if (selected === null) return;
+    if (!confirm(`Удалить граммовку ${selected} г целиком — конфеты, свои позиции, всё?`)) return;
+    try {
+      const res = await fetch(`${apiUrl}/admin/weight-recipes/${selected}`, {
+        method: "DELETE", credentials: "include",
+      });
+      if (res.ok) {
+        setRows([]);
+        setCustomItems([]);
+        setSelected(null);
+        await refreshWeightsMeta();
+      }
+    } catch { setError("Ошибка удаления"); }
+  }
+
+  /* ── Task 114: свои позиции ── */
+  async function addCustomItem() {
+    if (selected === null) return;
+    const name = customName.trim();
+    if (name === "") { setCustomErr("Введите название"); return; }
+    if (customQty <= 0) { setCustomErr("Количество — больше 0"); return; }
+    setCustomErr(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/weight-recipes/${selected}/custom`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name, quantity: customQty }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setCustomErr(json.error ?? "Не удалось добавить"); return; }
+      setCustomOpen(false);
+      setCustomName("");
+      setCustomQty(1);
+      await load(selected);
+      refreshWeightsMeta();
+    } catch { setCustomErr("Ошибка сети"); }
+  }
+
+  async function saveCustomQty(item: CustomItem, qty: number) {
+    if (qty <= 0) return;
+    try {
+      await fetch(`${apiUrl}/admin/weight-recipes/${item.weight_g}/custom/${item.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ quantity: qty }),
+      });
+      setCustomItems((list) => list.map((x) => x.id === item.id ? { ...x, quantity: qty } : x));
+      refreshWeightsMeta();
+    } catch { setError("Ошибка сохранения"); }
+  }
+
+  async function renameCustomItem(item: CustomItem, name: string) {
+    const trimmed = name.trim();
+    if (trimmed === "" || trimmed === item.name) return;
+    try {
+      await fetch(`${apiUrl}/admin/weight-recipes/${item.weight_g}/custom/${item.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      setCustomItems((list) => list.map((x) => x.id === item.id ? { ...x, name: trimmed } : x));
+    } catch { setError("Ошибка сохранения"); }
+  }
+
+  async function removeCustomItem(item: CustomItem) {
+    if (!confirm(`Удалить «${item.name}» из рецепта ${item.weight_g} г?`)) return;
+    try {
+      await fetch(`${apiUrl}/admin/weight-recipes/${item.weight_g}/custom/${item.id}`, {
+        method: "DELETE", credentials: "include",
+      });
+      setCustomItems((list) => list.filter((x) => x.id !== item.id));
+      refreshWeightsMeta();
+    } catch { setError("Ошибка удаления"); }
+  }
+
+  /* ── Task 114: вес конфеты прямо из таблицы ── */
+  async function saveProductWeight(row: WeightRecipeRow, raw: string) {
+    const v = raw.trim();
+    const current = row.product_weight_g ?? null;
+    if (v === "") {
+      if (current === null) return;
+    } else {
+      const w = parseInt(v, 10);
+      if (!Number.isFinite(w) || w <= 0 || w === current) return;
+    }
+    setSavingWeight(row.product_id);
+    try {
+      const res = await fetch(`${apiUrl}/admin/weight-recipes/product-weight`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ product_id: row.product_id, weight_g: v === "" ? null : parseInt(v, 10) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(json.error ?? "Не удалось сохранить вес"); return; }
+      setRows((list) =>
+        list.map((x) => x.product_id === row.product_id ? { ...x, product_weight_g: json.data?.weight_g ?? null } : x)
+      );
+    } catch { setError("Ошибка сети"); }
+    finally { setSavingWeight(null); }
   }
 
   async function refreshWeightsMeta() {
@@ -250,6 +405,13 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
         <div className="flex gap-2">
           <button
             type="button"
+            onClick={() => { setNewWeightOpen(true); setNewWeightErr(null); }}
+            className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+          >
+            + Своя граммовка
+          </button>
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
             className="rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white disabled:opacity-60"
@@ -317,6 +479,11 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
         <aside className="space-y-2">
           <h2 className="mb-2 text-sm font-medium text-[var(--color-heading)]">Граммовки</h2>
+          {weights.length === 0 && (
+            <p className="text-xs text-[var(--color-muted)]">
+              Граммовок ещё нет — импортируйте CSV или создайте свою.
+            </p>
+          )}
           {weights.map((w) => (
             <button
               key={w.weight_g}
@@ -334,6 +501,15 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
               </span>
             </button>
           ))}
+          {selected !== null && (
+            <button
+              type="button"
+              onClick={deleteWeightGroup}
+              className="mt-3 w-full rounded-lg border border-red-200 px-3 py-2 text-left text-xs text-red-600 transition hover:bg-red-50"
+            >
+              Удалить граммовку {selected} г целиком
+            </button>
+          )}
         </aside>
 
         <section>
@@ -342,9 +518,9 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold text-[var(--color-heading)]">
                   Рецепт {selected} г
-                  {rows.length > 0 && (
+                  {rows.length + customItems.length > 0 && (
                     <span className="ml-2 text-sm font-normal text-[var(--color-muted)]">
-                      ({rows.length} поз., {rows.reduce((s, r) => s + r.quantity, 0)} шт.)
+                      ({rows.length + customItems.length} поз., {rows.reduce((s, r) => s + r.quantity, 0) + customItems.reduce((s, r) => s + r.quantity, 0)} шт.)
                     </span>
                   )}
                 </h2>
@@ -358,6 +534,13 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
                   />
                   <button
                     type="button"
+                    onClick={() => { setCustomOpen(true); setCustomErr(null); }}
+                    className="whitespace-nowrap rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2 text-sm font-medium text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+                  >
+                    + Своя позиция
+                  </button>
+                  <button
+                    type="button"
                     onClick={openPicker}
                     className="whitespace-nowrap rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
                   >
@@ -368,7 +551,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
 
               {loading ? (
                 <p className="text-sm text-[var(--color-muted)]">Загружаем…</p>
-              ) : filtered.length === 0 ? (
+              ) : filtered.length === 0 && customItems.length === 0 ? (
                 <p className="text-sm text-[var(--color-muted)]">
                   {rows.length === 0 ? "В рецепте нет позиций." : "Ничего не найдено."}
                 </p>
@@ -379,6 +562,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
                       <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
                         <th className="p-3 w-20"></th>
                         <th className="p-3">Конфета</th>
+                        <th className="p-3 w-28">Вес, г</th>
                         <th className="p-3">Производитель</th>
                         <th className="p-3">SKU</th>
                         <th className="p-3 text-center w-24">Кол-во</th>
@@ -419,6 +603,23 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
                             </div>
                           </td>
                           <td className="p-3 font-medium">{r.product_name}</td>
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              min={0}
+                              defaultValue={r.product_weight_g ?? ""}
+                              key={`${r.product_id}-${r.product_weight_g ?? "none"}`}
+                              placeholder="—"
+                              title="Вес одной конфеты; для товаров без веса заполните здесь"
+                              onBlur={(e) => saveProductWeight(r, e.target.value)}
+                              disabled={savingWeight === r.product_id}
+                              className={`w-20 rounded border px-2 py-1 text-center text-sm ${
+                                (r.product_weight_g ?? 0) <= 0
+                                  ? "border-amber-300 bg-amber-50"
+                                  : "border-[var(--color-border)]"
+                              }`}
+                            />
+                          </td>
                           <td className="p-3 text-[var(--color-muted)]">{r.product_manufacturer || "—"}</td>
                           <td className="p-3 text-[var(--color-muted)]">{r.product_sku || "—"}</td>
                           <td className="p-3 text-center">
@@ -444,6 +645,56 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
                             <button
                               type="button"
                               onClick={() => removeRow(r)}
+                              className="text-xs text-[var(--color-muted)] hover:text-red-600"
+                            >
+                              удалить
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {customItems
+                        .filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
+                        .map((c) => (
+                        <tr key={`custom-${c.id}`} className="border-b border-[var(--color-border)] last:border-none bg-[var(--color-bg-soft)]/50">
+                          <td className="p-3">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] text-lg" title="Своя позиция — без карточки товара">
+                              ✨
+                            </div>
+                          </td>
+                          <td className="p-3 font-medium">
+                            <input
+                              type="text"
+                              defaultValue={c.name}
+                              key={`n-${c.id}-${c.name}`}
+                              onBlur={(e) => renameCustomItem(c, e.target.value)}
+                              className="w-full max-w-xs rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium hover:border-[var(--color-border)] focus:border-[var(--color-primary)] focus:outline-none"
+                            />
+                            <span className="ml-1 rounded-full bg-[var(--color-primary)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--color-primary)]">своя</span>
+                          </td>
+                          <td className="p-3 text-xs text-[var(--color-muted)]">—</td>
+                          <td className="p-3 text-xs italic text-[var(--color-muted)]">без карточки</td>
+                          <td className="p-3 text-xs text-[var(--color-muted)]">—</td>
+                          <td className="p-3 text-center">
+                            <input
+                              type="number"
+                              min={1}
+                              value={c.quantity}
+                              onChange={(e) => {
+                                const v = Number(e.target.value) || 0;
+                                setCustomItems((list) => list.map((x) => x.id === c.id ? { ...x, quantity: v } : x));
+                              }}
+                              onBlur={(e) => {
+                                const v = Number(e.target.value) || 0;
+                                if (v > 0 && v !== c.quantity) saveCustomQty(c, v);
+                                if (v <= 0) saveCustomQty(c, 1);
+                              }}
+                              className="w-16 rounded border border-[var(--color-border)] px-2 py-1 text-center text-sm"
+                            />
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeCustomItem(c)}
                               className="text-xs text-[var(--color-muted)] hover:text-red-600"
                             >
                               удалить
@@ -515,6 +766,87 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
               </button>
               <button type="button" disabled={!pickedId} onClick={addComponent}
                 className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm text-white disabled:opacity-50">
+                Добавить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task 114: модалка «своя граммовка» */}
+      {newWeightOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setNewWeightOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
+              Своя граммовка
+            </h3>
+            <p className="mb-3 text-xs text-[var(--color-muted)]">
+              Создайте любую ступень веса (например 750 г), затем добавьте в неё конфеты и свои позиции.
+            </p>
+            <input
+              type="number"
+              min={1}
+              autoFocus
+              value={newWeight}
+              onChange={(e) => setNewWeight(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && createWeightGroup()}
+              placeholder="Вес в граммах, напр. 750"
+              className="mb-2 w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none"
+            />
+            {newWeightErr && <p className="mb-2 text-xs text-red-600">{newWeightErr}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setNewWeightOpen(false)}
+                className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2 text-sm">
+                Отмена
+              </button>
+              <button type="button" onClick={createWeightGroup}
+                className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm text-white">
+                Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task 114: модалка «своя позиция» */}
+      {customOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setCustomOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
+              Своя позиция в {selected} г
+            </h3>
+            <p className="mb-3 text-xs text-[var(--color-muted)]">
+              Для состава, которого нет среди товаров: упаковка, открытка, бант…
+              Позиция живёт только в рецепте (в автосборку набора не попадает).
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              placeholder="Название, напр. Открытка"
+              className="mb-2 w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none"
+            />
+            <label className="flex items-center gap-2 text-sm">
+              Кол-во:
+              <input
+                type="number"
+                min={1}
+                value={customQty}
+                onChange={(e) => setCustomQty(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 rounded border border-[var(--color-border)] px-2 py-1 text-sm"
+              />
+            </label>
+            {customErr && <p className="mt-2 text-xs text-red-600">{customErr}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setCustomOpen(false)}
+                className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2 text-sm">
+                Отмена
+              </button>
+              <button type="button" onClick={addCustomItem}
+                className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm text-white">
                 Добавить
               </button>
             </div>

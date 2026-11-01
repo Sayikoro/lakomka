@@ -1,5 +1,4 @@
 import { cache } from "react";
-import type { Product } from "./types";
 import { DEFAULT_SNOW_SETTINGS, parseSnowConfig } from "./snow";
 import type { SnowSettings } from "./snow";
 
@@ -31,6 +30,9 @@ export interface ShopFrontSettings {
   card_video_enabled: boolean;
   /** Яндекс.Метрика: номер счётчика; пусто = счётчик не вшит (Task 107) */
   ym_id: string;
+  /** Встраиваемый блок Метрики целиком (Task 114); пусто = блока нет.
+      Задан — используется вместо ym_id. */
+  metrika_code: string;
   /** Снегопад */
   snow: SnowSettings;
   /** Тексты страниц («Текст на страницах»): ключ из реестра → значение;
@@ -48,6 +50,7 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   product_card_template: "new",
   card_video_enabled: true,
   ym_id: "",
+  metrika_code: "",
   snow: DEFAULT_SNOW_SETTINGS,
   texts: {},
 };
@@ -59,6 +62,7 @@ interface ApiPublicSettings {
   product_card_template?: string;
   card_video_enabled?: boolean;
   ym_id?: string;
+  metrika_code?: string;
   snow?: Parameters<typeof parseSnowConfig>[0];
   texts?: Record<string, unknown>;
 }
@@ -97,6 +101,8 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
       card_video_enabled: d.card_video_enabled !== false,
       /* Счётчик Метрики: бэкенд отдаёт только валидные цифры или пусто */
       ym_id: typeof d.ym_id === "string" ? d.ym_id : "",
+      /* Встраиваемый блок Метрики (Task 114) — бэкенд отдаёт как есть */
+      metrika_code: typeof d.metrika_code === "string" ? d.metrika_code : "",
       snow: parseSnowConfig(d.snow),
       texts: parseTexts(d.texts),
     };

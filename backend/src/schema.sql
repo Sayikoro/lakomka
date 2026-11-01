@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS weight_recipes (
     PRIMARY KEY (weight_g, product_id)
 );
 
+-- Task 114: «Свои позиции» рецепта — состав, которого нет в справочнике
+-- товаров (упаковка, открытка, бант…). Живёт в тех же граммовках.
+CREATE TABLE IF NOT EXISTS weight_recipe_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    weight_g INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_number TEXT UNIQUE NOT NULL,

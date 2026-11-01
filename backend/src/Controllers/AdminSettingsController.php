@@ -28,6 +28,9 @@ class AdminSettingsController
         'gallery_video_folder',
         /* витрина: Яндекс.Метрика (номер счётчика, пусто = счётчика нет) */
         'ym_id',
+        /* витрина: Яндекс.Метрика — встраиваемый блок целиком (Task 114).
+           Задан → используется вместо ym_id; хранится как есть (HTML+script). */
+        'metrika_code',
         /* Telegram-уведомления о заказах (Task 108): токен — секрет,
            маскируется как smtp_pass; chat_id — число или @username канала */
         'tg_bot_token',
@@ -49,6 +52,7 @@ class AdminSettingsController
         'hero_slides',
         'product_card_template',
         'card_video_enabled',
+        'metrika_code',
         'snow_enabled',
         'snow_count',
         'snow_count_mobile',
@@ -138,7 +142,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','metrika_code','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -179,6 +183,14 @@ class AdminSettingsController
             ? trim((string)$map['ym_id'])
             : '';
 
+        /* Встраиваемый блок Метрики (Task 114): отдаётся как есть —
+           витрина рендерит его на страницах. Ограничение по длине —
+           страховка от мусора; пусто = блока нет. */
+        $metrikaCode = (string)($map['metrika_code'] ?? '');
+        if (mb_strlen($metrikaCode) > 20000) {
+            $metrikaCode = '';
+        }
+
         /* Тексты страниц: ключи text_* отдаются без префикса */
         $texts = [];
         foreach ($map as $k => $v) {
@@ -194,6 +206,7 @@ class AdminSettingsController
             'product_card_template' => $template,
             'card_video_enabled'    => $cardVideo,
             'ym_id'                 => $ymId,
+            'metrika_code'          => $metrikaCode,
             'snow'                  => self::snowConfig($map),
             'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
@@ -286,6 +299,20 @@ class AdminSettingsController
                 jsonResponse(['error' => 'ym_id: номер счётчика — только цифры (например 12345678) или пусто'], 422);
             }
             $data['ym_id'] = $ymId;
+        }
+        /* Встраиваемый блок Метрики (Task 114): строка-HTML. Проверяем мягко —
+           длина (страховка от мусора) и что это похоже на счётчик Яндекса,
+           если блок непустой; иначе опечатка в поле навсегда выключит
+           аналитику без единой ошибки на витрине. */
+        if (isset($data['metrika_code'])) {
+            $code = (string)$data['metrika_code'];
+            if (mb_strlen($code) > 20000) {
+                jsonResponse(['error' => 'metrika_code: блок слишком длинный (максимум 20 000 символов)'], 422);
+            }
+            if ($code !== '' && !str_contains($code, 'mc.yandex.ru')) {
+                jsonResponse(['error' => 'metrika_code: в блоке не найдено mc.yandex.ru — вставьте код счётчика целиком, как его даёт Яндекс.Метрика'], 422);
+            }
+            $data['metrika_code'] = $code;
         }
         /* Telegram (Task 108): пустой токен = не менять (как smtp_pass);
            вставленная маска — честная ошибка; формат 123456789:AA… проверяем

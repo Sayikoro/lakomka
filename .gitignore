@@ -79,3 +79,4 @@ download/
 .png-repair/
 Caddyfile
 .deploy-package-update/
+.deploy-package-media/

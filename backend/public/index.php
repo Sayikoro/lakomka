@@ -330,6 +330,15 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
         AdminSiteUpdateController::deployArchiveDownload();
     }
+    /* Task 114: снапшот текущего развёрнутого сайта (создать/удалить) */
+    if ($path === '/api/admin/site-update/deploy-archive/create' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::snapshotCreate($pdo);
+    }
+    if ($path === '/api/admin/site-update/deploy-archive/delete' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
+        AdminSiteUpdateController::snapshotDelete();
+    }
     if ($path === '/api/admin/site-update/github-check' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';
         AdminSiteUpdateController::githubCheck();
@@ -352,11 +361,30 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
         AdminWeightRecipeController::importZip($pdo);
     }
+    /* Task 114: свои граммовки, свои позиции и вес конфеты из таблицы рецепта */
+    if ($path === '/api/admin/weight-recipes/weights' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
+        AdminWeightRecipeController::createWeight($pdo);
+    }
+    if ($path === '/api/admin/weight-recipes/product-weight' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
+        AdminWeightRecipeController::setProductWeight($pdo);
+    }
+    if (preg_match('#^/api/admin/weight-recipes/(\d+)/custom/(\d+)$#', $path, $m)) {
+        require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
+        if ($method === 'POST')   AdminWeightRecipeController::updateCustom($pdo, (int)$m[1], (int)$m[2]);
+        if ($method === 'DELETE') AdminWeightRecipeController::removeCustom($pdo, (int)$m[1], (int)$m[2]);
+    }
+    if (preg_match('#^/api/admin/weight-recipes/(\d+)/custom$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
+        AdminWeightRecipeController::addCustom($pdo, (int)$m[1]);
+    }
     if (preg_match('#^/api/admin/weight-recipes/(\d+)$#', $path, $m)) {
         require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
         $w = (int)$m[1];
         if ($method === 'GET')  AdminWeightRecipeController::show($pdo, $w);
         if ($method === 'POST') AdminWeightRecipeController::upsert($pdo, $w);
+        if ($method === 'DELETE') AdminWeightRecipeController::deleteWeight($pdo, $w);
     }
     if (preg_match('#^/api/admin/weight-recipes/(\d+)/(\d+)$#', $path, $m) && $method === 'DELETE') {
         require_once __DIR__ . '/../src/Controllers/AdminWeightRecipeController.php';
@@ -497,6 +525,15 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/files/compress' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::compress($pdo);
+    }
+    /* Task 114: массовая оптимизация — список картинок и конвертация в WebP */
+    if ($path === '/api/admin/files/images' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::images($pdo);
+    }
+    if ($path === '/api/admin/files/compress-image' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::compressImage($pdo);
     }
     if ($path === '/api/admin/products' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';

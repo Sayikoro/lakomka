@@ -51,6 +51,24 @@ interface DeployArchiveInfo {
   size?: number;
   mtime?: number;
   sha256?: string | null;
+  snapshots?: SnapshotInfo[];
+}
+
+interface SnapshotInfo {
+  name: string;
+  size: number;
+  mtime: number;
+}
+
+interface SnapshotResult {
+  ok: boolean;
+  name: string;
+  size: number;
+  files: number;
+  skipped?: number;
+  bytes?: number;
+  duration_s?: number;
+  sha256?: string | null;
 }
 
 interface GhRelease {
@@ -128,6 +146,11 @@ export function SiteUpdateTab() {
   const [deployError, setDeployError] = useState<string | null>(null);
   const { start: startDownload } = useDownloads();
 
+  /* Task 114: снапшот текущего сайта */
+  const [snapBusy, setSnapBusy] = useState(false);
+  const [snapResult, setSnapResult] = useState<SnapshotResult | null>(null);
+  const [snapError, setSnapError] = useState<string | null>(null);
+
   const [gh, setGh] = useState<GithubCheck | null>(null);
   const [ghChecking, setGhChecking] = useState(false);
   const [ghError, setGhError] = useState<string | null>(null);
@@ -136,8 +159,6 @@ export function SiteUpdateTab() {
   const [ghDone, setGhDone] = useState<ApplyResult | null>(null);
 
   const loadStatus = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
     try {
       const res = await fetch(`${API_URL}/admin/site-update`, {
         credentials: "include",
@@ -145,6 +166,7 @@ export function SiteUpdateTab() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Не удалось получить статус");
+      setLoadError(null);
       setStatus(json.data as UpdateStatus);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Ошибка сети");
@@ -154,12 +176,10 @@ export function SiteUpdateTab() {
   }, []);
 
   useEffect(() => {
-    loadStatus();
+    void Promise.resolve().then(loadStatus);
   }, [loadStatus]);
 
   const loadDeploy = useCallback(async () => {
-    setDeployLoading(true);
-    setDeployError(null);
     try {
       const res = await fetch(`${API_URL}/admin/site-update/deploy-archive`, {
         credentials: "include",
@@ -167,6 +187,7 @@ export function SiteUpdateTab() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Не удалось получить сведения об архиве");
+      setDeployError(null);
       setDeploy(json.data as DeployArchiveInfo);
     } catch (e) {
       setDeployError(e instanceof Error ? e.message : "Ошибка сети");
@@ -176,7 +197,7 @@ export function SiteUpdateTab() {
   }, []);
 
   useEffect(() => {
-    loadDeploy();
+    void Promise.resolve().then(loadDeploy);
   }, [loadDeploy]);
 
   function startDeployDownload() {
@@ -184,6 +205,65 @@ export function SiteUpdateTab() {
     startDownload({
       url: `${API_URL}/admin/site-update/deploy-archive/download`,
       name: deploy.name,
+    });
+  }
+
+  /* ── Task 114: снапшот текущего сайта ── */
+  async function createSnapshot() {
+    const ok = window.confirm(
+      "Собрать деплой-архив из ТЕКУЩЕГО состояния сайта?\n\n" +
+      "В архив войдёт всё, что сейчас на сервере: витрина, backend, медиа и база данных.\n" +
+      "На слабом хостинге это может занять несколько минут — окно можно закрыть и работать дальше."
+    );
+    if (!ok) return;
+    setSnapBusy(true);
+    setSnapError(null);
+    setSnapResult(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/site-update/deploy-archive/create`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSnapError(json.error ?? `Ошибка ${res.status}`);
+        return;
+      }
+      setSnapResult(json.data as SnapshotResult);
+      await loadDeploy();
+    } catch {
+      setSnapError("Ошибка сети");
+    } finally {
+      setSnapBusy(false);
+    }
+  }
+
+  async function deleteSnapshot(name: string) {
+    if (!window.confirm(`Удалить снапшот ${name}? Файл будет стёрт с сервера безвозвратно.`)) return;
+    setSnapError(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/site-update/deploy-archive/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSnapError(json.error ?? `Ошибка ${res.status}`);
+        return;
+      }
+      if (snapResult?.name === name) setSnapResult(null);
+      await loadDeploy();
+    } catch {
+      setSnapError("Ошибка сети");
+    }
+  }
+
+  function downloadSnapshot(name: string) {
+    startDownload({
+      url: `${API_URL}/admin/site-update/deploy-archive/download?name=${encodeURIComponent(name)}`,
+      name,
     });
   }
 
@@ -637,6 +717,80 @@ export function SiteUpdateTab() {
           <p className="text-sm text-[var(--color-muted)]">
             Архив ещё не собран. В песочнице: <code>MODE=full bash scripts/build-static.sh</code>.
           </p>
+        )}
+
+        {/* ── Task 114: снапшот текущего сайта (деплой-архив с сервера) ── */}
+        <hr className="my-5 border-[var(--color-border)]" />
+        <h3 className="mb-1 font-medium text-[var(--color-heading)]">
+          Архив текущего сайта (снапшот)
+        </h3>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Zip с тем, что сейчас на сервере: витрина, backend, ВСЕ медиа и база данных
+          (заказы, товары, настройки). Годится как резервная копия перед обновлением
+          или для переноса сайта на другой хостинг. Служебный мусор (логи, чанки,
+          прошлые снапшоты) не пакуется.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={createSnapshot}
+            disabled={snapBusy}
+            className="rounded-[var(--radius-btn)] bg-[#2e9e5b] px-6 py-2 text-sm font-medium text-white shadow hover:bg-[#278a4f] disabled:opacity-60"
+          >
+            {snapBusy ? "Собираем архив… (может занять несколько минут)" : "📦 Создать архив текущего сайта"}
+          </button>
+        </div>
+
+        {snapError && (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{snapError}</p>
+        )}
+
+        {snapResult && (
+          <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm">
+            <p className="font-semibold text-green-800">✓ Снапшот готов: {snapResult.name}</p>
+            <p className="mt-1 text-green-800">
+              {humanSize(snapResult.size)} · файлов: {snapResult.files}
+              {snapResult.duration_s != null && <> · за {snapResult.duration_s} с</>}
+            </p>
+            {snapResult.sha256 && (
+              <p className="mt-1 break-all text-xs text-green-900/80">sha256: {snapResult.sha256}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => downloadSnapshot(snapResult.name)}
+              className="mt-3 rounded-[var(--radius-btn)] bg-[#2e9e5b] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#278a4f]"
+            >
+              ⬇ Скачать снапшот
+            </button>
+          </div>
+        )}
+
+        {(deploy?.snapshots?.length ?? 0) > 0 && (
+          <ul className="mt-4 divide-y divide-[var(--color-border)] rounded-[var(--radius-card)] border border-[var(--color-border)] text-sm">
+            {deploy!.snapshots!.map((s) => (
+              <li key={s.name} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 truncate font-medium" title={s.name}>{s.name}</span>
+                <span className="text-xs text-[var(--color-muted)]">
+                  {humanSize(s.size)} · {fmtDate(new Date(s.mtime * 1000).toISOString())}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => downloadSnapshot(s.name)}
+                  className="rounded-[var(--radius-btn)] border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-bg-soft)]"
+                >
+                  ⬇ Скачать
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteSnapshot(s.name)}
+                  className="rounded-[var(--radius-btn)] border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  удалить
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

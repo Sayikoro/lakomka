@@ -176,6 +176,7 @@ export function SettingsForm({ initial }: Props) {
           snow_color: /^#[0-9a-fA-F]{6}$/.test(form.snow_color || "") ? form.snow_color : "",
           snow_flake: form.snow_flake.trim(),
           ym_id: form.ym_id.trim(),
+          metrika_code: form.metrika_code,
           tg_bot_token: form.tg_bot_token, // пустая строка = не менять
           tg_chat_id: form.tg_chat_id.trim(),
         }),
@@ -397,6 +398,22 @@ export function SettingsForm({ initial }: Props) {
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             Только цифры из metrika.yandex.ru («Счётчик создан» → номер). Пусто = счётчика нет.
             Появляется на витрине по F5; цели «add_to_cart» и «order_created» отправляются автоматически.
+          </p>
+        </div>
+
+        <div>
+          <label className={label}>Яндекс.Метрика — встраиваемый блок (заменяет номер счётчика)</label>
+          <textarea
+            rows={6}
+            value={form.metrika_code}
+            onChange={(e) => setField("metrika_code", e.target.value)}
+            className={`${input} font-mono text-xs`}
+            placeholder="<!-- Yandex.Metrika counter --> … <!-- /Yandex.Metrika counter -->"
+            data-testid="metrika-code-input"
+          />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Вставьте код счётчика ЦЕЛИКОМ, как его даёт Метрика (кнопка «Скопировать код»).
+            Если блок задан — он используется вместо номера выше и попадает на витрину без пересборки.
           </p>
         </div>
 
