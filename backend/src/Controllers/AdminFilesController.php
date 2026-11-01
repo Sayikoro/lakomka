@@ -658,6 +658,11 @@ class AdminFilesController
             if (self::isUsedByProducts(self::usedUrls($pdo), $pubUrl, is_dir($abs))) {
                 jsonResponse(['error' => 'Файл используется в товарах — сначала отвяжите его от товаров.'], 403);
             }
+            /* Task 118: системные файлы витрины (снежинка, логотип, иконки
+               шагов) и папки с ними — не удалять, на них ссылается код. */
+            if (SystemFiles::isReferred($rel) || SystemFiles::referredInside($rel)) {
+                jsonResponse(['error' => 'Системный файл витрины — удалять нельзя (нужен снегопаду/шапке/шагам на главной).'], 403);
+            }
             $itemId = self::trashMove($root, $abs, $rel);
             AdminLog::add($pdo, AdminLog::actor($payload), 'files.delete',
                 "media/{$rel} → корзина ({$itemId})");
@@ -855,6 +860,9 @@ class AdminFilesController
                по имени ({alias}.jpg зашито в PdfController), в БД ссылок
                на них нет. Считать их «мусором» нельзя (Task 116). */
             if (strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) continue;
+            /* Task 118: на эти файлы ссылается КОД витрины (снежинка,
+               логотип, иконки шагов) — в БД их нет, но удалять нельзя. */
+            if (SystemFiles::isReferred($rel)) continue;
             $url = '/uploads/' . $rel;
             if (isset($used[$url])) continue;
             $size = @filesize($abs) ?: 0;
@@ -896,7 +904,8 @@ class AdminFilesController
         foreach ($paths as $p) {
             $rel = ltrim(str_replace('\\', '/', (string)$p), '/');
             if ($rel === '' || str_contains($rel, '..') || str_starts_with($rel, '.trash')
-                || strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0) {
+                || strcasecmp(substr($rel, 0, 5), 'pdfs/') === 0
+                || SystemFiles::isReferred($rel)) { /* Task 118: системные файлы витрины */
                 $skipped++;
                 continue;
             }

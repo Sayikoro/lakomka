@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { DEFAULT_FLAKE_SVG } from "@/lib/snow";
 
 /* ============================================================
    Снегопад в Hero-блоке на главной — как в оригинале (плагин
@@ -28,7 +29,9 @@ export interface SnowfallConfig {
   flake: string;
 }
 
-const DEFAULT_FLAKE = "/uploads/snowflake/snowflake.svg";
+/* Дефолтная снежинка ВШИТА в код (DEFAULT_FLAKE_SVG из @/lib/snow) —
+   снегопад не зависит от доступности /uploads (Task 118). Своя снежинка
+   из настроек грузится по ссылке, при неудаче — снова встроенная. */
 /** Порог «мобильного» устройства — совпадает с Tailwind md (768px) */
 const MOBILE_QUERY = "(max-width: 767px)";
 
@@ -95,7 +98,7 @@ export function Snowfall({ count, countMobile, speed, size, color, flake }: Snow
     let animId = 0;
     let disposed = false;
     let flakeImg: HTMLImageElement | null = null;
-    let blobUrl: string | null = null;
+    const blobUrls: string[] = [];
 
     function sizeCanvas() {
       const rect = canvas!.getBoundingClientRect();
@@ -167,29 +170,30 @@ export function Snowfall({ count, countMobile, speed, size, color, flake }: Snow
     }
     window.addEventListener("resize", onResize);
 
-    /* Загружаем SVG-снежинку: fetch → blob → Image (как в оригинале).
-       Готовая картинка просто подключается к уже идущей анимации. */
-    const src = flake || DEFAULT_FLAKE;
-    fetch(src)
-      .then((res) => {
-        if (!res.ok) throw new Error("flake fetch failed");
-        return res.text();
-      })
-      .then((svgText) => {
-        blobUrl = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
-        return new Promise<HTMLImageElement | null>((resolve) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = blobUrl!;
-        });
-      })
-      .then((img) => {
-        if (img && !disposed) flakeImg = img; // без снежинки рисуем кружки-фолбэк
-      })
-      .catch(() => {
-        /* остаёмся на кружках-фолбэке */
+    /* Загружаем снежинку: своя из настроек → при неудаче встроенная.
+       Встроенная берётся из константы (blob без сети) — Task 118. */
+    const fromSvgText = (svgText: string) =>
+      new Promise<HTMLImageElement | null>((resolve) => {
+        const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
+        blobUrls.push(url);
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
       });
+    const tryLoad = (maybeUrl: string): Promise<HTMLImageElement | null> =>
+      !maybeUrl
+        ? fromSvgText(DEFAULT_FLAKE_SVG)
+        : fetch(maybeUrl)
+            .then((res) => {
+              if (!res.ok) throw new Error("flake fetch failed");
+              return res.text();
+            })
+            .then(fromSvgText)
+            .catch(() => fromSvgText(DEFAULT_FLAKE_SVG));
+    tryLoad(flake).then((img) => {
+      if (img && !disposed) flakeImg = img; // без снежинки рисуем кружки-фолбэк
+    });
 
     animate();
 
@@ -197,7 +201,7 @@ export function Snowfall({ count, countMobile, speed, size, color, flake }: Snow
       disposed = true;
       cancelAnimationFrame(animId);
       window.removeEventListener("resize", onResize);
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      for (const u of blobUrls) URL.revokeObjectURL(u);
     };
   }, [activeCount, speed, size, color, flake]);
 

@@ -68,6 +68,7 @@ if (in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT', 'PATCH', 'DELE
 
 require __DIR__ . '/../src/Database.php';
 require __DIR__ . '/../src/Auth.php';
+require_once __DIR__ . '/../src/SystemFiles.php';
 
 $pdo = Database::get();
 

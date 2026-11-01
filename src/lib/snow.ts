@@ -68,3 +68,30 @@ export function parseSnowConfig(d: ApiSnowSettings | undefined | null): SnowSett
     flake: typeof s.flake === "string" ? s.flake : "",
   };
 }
+
+/* Встроенная снежинка (Task 118): вшита в код, а не лежит в /uploads —
+ * сканер «неиспользуемых файлов» когда-то счёл файл в uploads мусором
+ * (на него ссылается код, а не база), снежинка исчезла с сайта. Теперь
+ * снегопад рисует эту SVG даже если uploads/ пуст, а файл
+ * /uploads/snowflake/snowflake.svg остаётся как копия для совместимости
+ * (защищён от удаления, восстанавливается при обновлении — SystemFiles). */
+export const DEFAULT_FLAKE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="#fff">
+  <defs>
+    <g id="a">
+      <rect x="30" y="4" width="4" height="22" rx="2"/>
+      <rect x="26.5" y="7" width="3.5" height="11" rx="1.75" transform="rotate(-55 28.25 12.5)"/>
+      <rect x="34" y="7" width="3.5" height="11" rx="1.75" transform="rotate(55 35.75 12.5)"/>
+    </g>
+  </defs>
+  <use href="#a"/>
+  <use href="#a" transform="rotate(60 32 32)"/>
+  <use href="#a" transform="rotate(120 32 32)"/>
+  <use href="#a" transform="rotate(180 32 32)"/>
+  <use href="#a" transform="rotate(240 32 32)"/>
+  <use href="#a" transform="rotate(300 32 32)"/>
+  <circle cx="32" cy="32" r="3.5"/>
+</svg>`;
+
+/** Та же снежинка как data-URI — для превью в админке (img без сети) */
+export const DEFAULT_FLAKE_DATA =
+  "data:image/svg+xml;charset=utf-8," + encodeURIComponent(DEFAULT_FLAKE_SVG);

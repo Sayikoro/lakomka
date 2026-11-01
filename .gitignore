@@ -80,3 +80,6 @@ download/
 Caddyfile
 .deploy-package-update/
 .deploy-package-media/
+
+# корзина файлового менеджера (тестовый мусор песочницы) в git не едет
+public/uploads/.trash/

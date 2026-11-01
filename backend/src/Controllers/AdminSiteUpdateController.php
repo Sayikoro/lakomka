@@ -270,6 +270,12 @@ class AdminSiteUpdateController
         }
         self::rrmdir($tmp);
 
+        /* Task 118: системные файлы витрины (снежинка, логотип, иконки шагов)
+           могли быть утеряны на сервере (например, очисткой «неиспользуемых»
+           до появления защиты) — обновление привозит их копии в
+           backend/assets/system-uploads и дозаписывает отсутствующие. */
+        $healed = SystemFiles::heal($root);
+
         if ($applied === 0) {
             $reject('Ни один файл не обновлён — скорее всего, нет прав на запись в корень сайта', 500, ['failed' => array_slice($failed, 0, 20)]);
         }
@@ -284,6 +290,7 @@ class AdminSiteUpdateController
             'version'    => $manifest['version']  ?? null,
             'built_at'   => $manifest['built_at'] ?? null,
             'source'     => basename($fileName),
+            'system_restored' => $healed, // Task 118: дозаписанные файлы витрины
         ];
         $journalDir = $root . '/backend/storage';
         if (!is_dir($journalDir)) @mkdir($journalDir, 0755, true);
@@ -305,6 +312,7 @@ class AdminSiteUpdateController
             'built_at'           => $info['built_at'],
             'skipped_media'      => $skippedMedia,
             'skipped_protected'  => $skippedProtected,
+            'system_restored'    => $healed,
         ]]);
     }
 

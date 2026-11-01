@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { AdminSettings } from "@/app/admin/settings/page";
+import { DEFAULT_FLAKE_DATA } from "@/lib/snow";
 
 interface Props {
   initial: AdminSettings;
@@ -766,7 +767,7 @@ export function SettingsForm({ initial }: Props) {
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#3a4a5a]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={form.snow_flake.trim() || "/uploads/snowflake/snowflake.svg"}
+                    src={form.snow_flake.trim() || DEFAULT_FLAKE_DATA}
                     alt="Текущая снежинка"
                     className="h-full w-full object-contain p-1"
                   />
