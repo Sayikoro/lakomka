@@ -46,6 +46,21 @@ class Bootstrap
             // Первый запуск не должен ломать работу API — ошибки только в лог
             error_log('[bootstrap] ' . $e->getMessage());
         }
+
+        /* Task 120: самовосстановление системных файлов витрины (снежинка,
+           логотип, иконки/фон «Как мы работаем»). Быстрый путь — один is_file
+           на файл; копирование только если чего-то не хватает. Так файлы,
+           утерянные ещё ДО версии с защитой (Task 118), возвращаются сами
+           при первом запросе к API после обновления кода. */
+        try {
+            require_once __DIR__ . '/SystemFiles.php';
+            $restored = SystemFiles::ensureHealed();
+            if ($restored !== []) {
+                error_log('[system-files] восстановлены: ' . implode(', ', $restored));
+            }
+        } catch (Throwable $e) {
+            error_log('[system-files] ' . $e->getMessage());
+        }
     }
 
     /** Схема БД: если якорных таблиц нет — применяем каноническую схему. */

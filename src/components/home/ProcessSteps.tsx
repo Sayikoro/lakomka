@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ContactDrawer } from "./ContactDrawer";
 import { useT } from "@/components/texts/TextsProvider";
 import { SmartImage } from "@/components/ui/SmartImg";
+import { STEP_ICON_FALLBACKS } from "./stepIconFallbacks";
 
 /* Локальные копии белых SVG (красятся в цвет кнопок через CSS mask в StepIcon).
-   Заголовки и тексты шагов — из реестра «Текст на страницах» (useT). */
+   Заголовки и тексты шагов — из реестра «Текст на страницах» (useT).
+   Task 120: если файла нет на сервере (утерян до защиты Task 118),
+   StepIcon переключается на вшитый фолбэк (STEP_ICON_FALLBACKS). */
 const STEP_ICONS = ["/uploads/ico-step1.svg", "/uploads/ico-step2.svg", "/uploads/ico-step3.svg"];
 
 interface Step {
@@ -27,16 +30,34 @@ function splitTwo(title: string): [string, string] {
 /** Амплитуда параллакса, px. Фон имеет запас ±80px, чтобы не обнажались края */
 const PARALLAX_AMP = 64;
 
-/** Иконка шага: белый SVG красится в цвет кнопок через CSS mask */
-function StepIcon({ src, className }: { src: string; className?: string }) {
+/** Иконка шага: белый SVG красится в цвет кнопок через CSS mask.
+    Если файл не загрузился (404), берём вшитый data-URI фолбэк —
+    иконки шагов больше не зависят от наличия файла на диске. */
+function StepIcon({ src, fallback, className }: { src: string; fallback: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (src.startsWith("data:")) return;
+    let dead = false;
+    const probe = new window.Image();
+    probe.onerror = () => {
+      if (!dead) setFailed(true);
+    };
+    probe.src = src;
+    return () => {
+      dead = true;
+    };
+  }, [src]);
+
+  const effective = failed ? fallback : src;
   return (
     <div
       aria-hidden
       className={className}
       style={{
         backgroundColor: "var(--color-primary)",
-        WebkitMask: `url("${src}") center / contain no-repeat`,
-        mask: `url("${src}") center / contain no-repeat`,
+        WebkitMask: `url("${effective}") center / contain no-repeat`,
+        mask: `url("${effective}") center / contain no-repeat`,
       }}
     />
   );
@@ -50,7 +71,7 @@ function StepNode({ step, size }: { step: Step; size: "md" | "sm" }) {
   return (
     <div className={`relative shrink-0 rounded-full bg-white shadow-[0_10px_26px_-10px_rgba(0,0,0,0.6)] ${box}`}>
       <div className="flex h-full w-full items-center justify-center">
-        <StepIcon src={step.icon} className={icon} />
+        <StepIcon key={step.icon} src={step.icon} fallback={STEP_ICON_FALLBACKS[step.n - 1] ?? ""} className={icon} />
       </div>
       <span
         className={`absolute -right-1 -top-1 flex items-center justify-center rounded-full border-2 border-white bg-[var(--color-primary)] font-bold text-white ${badge}`}

@@ -46,16 +46,55 @@ class SystemFiles
     }
 
     /**
+     * Каталог uploads сайта для корня $siteRoot: в деплой-пакете uploads
+     * лежит прямо в корне, в репозитории/дев-режиме — в public/uploads
+     * (см. Paths::publicRoot). heal() вызывается и оттуда, и оттуда,
+     * поэтому раскладку определяем по факту, а не по окружению.
+     */
+    public static function uploadsDir(string $siteRoot): string
+    {
+        return is_dir($siteRoot . '/public')
+            ? $siteRoot . '/public/uploads'
+            : $siteRoot . '/uploads';
+    }
+
+    /**
+     * Самовосстановление при старте API (Task 120): дешёвая проверка — все
+     * ли код-референсные файлы витрины на месте. Если да (обычный случай),
+     * возвращаем [] без единой копии; если чего-то не хватает — дозаписываем
+     * через heal(). Благодаря этому файлы витрины восстанавливаются САМИ
+     * при первом же запросе к API после обновления кода — ждать применения
+     * пакета обновления не нужно (файлы могли быть утеряны ещё ДО выхода
+     * версии с защитой).
+     */
+    public static function ensureHealed(): array
+    {
+        $siteRoot = dirname(__DIR__, 2); // backend/src → backend → корень сайта
+        $uploads = self::uploadsDir($siteRoot);
+        if (!is_dir($uploads)) {
+            // uploads ещё не существует — heal() создаст недостающее
+            return self::heal($siteRoot);
+        }
+        foreach (self::REFERRED as $rel) {
+            if (!is_file($uploads . '/' . $rel)) {
+                return self::heal($siteRoot);
+            }
+        }
+        return []; // все на месте — быстрый путь без копирования
+    }
+
+    /**
      * Дописать отсутствующие системные файлы в uploads/ сайта из копий
      * backend/assets/system-uploads. Вызывается после успешного применения
-     * обновления; существующие файлы не трогает. Возвращает список
-     * восстановленных путей (uploads/…).
+     * обновления и при старте API (ensureHealed); существующие файлы не
+     * трогает. Возвращает список восстановленных путей (uploads/…).
      */
     public static function heal(string $siteRoot): array
     {
         $restored = [];
         $assets = $siteRoot . '/backend/assets/system-uploads';
         if (!is_dir($assets)) return $restored;
+        $uploads = self::uploadsDir($siteRoot);
 
         $it = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($assets, FilesystemIterator::SKIP_DOTS),
@@ -64,7 +103,7 @@ class SystemFiles
         foreach ($it as $f) {
             $abs = (string)$f;
             $rel = str_replace('\\', '/', ltrim(substr($abs, strlen($assets)), '/\\'));
-            $dst = $siteRoot . '/uploads/' . $rel;
+            $dst = $uploads . '/' . $rel;
             if (is_file($dst)) continue;
             $dir = dirname($dst);
             if (!is_dir($dir) && !@mkdir($dir, 0755, true)) continue;
