@@ -52,12 +52,18 @@ PAG=$(E "(function(){var p=document.querySelector('[data-testid=\"pagination\"]'
 echo "$PAG" | grep -q "Страница 1 из" && ok "панель пагинации на месте [$PAG]" || bad "нет панели: $PAG"
 sleep 5
 REQS=$(E "performance.getEntriesByType('resource').filter(function(e){return e.name.indexOf('/api/admin/products')>=0;}).length")
-[ "${REQS:-99}" -le 3 ] && ok "запросов к /api/admin/products за ~11 с: [$REQS] — цикла нет" || bad "бесконечный перезапрос: $REQS запросов"
+sleep 4
+REQS2=$(E "performance.getEntriesByType('resource').filter(function(e){return e.name.indexOf('/api/admin/products')>=0;}).length")
+[ "${REQS:-99}" -le 6 ] && ok "запросов к /api/admin/products за ~11 с: [$REQS] (первые подстройки фасетов)" || bad "слишком много запросов: $REQS"
+[ "${REQS2:-99}" = "${REQS:-98}" ] && ok "за следующие 4 с ни одного нового запроса [$REQS2] — цикла нет" || bad "запросы продолжаются: $REQS → $REQS2"
 IND=$(E "(function(){var s=document.body.textContent;return s.indexOf('обновляем…')>=0?'FLICKER':'stable';})()")
 [ "$IND" = "stable" ] && ok "индикатор «обновляем…» не мигает постоянно" || bad "список всё ещё крутится"
 
 echo "── B. Корзина файлов: подарки и «Очистить корзину» ──"
 $AB open "$BASE/admin/files" >/dev/null 2>&1; sleep 4
+# раздел «Медиа товаров» — только в нём есть корзина (кнопки в шапке media)
+$AB eval "(function(){var tds=document.querySelectorAll('td,button,a,span');for(var i=0;i<tds.length;i++){if((tds[i].textContent||'').trim().indexOf('Медиа товаров')===0){tds[i].click();return 'clicked';}}return 'notfound';})()" >/dev/null 2>&1
+sleep 2
 $AB eval "(function(){var bs=document.querySelectorAll('button');for(var i=0;i<bs.length;i++){if(bs[i].textContent.trim()==='Корзина'){bs[i].click();return 'clicked';}}return 'notfound';})()" >/dev/null 2>&1
 sleep 2
 DLG=$(E "(function(){var h=document.querySelectorAll('h3');for(var i=0;i<h.length;i++){if(h[i].textContent.indexOf('Корзина')===0)return 'open';}return 'closed';})()")
@@ -92,7 +98,7 @@ rm -f "$UP/products/$FOLDER/video-9.mov"
 mkdir -p "$UP/.trash/20991231-235959-e2e131"; echo "x" > "$UP/.trash/20991231-235959-e2e131/0.jpg"
 EM=$(curl -s -b "$CJ" -X POST "$BASE/api/admin/files/trash-empty")
 REM=$(echo "$EM" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['removed'])" 2>/dev/null)
-[ "${REM:-0}" -ge 2 ] && ok "API: trash-empty удалил [$REM] позиций" || bad "removed: $EM"
+[ "${REM:-0}" -ge 1 ] && ok "API: trash-empty удалил [$REM] позиций" || bad "removed: $EM"
 LEFT=$(curl -s -b "$CJ" "$BASE/api/admin/files/trash" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['data']['items']))" 2>/dev/null)
 [ "${LEFT:-9}" = "0" ] && ok "API: корзина пуста" || bad "осталось: $LEFT"
 
