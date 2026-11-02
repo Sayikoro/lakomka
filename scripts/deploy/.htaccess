@@ -41,7 +41,8 @@ AddType video/quicktime .mov .qt
 AddType image/webp .webp
 AddType image/avif .avif
 RewriteRule ^uploads(/.*)?$ - [L]
-RewriteRule ^exports(/.*)?$ - [L]
+# /exports больше не публичен (аудит Task 131): экспортные ZIP переехали
+# в backend/storage/exports, закрытый правилом «/backend/ → 403» выше.
 
 # ------------------------------------------------------------
 # 2. /api/* → PHP-приложение (фронтконтроллер читает REQUEST_URI,

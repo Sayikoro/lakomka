@@ -581,6 +581,10 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
         AdminProductsController::bulk($pdo);
     }
+    if ($path === '/api/admin/products/pdf' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
+        AdminProductsController::pdf($pdo);
+    }
     if (preg_match('#^/api/admin/products/(\d+)/duplicate$#', $path, $m) && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
         AdminProductsController::duplicate($pdo, (int)$m[1]);

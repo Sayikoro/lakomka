@@ -90,6 +90,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
   /* ── Task 97-106: выбор, bulk, дублирование, undo-удаление ── */
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [duplicatingId, setDuplicatingId] = useState<number | null>(null);
   const [bulkPricePercent, setBulkPricePercent] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
@@ -465,6 +466,40 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     }
   }
 
+  /* ── Task 131: PDF по выбранным подаркам (название + картинка + цена) ── */
+  async function exportProductsPdf() {
+    if (selected.size === 0 || pdfBusy) return;
+    setPdfBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/products/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}) as { error?: string });
+        throw new Error(d.error ?? `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      a.download = `lakomka-podarki-${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сформировать PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -638,6 +673,15 @@ export function ProductsTable({ initialProducts, reload }: Props) {
           <span className="font-medium text-[var(--color-heading)]">
             Выбрано: {selected.size}
           </span>
+          {/* Task 131: PDF по выбранным подаркам — первая кнопка панели */}
+          <button
+            data-testid="pdf-btn"
+            disabled={pdfBusy}
+            onClick={exportProductsPdf}
+            className="rounded-lg bg-[var(--color-primary)] px-3 py-1.5 font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {pdfBusy ? "Формируем…" : "Сформировать PDF"}
+          </button>
           <span className="mx-1 h-5 w-px bg-[var(--color-border)]" />
           <button
             disabled={bulkBusy}

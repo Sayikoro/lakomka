@@ -201,7 +201,8 @@ ZIPRES=$(curl -s -b "$CJ" -X POST "$BASE/admin/files/media-report-zip" -H "Conte
 [ "$(jget "$ZIPRES" data.ok)" = "true" ] && ok "ZIP: собран по товару битого видео" || bad "ZIP сборка: $(echo "$ZIPRES" | head -c 300)"
 ZIPFILE=$(jget "$ZIPRES" data.file)
 ZIPSIZE=$(jget "$ZIPRES" data.size)
-[ -f "$ROOT/public/exports/$ZIPFILE" ] && ok "ZIP: файл лежит в exports ($ZIPSIZE б)" || bad "файла нет: $ZIPFILE"
+[ -f "$ROOT/backend/storage/exports/$ZIPFILE" ] && ok "ZIP: файл лежит в приватном storage/exports ($ZIPSIZE б)" || bad "файла нет: $ZIPFILE"
+[ ! -e "$ROOT/public/exports" ] && ok "ZIP: публичной папки exports больше нет (аудит 131)" || bad "public/exports существует"
 [ "$(jget "$ZIPRES" data.videos_packed)" = "1" ] && ok "ZIP: видео упаковано" || bad "videos_packed: $(jget "$ZIPRES" data.videos_packed)"
 [ "$(jget "$ZIPRES" data.images_packed)" = "1" ] && ok "ZIP: картинка упакована" || bad "images_packed: $(jget "$ZIPRES" data.images_packed)"
 TR=$(jget "$ZIPRES" data.to_replace.0.zip)
@@ -211,7 +212,7 @@ DL=$(curl -s -b "$CJ" -o /tmp/t122-dl.zip -w '%{http_code}' "$BASE/../..${DLURL}
 # download_url начинается с /api — качаем через BASE-корень
 DL=$(curl -s -b "$CJ" -o /tmp/t122-dl.zip -w '%{http_code}' "http://127.0.0.1:$PORT${DLURL}")
 [ "$DL" = "200" ] && ok "ZIP: скачивание по download_url → 200" || bad "download: $DL"
-cmp -s /tmp/t122-dl.zip "$ROOT/public/exports/$ZIPFILE" && ok "ZIP: скачанное = файлу на диске" || bad "скачанное отличается"
+cmp -s /tmp/t122-dl.zip "$ROOT/backend/storage/exports/$ZIPFILE" && ok "ZIP: скачанное = файлу на диске" || bad "скачанное отличается"
 # содержимое архива (проверка через python — имена со слэшами)
 ZC=$($PHP -r '
 $z = new ZipArchive();
@@ -252,7 +253,7 @@ $pdo->prepare("DELETE FROM product_images WHERE product_id = ?")->execute([(int)
 $pdo->prepare("DELETE FROM products WHERE id = ?")->execute([(int)$argv[2]]);
 echo "cleanup-ok";
 ' "$ROOT" "$PID" > /dev/null 2>&1
-rm -rf "$UPD" "$ORPH" "$ROOT/public/exports/$ZIPFILE"
+rm -rf "$UPD" "$ORPH" "$ROOT/backend/storage/exports/$ZIPFILE"
 pkill -f "127.0.0.1:$PORT" 2>/dev/null
 rm -f /tmp/t122-cookies.txt /tmp/t122-dl.zip
 rm -rf "$T"

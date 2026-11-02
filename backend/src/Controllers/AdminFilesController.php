@@ -24,12 +24,13 @@ class AdminFilesController
         return [
             'exports' => [
                 'title' => 'Экспортные архивы (ZIP)',
-                // Paths сам разбирается с раскладкой (dev public/ vs деплой-пакет)
-                // и создаёт папку при отсутствии — иначе «Раздел недоступен».
+                // SECURITY (аудит Task 131): хранилище перенесено в
+                // backend/storage/exports — без авторизации эти ZIP
+                // больше не раздаются статикой сайта.
                 'dir' => Paths::exportsDir(),
-                'public' => '/exports',
+                'public' => null,
                 'deletable' => true,
-                'hint' => 'Готовые ZIP из экспорта товаров. Старше 2 часов чистятся автоматически — удаляйте смело, новый соберётся заново.',
+                'hint' => 'Готовые ZIP из экспорта товаров (приватные, скачиваются из админки). Старше 2 часов чистятся автоматически — удаляйте смело, новый соберётся заново.',
             ],
             'imports' => [
                 'title' => 'Импортные архивы (загрузки)',
@@ -228,6 +229,24 @@ class AdminFilesController
         $key = $parts[0] ?? '';
         $cfg = self::sections()[$key] ?? null;
         if (!$cfg) jsonResponse(['error' => 'Неизвестный раздел'], 404);
+
+        /* Корзина (аудит Task 131) физически лежит в storage/trash, но
+           API-путь media/.trash/… остаётся валидным: его используют фронт
+           (download/delete) и записи AdminLog. Маппим на приватный каталог. */
+        if ($key === 'media' && ($parts[1] ?? '') === '.trash') {
+            $rest = array_slice($parts, 2);
+            if ($rest === []) jsonResponse(['error' => 'Некорректный путь'], 400);
+            $root = self::trashDir();
+            $rel = implode('/', $rest);
+            $abs = $root . '/' . $rel;
+            $real = realpath($abs);
+            if ($real === false || !str_starts_with($real, $root . DIRECTORY_SEPARATOR)) {
+                jsonResponse(['error' => 'Не найдено'], 404);
+            }
+            /* $rel возвращается с историческим префиксом .trash/ — по нему
+               delete() опознаёт «стереть из корзины навсегда» */
+            return [$cfg, $key, $root, $real, '.trash/' . $rel];
+        }
 
         $root = realpath($cfg['dir']);
         if (!$root) jsonResponse(['error' => 'Раздел недоступен'], 404);
@@ -784,8 +803,13 @@ class AdminFilesController
 
     private static function trashDir(): string
     {
-        $dir = Paths::uploadsRoot() . '/.trash';
+        // SECURITY (аудит Task 131): корзина жила в uploads/.trash —
+        // «удалённые» файлы оставались публично скачиваемыми по прямой
+        // ссылке. Теперь storage/trash (вне publicRoot); существующие
+        // позиции разово переносятся миграцией ниже.
+        $dir = Paths::adminDataRoot() . '/trash';
         Paths::ensureDir($dir);
+        Paths::migrateLegacyPublicDir(Paths::uploadsRoot() . '/.trash', $dir);
         return $dir;
     }
 

@@ -201,14 +201,15 @@ c.execute(\"UPDATE settings SET value=? WHERE key='hero_image'\", (v,))
 c.commit()"
 
 # ── TEST 6: unused-purge → в КОРЗИНУ (не unlink)
-TRBEFORE=$(ls "$UP/.trash" 2>/dev/null | sort | md5sum)
+TRDIR="$ROOT/backend/storage/trash"  # аудит 131: корзина в приватном хранилище
+TRBEFORE=$(ls "$TRDIR" 2>/dev/null | sort | md5sum)
 P6=$(curl -s -b "$CJ" -X POST "$BASE/admin/files/unused-purge" -H "Content-Type: application/json" -d '{"paths":["products/test-unused-116/junk.jpg","pdfs/test-cover-116.jpg"]}')
 [ "$(jget "$P6" "data.deleted")" = "1" ] && ok "unused-purge: 1 файл убран (pdfs — пропущен)" || bad "purge: $P6"
 [ ! -f "$UP/products/test-unused-116/junk.jpg" ] && [ -f "$UP/pdfs/test-cover-116.jpg" ] && ok "junk исчез, pdfs на месте" || bad "диск после purge"
-TR=$(ls "$UP/.trash" 2>/dev/null | sort | md5sum)
-[ "$TRBEFORE" != "$TR" ] && TRITEM=$(comm -13 <(ls "$UP/.trash" 2>/dev/null | sort) <(ls "$UP/.trash" 2>/dev/null | sort)) || TRITEM=""
-NEWTR=$(diff <(echo "$TRBEFORE") <(echo "$TR") >/dev/null && echo "" || ls -t "$UP/.trash" | head -1)
-[ -n "$NEWTR" ] && grep -q "test-unused-116" "$UP/.trash/$NEWTR/meta.json" && ok "файл в корзине с meta.json (восстановимо)" || bad "корзина не содержит файл"
+TR=$(ls "$TRDIR" 2>/dev/null | sort | md5sum)
+[ "$TRBEFORE" != "$TR" ] && TRITEM=$(comm -13 <(ls "$TRDIR" 2>/dev/null | sort) <(ls "$TRDIR" 2>/dev/null | sort)) || TRITEM=""
+NEWTR=$(diff <(echo "$TRBEFORE") <(echo "$TR") >/dev/null && echo "" || ls -t "$TRDIR" | head -1)
+[ -n "$NEWTR" ] && grep -q "test-unused-116" "$TRDIR/$NEWTR/meta.json" && ok "файл в корзине (storage/trash) с meta.json (восстановимо)" || bad "корзина не содержит файл"
 
 # ── TEST 7: аноним → 401
 A7=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/admin/files/fix-image-refs" -H "Content-Type: application/json" -d '{}')

@@ -38,10 +38,39 @@ class Paths
         return self::ensureDir(self::publicRoot() . '/uploads');
     }
 
-    /** Каталог экспортных архивов: …/exports (создаётся при отсутствии). */
+    /** Непубличное хранилище админки: backend/storage.
+     *  Вне publicRoot намеренно (аудит Task 131): экспортные ZIP, корзина
+     *  файлов и chunked-загрузки не должны раздаваться веб-сервером
+     *  по прямой ссылке без авторизации. */
+    public static function adminDataRoot(): string
+    {
+        return self::ensureDir(dirname(__DIR__) . '/storage');
+    }
+
+    /** Каталог экспортных архивов: backend/storage/exports.
+     *  SECURITY (аудит Task 131): раньше был publicRoot()/exports — полные
+     *  CSV товаров и отчёты сжатия скачивались статикой без auth.
+     *  Старые файлы разово переносится из публичной папки. */
     public static function exportsDir(): string
     {
-        return self::ensureDir(self::publicRoot() . '/exports');
+        $dir = self::ensureDir(self::adminDataRoot() . '/exports');
+        self::migrateLegacyPublicDir(self::publicRoot() . '/exports', $dir);
+        return $dir;
+    }
+
+    /** Разовая миграция: содержимое старой (публичной) папки переносится
+     *  в приватную; пустой остов старой удаляется. Идемпотентно. */
+    public static function migrateLegacyPublicDir(string $old, string $new): void
+    {
+        if (!is_dir($old)) return;
+        foreach (scandir($old, SCANDIR_SORT_NONE) ?: [] as $f) {
+            if ($f === '.' || $f === '..') continue;
+            $target = $new . '/' . $f;
+            if (file_exists($target)) { @unlink($old . '/' . $f); continue; }
+            @rename($old . '/' . $f, $target)
+                || (@copy($old . '/' . $f, $target) && @unlink($old . '/' . $f));
+        }
+        @rmdir($old);
     }
 
     /** Каталог автоматических дампов БД: backend/storage/backups.

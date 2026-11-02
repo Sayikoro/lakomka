@@ -954,6 +954,262 @@ class AdminProductsController
         }
     }
 
+    /* ============================================================
+       PDF ПО ВЫБРАННЫМ ПОДАРКАМ (Task 131)
+       POST /api/admin/products/pdf { ids: [...] }
+       → application/pdf: карточки «картинка + название + цена»,
+       6 штук на страницу A4 (сетка 2×3), больше ничего.
+       Текст рисует GD (кириллица через TTF из public/pdfjs),
+       ImgPdf собирает страницы-картинки в PDF.
+       ============================================================ */
+    public static function pdf(PDO $pdo): void
+    {
+        $payload = Auth::requireAuth();
+
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) {
+            jsonResponse(['error' => 'Invalid JSON'], 400);
+        }
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', (array)($data['ids'] ?? [])),
+            fn($v) => $v > 0
+        )));
+        if ($ids === []) {
+            jsonResponse(['error' => 'Не выбраны товары'], 422);
+        }
+        if (count($ids) > 500) {
+            jsonResponse(['error' => 'За раз — не больше 500 товаров'], 422);
+        }
+
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare(
+            "SELECT id, name, price_kopecks FROM products
+             WHERE id IN ($in) AND deleted_at IS NULL"
+        );
+        $st->execute($ids);
+        $byId = [];
+        foreach ($st->fetchAll() as $row) {
+            $byId[(int)$row['id']] = $row;
+        }
+        if (!$byId) {
+            jsonResponse(['error' => 'Выбранные товары не найдены'], 422);
+        }
+
+        /* Порядок — как выбрал владелец, а не как вернула БД */
+        $cards = [];
+        foreach ($ids as $id) {
+            if (!isset($byId[$id])) continue;
+            $cards[] = [
+                'name'   => (string)$byId[$id]['name'],
+                'price'  => (int)$byId[$id]['price_kopecks'],
+                'img'    => self::mainImageFile($pdo, $id),
+            ];
+        }
+
+        [$fontReg, $fontBold] = self::pdfFonts();
+
+        $tmpDir = sys_get_temp_dir() . '/lakomka-pdf-' . uniqid();
+        if (!mkdir($tmpDir, 0700, true) && !is_dir($tmpDir)) {
+            jsonResponse(['error' => 'Не удалось создать временную папку'], 500);
+        }
+        $pages = [];
+        try {
+            foreach (array_chunk($cards, 6) as $pageNo => $chunk) {
+                $file = $tmpDir . '/page-' . sprintf('%03d', $pageNo) . '.jpg';
+                self::renderPdfCardPage($chunk, $fontReg, $fontBold, $file);
+                $pages[] = $file;
+            }
+            require_once __DIR__ . '/../ImgPdf.php';
+            $pdf = ImgPdf::fromJpegs($pages);
+        } finally {
+            foreach ($pages as $p) @unlink($p);
+            @rmdir($tmpDir);
+        }
+
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="lakomka-podarki-' . date('Y.m.d-Hi') . '.pdf"');
+        header('Content-Length: ' . strlen($pdf));
+        header('Cache-Control: no-store');
+        AdminLog::add($pdo, AdminLog::actor($payload), 'products.pdf',
+            'PDF: ' . count($cards) . ' товаров, ' . count($pages) . ' стр.');
+        echo $pdf;
+        exit;
+    }
+
+    /** Файл основной картинки товара (первая по sort_order) или null */
+    private static function mainImageFile(PDO $pdo, int $productId): ?string
+    {
+        $st = $pdo->prepare(
+            "SELECT url FROM product_images
+             WHERE product_id = ? AND media_type = 'image'
+             ORDER BY sort_order, id LIMIT 1"
+        );
+        $st->execute([$productId]);
+        $url = (string)($st->fetchColumn() ?: '');
+        if ($url === '') return null;
+
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+        $root = realpath(Paths::publicRoot());
+        $file = realpath($root . $path);
+        /* защита от выхода за public/ через ../ в url из БД */
+        if (!$root || !$file || !str_starts_with($file, $root . DIRECTORY_SEPARATOR)) return null;
+        return is_file($file) ? $file : null;
+    }
+
+    /** @return string[] [regular, bold] — TTF с кириллицей и знаком ₽ */
+    private static function pdfFonts(): array
+    {
+        $candidates = [
+            /* DejaVu в репо (public/fonts): кириллица + ₽, работает на любом хостинге */
+            [Paths::publicRoot() . '/fonts/DejaVuSans.ttf',
+             Paths::publicRoot() . '/fonts/DejaVuSans-Bold.ttf'],
+            [Paths::publicRoot() . '/pdfjs/standard_fonts/LiberationSans-Regular.ttf',
+             Paths::publicRoot() . '/pdfjs/standard_fonts/LiberationSans-Bold.ttf'],
+            ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+             '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'],
+            ['/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+             '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'],
+        ];
+        foreach ($candidates as [$reg, $bold]) {
+            if (is_file($reg) && is_file($bold)) return [$reg, $bold];
+        }
+        throw new RuntimeException('TTF-шрифт с кириллицей не найден для PDF');
+    }
+
+    /** Страница A4 (150 dpi, 1240×1754): сетка 2×3 карточек */
+    private static function renderPdfCardPage(array $cards, string $fontReg, string $fontBold, string $outFile): void
+    {
+        $W = 1240; $H = 1754;
+        $M = 56; $GAP = 36;
+        $COLS = 2; $ROWS = 3;
+        $cardW = (int)(($W - 2 * $M - ($COLS - 1) * $GAP) / $COLS);   // 546
+        $cardH = (int)(($H - 2 * $M - ($ROWS - 1) * $GAP) / $ROWS);   // 523
+
+        $page = imagecreatetruecolor($W, $H);
+        $white = imagecolorallocate($page, 255, 255, 255);
+        imagefill($page, 0, 0, $white);
+
+        $border  = imagecolorallocate($page, 227, 230, 234);  // #E3E6EA
+        $muted   = imagecolorallocate($page, 156, 163, 175);  // #9CA3AF
+        $nameC   = imagecolorallocate($page, 32, 38, 46);     // #20262E
+        $priceC  = imagecolorallocate($page, 17, 24, 39);     // #111827
+        $imgBg   = imagecolorallocate($page, 245, 246, 248);  // #F5F6F8
+
+        $PAD = 18;
+        $IMG_H = 320;
+        $NAME_SIZE = 29; $NAME_LH = 36;
+        $PRICE_SIZE = 34;
+
+        foreach (array_values($cards) as $i => $card) {
+            $col = $i % $COLS;
+            $row = intdiv($i, $COLS);
+            $x = $M + $col * ($cardW + $GAP);
+            $y = $M + $row * ($cardH + $GAP);
+
+            imagefilledrectangle($page, $x, $y, $x + $cardW, $y + $cardH, $white);
+            imagerectangle($page, $x, $y, $x + $cardW, $y + $cardH, $border);
+
+            /* ── картинка: contain в блок 510×320 ── */
+            $ix = $x + $PAD; $iy = $y + $PAD;
+            $iw = $cardW - 2 * $PAD; $ih = $IMG_H;
+            $src = null;
+            if (!empty($card['img'])) {
+                $bytes = @file_get_contents($card['img']);
+                if ($bytes !== false) $src = @imagecreatefromstring($bytes);
+            }
+            if ($src) {
+                $sw = imagesx($src); $sh = imagesy($src);
+                $k = min($iw / $sw, $ih / $sh);
+                $dw = max(1, (int)round($sw * $k));
+                $dh = max(1, (int)round($sh * $k));
+                imagecopyresampled(
+                    $page, $src,
+                    $ix + (int)(($iw - $dw) / 2), $iy + (int)(($ih - $dh) / 2),
+                    0, 0, $dw, $dh, $sw, $sh
+                );
+                imagedestroy($src);
+            } else {
+                imagefilledrectangle($page, $ix, $iy, $ix + $iw, $iy + $ih, $imgBg);
+                $t = 'нет фото';
+                $b = imagettfbbox($NAME_SIZE - 3, 0, $fontReg, $t);
+                imagettftext($page, $NAME_SIZE - 3, 0,
+                    $ix + (int)(($iw - ($b[2] - $b[0])) / 2), $iy + (int)(($ih + $NAME_SIZE) / 2),
+                    $muted, $fontReg, $t);
+            }
+
+            /* ── название: до 2 строк, перенос по словам ── */
+            $nameY = $iy + $ih + 14 + $NAME_SIZE;
+            $lines = self::wrapPdfText((string)$card['name'], $fontReg, $NAME_SIZE, $iw, 2);
+            foreach ($lines as $li => $line) {
+                imagettftext($page, $NAME_SIZE, 0, $x + $PAD, $nameY + $li * $NAME_LH, $nameC, $fontReg, $line);
+            }
+
+            /* ── цена: прижата к низу карточки ── */
+            $price = self::formatPdfPrice((int)$card['price']);
+            $priceY = $y + $cardH - $PAD - 6;
+            imagettftext($page, $PRICE_SIZE, 0, $x + $PAD, $priceY, $priceC, $fontBold, $price);
+        }
+
+        imagejpeg($page, $outFile, 90);
+        imagedestroy($page);
+    }
+
+    /** Перенос по словам, максимум $maxLines, хвост с «…» */
+    private static function wrapPdfText(string $text, string $font, int $size, int $maxW, int $maxLines): array
+    {
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
+        if ($text === '') return [''];
+
+        $words = explode(' ', $text);
+        $lines = [];
+        $cur = '';
+        foreach ($words as $w) {
+            $try = $cur === '' ? $w : "$cur $w";
+            $b = imagettfbbox($size, 0, $font, $try);
+            if ($b[2] - $b[0] <= $maxW) {
+                $cur = $try;
+                continue;
+            }
+            if ($cur !== '') {
+                $lines[] = $cur;
+                if (count($lines) === $maxLines) break;
+                $cur = $w;
+            } else {
+                /* одно слово шире строки — режем по символам */
+                while ($w !== '') {
+                    $b = imagettfbbox($size, 0, $font, $w);
+                    if ($b[2] - $b[0] <= $maxW || mb_strlen($w) <= 1) break;
+                    $w = mb_substr($w, 0, (int)max(1, mb_strlen($w) - 2));
+                }
+                $cur = $w;
+            }
+        }
+        if (count($lines) < $maxLines && $cur !== '') $lines[] = $cur;
+        $lines = array_slice($lines, 0, $maxLines);
+
+        /* если не всё влезло — на последней строке «…» */
+        $used = implode(' ', $lines);
+        if (mb_strlen($used) < mb_strlen($text)) {
+            $last = $lines[$maxLines - 1];
+            do {
+                $last = mb_substr($last, 0, max(0, mb_strlen($last) - 1));
+                $b = imagettfbbox($size, 0, $font, $last . '…');
+            } while ($b[2] - $b[0] > $maxW && $last !== '');
+            $lines[$maxLines - 1] = $last . '…';
+        }
+        return $lines;
+    }
+
+    /** Копейки → «1 234 ₽» / «1 234,50 ₽» */
+    private static function formatPdfPrice(int $kopecks): string
+    {
+        $rub = intdiv($kopecks, 100);
+        $kop = $kopecks % 100;
+        $base = number_format($rub, 0, ',', ' ');
+        if ($kop > 0) $base .= ',' . sprintf('%02d', $kop);
+        return $base . ' ₽';
+    }
+
     private static function slugify(string $s): string
     {
         $map = [
