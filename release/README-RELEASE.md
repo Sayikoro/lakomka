@@ -1,12 +1,12 @@
 # Деплой-архив: как собрать lakomka-deploy-static.zip из частей
 
 GitHub не принимает файлы больше 100 МБ, поэтому архив
-`lakomka-deploy-static.zip` (117368673 байт) лежит в репозитории двумя частями:
+`lakomka-deploy-static.zip` (117371644 байт) лежит в репозитории двумя частями:
 
 | Файл | Размер |
 | --- | --- |
 | `lakomka-deploy-static.zip.part-00` | 94371840 байт |
-| `lakomka-deploy-static.zip.part-01` | 22996833 байт |
+| `lakomka-deploy-static.zip.part-01` | 23002804 байт |
 
 ## Склейка
 
@@ -29,19 +29,19 @@ cat lakomka-deploy-static.zip.part-00 lakomka-deploy-static.zip.part-01 > lakomk
 sha256 собранного файла должен совпадать:
 
 ```
-7c00de42ed4bfbfb485fc9099142daf16f5ff871caf31e011f9c076830575f2d
+3bdf166e496ea6f6dbf67d67a2e4c6adbded0421657f94bdf35cce5fa5570126
 ```
 
-sha256 актуальной версии (2026.11.02-0105):
+sha256 актуальной версии (2026.11.02-0344):
 
 ```
-7c00de42ed4bfbfb485fc9099142daf16f5ff871caf31e011f9c076830575f2d
+3bdf166e496ea6f6dbf67d67a2e4c6adbded0421657f94bdf35cce5fa5570126
 ```
 
 sha256 архива обновления (канал /update):
 
 ```
-0398a9c06d517daf929430f6df1f8e13646b74d981147304dd7372a200138857
+eb8caced9360521822ff7f06c07457e4baca3a8729f5c638b53a34265c2eb0dc
 ```
 
 # Медиа-синк: lakomka-media-2026.11.01-0754.zip

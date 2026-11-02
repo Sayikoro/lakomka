@@ -19,6 +19,57 @@ class MediaOptimizer
     /** @var array<string,bool>|null кэш доступности ffmpeg */
     private static ?array $ffmpegBin = null;
 
+    /* ─────────────────────── СОСТОЯНИЕ ВИДЕОФАЙЛА ─────────────────────── */
+
+    /**
+     * Быстрая проверка видеофайла БЕЗ ffmpeg: 'ok' | 'empty' | 'broken'.
+     *
+     * Task 122: у владельца «Сжать всё» падало на файлах-призраках
+     * («Invalid data found when processing input» на КАЖДОЙ из 11 попыток
+     * каскада): файлы имели правильный размер, но на 100% состояли из нулей —
+     * место было аллоцировано, а данные при переносе не записались.
+     * ISO-BMFF (mov/mp4/m4v) всегда начинается с бокса [размер u32 BE][4CC],
+     * поэтому нулевое начало = данных нет вовсе. Проверяются первые 4 КБ:
+     * дёшево (один fread) и достаточно — демуксер разбирает контейнер с
+     * нулевого смещения, битый заголовок не лечится никаким каскадом.
+     */
+    public static function videoHealth(string $abs): string
+    {
+        $size = @filesize($abs);
+        if ($size === false || $size === 0) return 'empty';
+        $fh = @fopen($abs, 'rb');
+        if (!$fh) return 'broken';
+        $head = (string)@fread($fh, 4096);
+        fclose($fh);
+        if ($head === '') return 'broken';
+        /* Сплошные нули в начале — файл-«дыра»: содержимое не записано. */
+        if (strspn($head, "\x00") === strlen($head)) return 'empty';
+        if (strlen($head) < 8) return 'broken'; // меньше минимального бокса
+        /* Заголовок ISO-BMFF: размер первого бокса > 0 и тип-4CC из
+           печатных символов (ftyp/moov/free/skip/wide/mdat/…). */
+        $boxSize = unpack('N', substr($head, 0, 4))[1];
+        $boxType = (string)substr($head, 4, 4);
+        if ($boxSize === 0 || $boxType === "\x00\x00\x00\x00"
+            || !preg_match('/^[\\x20-\\x7e\\xa1-\\xff]{4}$/', $boxType)) {
+            return 'broken';
+        }
+        return 'ok';
+    }
+
+    /** Человекочитаемая причина по videoHealth (для note/сообщений админу). */
+    public static function videoHealthNote(string $health, string $ext = 'видео'): string
+    {
+        if ($health === 'empty') {
+            return "$ext повреждено: файл состоит из нулей — данные не записались при загрузке или переносе. "
+                 . 'Замените файл исправным (перезалейте видео в товаре), сжатие невозможно';
+        }
+        if ($health === 'broken') {
+            return "$ext повреждено: заголовок не читается — файл обрезан или перебит. "
+                 . 'Замените файл исправным (перезалейте видео в товаре), сжатие невозможно';
+        }
+        return '';
+    }
+
     /* ─────────────────────────── КАРТИНКИ ─────────────────────────── */
 
     /**
@@ -164,6 +215,15 @@ class MediaOptimizer
         }
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         if (!in_array($ext, ['mov', 'm4v'], true)) return $noop; // mp4/webm уже хороши
+
+        /* Task 122: битый/нулевой файл выясняется ДО каскада — 11 попыток
+           ffmpeg по файлу, который не демуксируется в принципе, лишь жгут
+           CPU shared-хостинга и откладывают честный ответ. */
+        $health = self::videoHealth($path);
+        if ($health !== 'ok') {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => self::videoHealthNote($health)];
+        }
 
         $bin = self::ffmpeg();
         if ($bin === null) {
@@ -319,6 +379,13 @@ class MediaOptimizer
                     'note' => 'файл не найден на диске — возможно, он был перемещён, удалён или уже перекодирован'];
         }
         if (strtolower(pathinfo($path, PATHINFO_EXTENSION)) !== 'mp4') return $noop;
+        /* Task 122: тот же пре-чек, что в optimizeVideoFile — до лимита 1 МБ,
+           иначе нулевой файл на 900 КБ уходил бы с ложным «сжатие не требуется» */
+        $health = self::videoHealth($path);
+        if ($health !== 'ok') {
+            return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
+                    'note' => self::videoHealthNote($health)];
+        }
         if ($before < 1024 * 1024) {
             return ['converted' => false, 'name' => $name, 'before' => $before, 'after' => $before,
                     'note' => 'файл меньше 1 МБ — сжатие не требуется'];

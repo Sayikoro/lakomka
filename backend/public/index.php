@@ -555,6 +555,12 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::compressImage($pdo);
     }
+    /* Task 122: ZIP-отчёт по проблемным файлам (архитектура импорта:
+       products.csv + images/ + videos/ — замените битые и загрузите через импорт) */
+    if ($path === '/api/admin/files/media-report-zip' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::mediaReportZip($pdo);
+    }
     if ($path === '/api/admin/products' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsController.php';
         AdminProductsController::list($pdo);

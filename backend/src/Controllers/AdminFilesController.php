@@ -107,6 +107,95 @@ class AdminFilesController
         return $urls;
     }
 
+    /** Контекст товаров для медиа-списков (Task 122): привязки URL → товар,
+     *  «используемые» видео, обложка (первая картинка) каждого товара и карта
+     *  папок products/<папка> → товар. Один-два SQL-запроса на вызов.
+     *  byUrl хранит id товара по нормализованному URL и его нижнему регистру;
+     *  videoUsed — то же для множества «занятых» видео (product_images
+     *  media_type=video + products.video_url). */
+    private static function productContext(PDO $pdo): array
+    {
+        $norm = static fn (string $u): string => preg_replace('#/+#', '/', $u) ?? $u;
+        $products = [];   // id => ['id','name','slug','legacy','thumb']
+        $byUrl = [];      // url (и lc) => id товара
+        $videoUsed = [];  // url (и lc) => true
+        try {
+            foreach ($pdo->query("SELECT product_id, url, media_type FROM product_images ORDER BY sort_order, id") as $r) {
+                $u = $norm((string)$r['url']);
+                if ($u === '') continue;
+                $pid = (int)$r['product_id'];
+                if (!isset($products[$pid])) $products[$pid] = ['id' => $pid, 'name' => null, 'slug' => null, 'legacy' => null, 'thumb' => null];
+                $byUrl[$u] = $pid; $byUrl[strtolower($u)] = $pid;
+                if ((string)$r['media_type'] === 'video') {
+                    $videoUsed[$u] = true; $videoUsed[strtolower($u)] = true;
+                } elseif ($products[$pid]['thumb'] === null && str_starts_with($u, '/uploads/')) {
+                    $products[$pid]['thumb'] = $u;
+                }
+            }
+        } catch (PDOException) {
+            // нет таблицы — контекст ограничен продуктами
+        }
+        try {
+            foreach ($pdo->query('SELECT id, name, slug, legacy_slug, video_url FROM products') as $r) {
+                $pid = (int)$r['id'];
+                if (!isset($products[$pid])) $products[$pid] = ['id' => $pid, 'name' => null, 'slug' => null, 'legacy' => null, 'thumb' => null];
+                $products[$pid]['name'] = (string)$r['name'];
+                $products[$pid]['slug'] = (string)$r['slug'];
+                $products[$pid]['legacy'] = (string)($r['legacy_slug'] ?? '');
+                $vu = $norm((string)($r['video_url'] ?? ''));
+                if ($vu !== '') {
+                    $videoUsed[$vu] = true; $videoUsed[strtolower($vu)] = true;
+                    $byUrl[$vu] = $pid; $byUrl[strtolower($vu)] = $pid;
+                }
+            }
+        } catch (PDOException) {
+            // старая схема — пропускаем
+        }
+        /* Карта папок: товары лежат в products/<sanitized-slug> (импорт),
+           исторически — <slug>-<id> (WC-импорт) и с legacy_slug. */
+        $byFolder = [];
+        foreach ($products as $p) {
+            if ($p['name'] === null) continue;
+            foreach ([ (string)($p['slug'] ?? ''), (string)($p['legacy'] ?? '') ] as $s) {
+                $safe = preg_replace('/[^a-z0-9\-]/', '', strtolower($s)) ?? '';
+                if ($safe === '') continue;
+                $byFolder[$safe] = $p['id'];
+                $byFolder[$safe . '-' . $p['id']] = $p['id'];
+            }
+        }
+        return ['videoUsed' => $videoUsed, 'byUrl' => $byUrl, 'byFolder' => $byFolder, 'products' => $products];
+    }
+
+    /** Товар для медиа-файла: сначала привязка из базы (product_images /
+     *  products.video_url), затем папка (products/<папка>, в т.ч. «slug-id»
+     *  и «<ствол папки>-<id>»). null — файл ни к кому не привязан и папка
+     *  не похожа на папку товара. */
+    private static function productFor(array $ctx, string $url, string $folder): ?array
+    {
+        $norm = preg_replace('#/+#', '/', $url) ?? $url;
+        $pid = $ctx['byUrl'][$norm] ?? $ctx['byUrl'][strtolower($norm)] ?? null;
+        if ($pid === null && $folder !== '') {
+            $base = strtolower(basename($folder));
+            $pid = $ctx['byFolder'][$base] ?? null;
+            if ($pid === null && preg_match('/^(.*)-(\\d+)$/', $base, $m)) {
+                $pid = $ctx['byFolder'][$m[1]] ?? null;
+                if ($pid === null) {
+                    foreach ($ctx['products'] as $p) {
+                        if ((int)$p['id'] === (int)$m[2]
+                            && str_starts_with(strtolower((string)$p['slug']), $m[1])) {
+                            $pid = (int)$p['id'];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if ($pid === null) return null;
+        $p = $ctx['products'][$pid] ?? null;
+        if ($p === null || $p['name'] === null) return null;
+        return ['id' => (int)$p['id'], 'name' => (string)$p['name'], 'slug' => (string)$p['slug'], 'thumb' => $p['thumb']];
+    }
+
     /** Используется ли файл/папка (хоть один файл внутри) товарами.
      *  $url — ПУБЛИЧНЫЙ URL файла или папки («/uploads/путь», БЕЗ ключа
      *  раздела — ровно в том виде, в каком путь лежит в базе). */
@@ -287,6 +376,10 @@ class AdminFilesController
         if ($root !== false && $base !== false && is_dir($base)
             && ($base === $root || str_starts_with($base, $root . DIRECTORY_SEPARATOR))) {
             $exts = ['mp4', 'webm', 'mov', 'm4v'];
+            /* Task 122: контекст товаров — «используемые» видео, состояние
+               файла (нули/битый заголовок БЕЗ ffmpeg) и товар (название +
+               обложка) для каждой записи. */
+            $ctx = self::productContext($pdo);
             $it = new RecursiveIteratorIterator(
                 new RecursiveDirectoryIterator(
                     $base,
@@ -299,13 +392,18 @@ class AdminFilesController
                 if (!in_array($ext, $exts, true)) continue;
                 $rel = ltrim(substr((string)$file, strlen($root)), '/\\');
                 $dir = dirname($rel);
+                $url = '/uploads/' . str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+                $folderName = $dir === '.' ? '' : $dir;
                 $entries[] = [
                     'name'   => basename((string)$file),
-                    'folder' => $dir === '.' ? '' : $dir,
+                    'folder' => $folderName,
                     'path'   => 'media/' . $rel,
-                    'url'    => '/uploads/' . $rel,
+                    'url'    => $url,
                     'size'   => @filesize((string)$file) ?: 0,
                     'mtime'  => @filemtime((string)$file) ?: 0,
+                    'used'   => isset($ctx['videoUsed'][$url]) || isset($ctx['videoUsed'][strtolower($url)]),
+                    'status' => MediaOptimizer::videoHealth((string)$file),
+                    'product' => self::productFor($ctx, $url, $folderName),
                 ];
             }
             usort($entries, static fn (array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
@@ -351,6 +449,8 @@ class AdminFilesController
             } catch (PDOException) {
                 // нет таблицы — считаем все картинки неиспользуемыми
             }
+            /* Task 122: товар (название + обложка) для каждой картинки */
+            $ctx = self::productContext($pdo);
 
             $exts = ['jpg', 'jpeg', 'png'];
             $it = new RecursiveIteratorIterator(
@@ -380,6 +480,7 @@ class AdminFilesController
                     'size'   => @filesize($f) ?: 0,
                     'mtime'  => @filemtime($f) ?: 0,
                     'used'   => isset($referenced[strtolower($url)]),
+                    'product' => self::productFor($ctx, $url, $dir === '.' ? '' : $dir),
                 ];
             }
             usort($entries, static fn (array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
@@ -1366,6 +1467,196 @@ class AdminFilesController
             if ($value === $v) return $toUrl;
         }
         return $value;
+    }
+
+    /* ── ZIP-ОТЧЁТ ПО ПРОБЛЕМНЫМ ФАЙЛАМ (Task 122, архитектура импорта) ──
+       POST /api/admin/files/media-report-zip  body: { urls: ["/uploads/…", …] }
+       Собирает lakomka-media-report-<дата>.zip в разделе exports:
+       products.csv (формат импорта: ID;НАЗВАНИЕ;…;КАРТИНКИ;ВИДЕО;…)
+       + images/{id}-{n}.{ext} + videos/{id}-v{n}.{ext} для КАЖДОГО товара,
+       чей файл попал в отчёт. Владелец заменяет битые файлы в videos/
+       (имена сохраняет) и загружает архив через «Импорт товаров» —
+       медиа перечисленных товаров перестроится целиком (как при обычном
+       импорте: clearMedia + заново), поэтому в CSV и ZIP включаются ВСЕ
+       медиа этих товаров, а не только проблемные файлы. */
+    public static function mediaReportZip(PDO $pdo): void
+    {
+        $payload = Auth::requireEditor();
+
+        $data = json_decode((string)file_get_contents('php://input'), true) ?? [];
+        $urls = [];
+        foreach ((array)($data['urls'] ?? []) as $u) {
+            $u = preg_replace('#/+#', '/', trim((string)$u)) ?? '';
+            if (str_starts_with($u, '/uploads/') && !str_contains($u, '..')) $urls[] = $u;
+        }
+        $urls = array_values(array_unique($urls));
+        if ($urls === []) jsonResponse(['error' => 'Не указаны файлы отчёта'], 422);
+        if (count($urls) > 2000) jsonResponse(['error' => 'Слишком много файлов'], 422);
+
+        /* Файл → товар: привязка из базы, иначе папка products/<папка> */
+        $ctx = self::productContext($pdo);
+        $productIds = [];
+        foreach ($urls as $u) {
+            $rel = substr($u, strlen('/uploads/'));
+            $folder = dirname($rel);
+            $p = self::productFor($ctx, $u, $folder === '.' ? '' : $folder);
+            if ($p !== null) $productIds[(int)$p['id']] = true;
+        }
+        if ($productIds === []) {
+            jsonResponse(['error' => 'По этим файлам не найдено товаров — они не привязаны к базе и папки их не опознаны. Такие файлы можно удалить через «Неиспользуемые файлы»'], 422);
+        }
+
+        if (!class_exists('ZipArchive')) {
+            jsonResponse(['error' => 'Расширение zip не установлено в PHP'], 500);
+        }
+        $exportsDir = Paths::exportsDir();
+        if (!is_dir($exportsDir) && !@mkdir($exportsDir, 0755, true)) {
+            jsonResponse(['error' => 'Не удалось создать папку экспорта'], 500);
+        }
+        $name = 'lakomka-media-report-' . date('Ymd-His') . '.zip';
+        $zipPath = $exportsDir . '/' . $name;
+
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            jsonResponse(['error' => 'Не удалось создать ZIP-архив'], 500);
+        }
+
+        $in = implode(',', array_fill(0, count($productIds), '?'));
+        $stmt = $pdo->prepare('SELECT * FROM products WHERE id IN (' . $in . ') ORDER BY id');
+        $stmt->execute(array_keys($productIds));
+        $rows = $stmt->fetchAll();
+
+        $catMap = [];
+        try {
+            foreach ($pdo->query('SELECT id, slug FROM categories') as $c) {
+                $catMap[(int)$c['id']] = $c['slug'];
+            }
+        } catch (PDOException) {
+            // нет категорий — пустая колонка
+        }
+        $mediaStmt = $pdo->prepare(
+            "SELECT url, media_type FROM product_images
+             WHERE product_id = ? ORDER BY media_type DESC, sort_order, id"
+        );
+
+        $headers = [
+            'ID', 'НАЗВАНИЕ', 'ТИП', 'SLUG', 'SKU',
+            'ЦЕНА', 'СТАРАЯ_ЦЕНА', 'ОСТАТОК',
+            'ВЕС', 'ДЛИНА', 'ШИРИНА', 'ВЫСОТА',
+            'ПРОИЗВОДИТЕЛЬ', 'КАТЕГОРИЯ', 'ОПИСАНИЕ',
+            'КАРТИНКИ', 'ВИДЕО', 'РЕЦЕПТ_ВЕС', 'УПАКОВКА',
+            'ПОКАЗЫВАТЬ', 'ОПУБЛИКОВАН', 'LEGACY_SLUG',
+        ];
+        $csv = "\xEF\xBB\xBF" . implode(';', array_map([self::class, 'csvEscape'], $headers)) . "\n";
+
+        $stats = ['videos' => 0, 'images' => 0, 'videos_missing' => 0, 'images_missing' => 0];
+        $toReplace = [];
+        $publicRoot = (string)Paths::publicRoot();
+
+        foreach ($rows as $p) {
+            $mediaStmt->execute([$p['id']]);
+            $media = $mediaStmt->fetchAll();
+
+            $imageNames = [];
+            $videoNames = [];
+            $imageCounter = 0;
+            $videoCounter = 0;
+
+            foreach ($media as $m) {
+                $url = preg_replace('#/+#', '/', (string)$m['url']) ?? (string)$m['url'];
+
+                if ((string)$m['media_type'] === 'video') {
+                    if (str_starts_with($url, '/uploads/')) {
+                        $ext = strtolower(pathinfo($url, PATHINFO_EXTENSION)) ?: 'mp4';
+                        $zipName = $p['id'] . '-v' . $videoCounter . '.' . $ext;
+                        $src = $publicRoot . $url;
+                        if (is_file($src)) {
+                            $zip->addFile($src, 'videos/' . $zipName);
+                            $stats['videos']++;
+                            if (in_array($url, $urls, true) && MediaOptimizer::videoHealth($src) !== 'ok') {
+                                $toReplace[] = [
+                                    'product' => (string)$p['name'],
+                                    'zip'     => 'videos/' . $zipName,
+                                    'url'     => $url,
+                                ];
+                            }
+                        } else {
+                            $stats['videos_missing']++;
+                        }
+                        $videoNames[] = $zipName;
+                        $videoCounter++;
+                    } elseif (str_starts_with($url, 'http')) {
+                        $videoNames[] = $url;
+                    }
+                    continue;
+                }
+
+                // картинка
+                if (str_starts_with($url, '/uploads/')) {
+                    $ext = strtolower(pathinfo($url, PATHINFO_EXTENSION)) ?: 'jpg';
+                    if ($ext === 'jpeg') $ext = 'jpg';
+                    $zipName = $p['id'] . '-' . $imageCounter . '.' . $ext;
+                    $src = $publicRoot . $url;
+                    if (is_file($src)) {
+                        $zip->addFile($src, 'images/' . $zipName);
+                        $stats['images']++;
+                    } else {
+                        $stats['images_missing']++;
+                        $imageCounter++;
+                        continue;
+                    }
+                    $imageNames[] = $zipName;
+                    $imageCounter++;
+                } elseif (str_starts_with($url, 'http')) {
+                    $imageNames[] = $url;
+                }
+            }
+
+            $row = [
+                $p['id'], $p['name'], $p['type'], $p['slug'], $p['sku'] ?? '',
+                $p['price_kopecks'] > 0 ? number_format($p['price_kopecks'] / 100, 2, '.', '') : '0',
+                $p['old_price_kopecks'] ? number_format($p['old_price_kopecks'] / 100, 2, '.', '') : '',
+                $p['stock_qty'], $p['weight_g'] ?? '', $p['length_cm'] ?? '',
+                $p['width_cm'] ?? '', $p['height_cm'] ?? '',
+                $p['manufacturer'] ?? '', $p['category_id'] ? ($catMap[(int)$p['category_id']] ?? '') : '', $p['description'] ?? '',
+                implode(',', $imageNames),
+                implode(',', $videoNames),
+                $p['recipe_weight_g'] ?? '', $p['packaging_material'] ?? '',
+                $p['show_in_catalog'], $p['is_published'], $p['legacy_slug'] ?? '',
+            ];
+            $csv .= implode(';', array_map([self::class, 'csvEscape'], $row)) . "\n";
+        }
+
+        $zip->addFromString('products.csv', $csv);
+        $zip->close();
+
+        AdminLog::add($pdo, AdminLog::actor($payload), 'files.media-report-zip',
+            'товаров ' . count($rows) . ", видео {$stats['videos']}, картинок {$stats['images']}, к замене " . count($toReplace));
+
+        jsonResponse(['data' => [
+            'ok'            => true,
+            'file'          => $name,
+            'download_url'  => '/api/admin/files/download?path=exports/' . rawurlencode($name),
+            'size'          => @filesize($zipPath) ?: 0,
+            'products'      => array_map(static fn ($p) => ['id' => (int)$p['id'], 'name' => (string)$p['name']], $rows),
+            'videos_packed' => $stats['videos'],
+            'images_packed' => $stats['images'],
+            'videos_missing' => $stats['videos_missing'],
+            'images_missing' => $stats['images_missing'],
+            'to_replace'    => $toReplace,
+        ]]);
+    }
+
+    /** Экранирование значения CSV (формат импорта/экспорта: «;», кавычки). */
+    private static function csvEscape(string|int|float|null $v): string
+    {
+        if ($v === null) return '';
+        $s = (string)$v;
+        if ($s === '') return '';
+        if (strpbrk($s, ";,\"\n\r") !== false) {
+            return '"' . str_replace('"', '""', $s) . '"';
+        }
+        return $s;
     }
 
     /** Поиск файла по всему /uploads, когда точный URL не существует.
