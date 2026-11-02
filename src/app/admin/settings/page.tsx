@@ -36,6 +36,10 @@ export interface AdminSettings {
   notify_admin_email: string;
   /* Task 121: интервал авто-бэкапа БД, суток (0 — выключено) */
   backup_interval_days: string;
+  /* Task 132: генеративный PDF — обложка (первая страница) и последняя страница.
+     Путь вида /uploads/pdf/…; пусто = страниц нет (сразу карточки подарков). */
+  pdf_cover_first: string;
+  pdf_cover_last: string;
   /* снегопад */
   snow_enabled: string;
   snow_count: string;
@@ -74,6 +78,8 @@ const DEFAULTS: AdminSettings = {
   tg_chat_id: "",
   notify_admin_email: "1",
   backup_interval_days: "3",
+  pdf_cover_first: "",
+  pdf_cover_last: "",
   snow_enabled: "0",
   snow_count: "110",
   snow_count_mobile: "60",

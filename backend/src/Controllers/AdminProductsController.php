@@ -1008,16 +1008,38 @@ class AdminProductsController
 
         [$fontReg, $fontBold] = self::pdfFonts();
 
+        /* Task 132: обложка (первая страница) и последняя страница —
+           картинки из настроек. Нет/битые → PDF собирается без них. */
+        $stCfg = $pdo->prepare(
+            "SELECT key, value FROM settings WHERE key IN ('pdf_cover_first','pdf_cover_last')"
+        );
+        $stCfg->execute();
+        $cfg = [];
+        foreach ($stCfg->fetchAll() as $r) {
+            $cfg[$r['key']] = (string)$r['value'];
+        }
+        $coverFirst = self::pdfSettingFile($cfg['pdf_cover_first'] ?? '');
+        $coverLast  = self::pdfSettingFile($cfg['pdf_cover_last'] ?? '');
+
         $tmpDir = sys_get_temp_dir() . '/lakomka-pdf-' . uniqid();
         if (!mkdir($tmpDir, 0700, true) && !is_dir($tmpDir)) {
             jsonResponse(['error' => 'Не удалось создать временную папку'], 500);
         }
         $pages = [];
+        $coverPages = 0;
         try {
+            if (self::renderPdfImagePage($coverFirst, $tmpDir . '/cover-first.jpg')) {
+                $pages[] = $tmpDir . '/cover-first.jpg';
+                $coverPages++;
+            }
             foreach (array_chunk($cards, 6) as $pageNo => $chunk) {
                 $file = $tmpDir . '/page-' . sprintf('%03d', $pageNo) . '.jpg';
                 self::renderPdfCardPage($chunk, $fontReg, $fontBold, $file);
                 $pages[] = $file;
+            }
+            if (self::renderPdfImagePage($coverLast, $tmpDir . '/cover-last.jpg')) {
+                $pages[] = $tmpDir . '/cover-last.jpg';
+                $coverPages++;
             }
             require_once __DIR__ . '/../ImgPdf.php';
             $pdf = ImgPdf::fromJpegs($pages);
@@ -1031,9 +1053,56 @@ class AdminProductsController
         header('Content-Length: ' . strlen($pdf));
         header('Cache-Control: no-store');
         AdminLog::add($pdo, AdminLog::actor($payload), 'products.pdf',
-            'PDF: ' . count($cards) . ' товаров, ' . count($pages) . ' стр.');
+            'PDF: ' . count($cards) . ' товаров, ' . count($pages) . ' стр.'
+            . ($coverPages ? " (обложка/финал: $coverPages)" : ''));
         echo $pdf;
         exit;
+    }
+
+    /** Task 132: настройка-обложка (URL) → локальный файл внутри /uploads.
+     *  Внешние ссылки не принимаются ещё на этапе сохранения настройки;
+     *  здесь дополнительный барьер: realpath-контейнер в publicRoot.
+     *  null = страницы не будет (PDF собирается без неё, fail-soft). */
+    private static function pdfSettingFile(string $url): ?string
+    {
+        $url = trim($url);
+        if ($url === '' || !str_starts_with($url, '/uploads/')) return null;
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+        $root = realpath(Paths::publicRoot());
+        $file = realpath($root . $path);
+        if (!$root || !$file || !str_starts_with($file, $root . DIRECTORY_SEPARATOR)) return null;
+        return is_file($file) ? $file : null;
+    }
+
+    /** Task 132: страница A4 (1240×1754) из готовой картинки обложки —
+     *  «contain» по центру на белом поле (ничего не режем). false =
+     *  файла нет или картинка битая — страница пропускается. */
+    private static function renderPdfImagePage(?string $srcFile, string $outFile): bool
+    {
+        if (!$srcFile) return false;
+        $bytes = @file_get_contents($srcFile);
+        if ($bytes === false) return false;
+        $src = @imagecreatefromstring($bytes);
+        if (!$src) return false;
+
+        $W = 1240; $H = 1754;
+        $page = imagecreatetruecolor($W, $H);
+        imagefill($page, 0, 0, imagecolorallocate($page, 255, 255, 255));
+
+        $sw = imagesx($src); $sh = imagesy($src);
+        $k = min($W / $sw, $H / $sh);
+        $dw = max(1, (int)round($sw * $k));
+        $dh = max(1, (int)round($sh * $k));
+        imagecopyresampled(
+            $page, $src,
+            (int)(($W - $dw) / 2), (int)(($H - $dh) / 2),
+            0, 0, $dw, $dh, $sw, $sh
+        );
+        imagedestroy($src);
+
+        $ok = imagejpeg($page, $outFile, 90);
+        imagedestroy($page);
+        return (bool)$ok;
     }
 
     /** Файл основной картинки товара (первая по sort_order) или null */

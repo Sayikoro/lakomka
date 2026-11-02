@@ -39,6 +39,12 @@ class AdminSettingsController
         'notify_admin_email',
         /* Task 121: интервал авто-бэкапа БД, суток (0 = выключено, по умолчанию 3) */
         'backup_interval_days',
+        /* Task 132: генеративный PDF по подаркам — обложка (первая страница)
+           и последняя страница. Только локальные пути внутри /uploads:
+           внешний URL в PDF не встроить, а загрузка по ссылке — лишний
+           SSRF-риск. Задаются кнопкой загрузки в Настройках. */
+        'pdf_cover_first',
+        'pdf_cover_last',
         /* витрина: снегопад */
         'snow_enabled',
         'snow_count',
@@ -370,6 +376,24 @@ class AdminSettingsController
                 jsonResponse(['error' => 'gallery_video_folder: путь внутри /uploads, без «..»'], 422);
             }
             $data['gallery_video_folder'] = preg_replace('#/+#', '/', $gvf);
+        }
+        /* Task 132: обложки генеративного PDF — ТОЛЬКО локальные пути внутри
+           /uploads (в идеале /uploads/pdf/… с кнопки загрузки). Внешний URL
+           запрещаем сразу: в PDF его всё равно не встроить, а тянуть файл
+           по ссылке из настроек — не та поверхность, которую стоит открывать. */
+        foreach (['pdf_cover_first', 'pdf_cover_last'] as $pk) {
+            if (!array_key_exists($pk, $data)) continue;
+            $u = trim((string)$data[$pk]);
+            if (mb_strlen($u) > 500) {
+                jsonResponse(['error' => "$pk: путь слишком длинный — загрузите картинку кнопкой"], 422);
+            }
+            if ($u !== '' && !preg_match('#^/uploads/#', $u)) {
+                jsonResponse(['error' => "$pk: загрузите картинку кнопкой (путь вида /uploads/pdf/…) или оставьте поле пустым"], 422);
+            }
+            if ($u !== '' && str_contains($u, '..')) {
+                jsonResponse(['error' => "$pk: путь не должен содержать «..»"], 422);
+            }
+            $data[$pk] = $u;
         }
         if (isset($data['hero_slides']) && (string)$data['hero_slides'] !== '') {
             $decoded = json_decode((string)$data['hero_slides'], true);

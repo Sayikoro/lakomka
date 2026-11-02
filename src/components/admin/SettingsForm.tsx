@@ -9,6 +9,79 @@ interface Props {
   initial: AdminSettings;
 }
 
+/* Task 132: строка «обложка / последняя страница» генеративного PDF:
+   превью A4-пропорций, кнопка загрузки, поле пути и «Убрать». */
+function PdfCoverRow(props: {
+  title: string;
+  hint: string;
+  value: string;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+  onChange: (url: string) => void;
+  testId: string;
+}) {
+  const input =
+    "w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
+  return (
+    <div
+      className="rounded-lg border border-[var(--color-border)] p-4"
+      data-testid={props.testId}
+    >
+      <span className="mb-2 block text-sm font-medium text-[var(--color-heading)]">
+        {props.title}
+      </span>
+      <div className="flex items-start gap-4">
+        <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)]">
+          {props.value ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={props.value}
+              alt={props.title}
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <span className="text-[11px] text-[var(--color-muted)]">нет</span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <label className="inline-flex cursor-pointer items-center rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-1.5 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)] hover:text-white">
+            {props.uploading ? "Загружаем…" : "Загрузить картинку"}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              disabled={props.uploading}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                props.onUpload(file);
+              }}
+            />
+          </label>
+          <input
+            type="text"
+            value={props.value}
+            onChange={(e) => props.onChange(e.target.value)}
+            className={input}
+            placeholder="/uploads/pdf/… (заполняется кнопкой загрузки)"
+          />
+          {props.value && (
+            <button
+              type="button"
+              onClick={() => props.onChange("")}
+              className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+            >
+              Убрать картинку
+            </button>
+          )}
+          <p className="text-xs text-[var(--color-muted)]">{props.hint}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsForm({ initial }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<AdminSettings>(initial);
@@ -48,6 +121,8 @@ export function SettingsForm({ initial }: Props) {
   });
   const [uploading, setUploading] = useState(false);
   const [uploadingFlake, setUploadingFlake] = useState(false);
+  /* Task 132: загрузка обложки/финала генеративного PDF */
+  const [uploadingPdfPage, setUploadingPdfPage] = useState(false);
 
   function setField<K extends keyof AdminSettings>(key: K, value: AdminSettings[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -139,6 +214,34 @@ export function SettingsForm({ initial }: Props) {
     });
   }
 
+  /* Task 132: картинка обложки/финальной страницы генеративного PDF.
+     Клиентская компрессия та же, что у hero; сервер кладёт файл
+     в /uploads/pdf и возвращает путь. */
+  async function uploadPdfPageImage(file: File): Promise<string | null> {
+    setError(null);
+    setUploadingPdfPage(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", await fileToResizedJpeg(file));
+      const res = await fetch(`${apiUrl}/admin/uploads/pdf-page`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось загрузить картинку");
+        return null;
+      }
+      return json.data.url as string;
+    } catch {
+      setError("Ошибка сети при загрузке картинки");
+      return null;
+    } finally {
+      setUploadingPdfPage(false);
+    }
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -181,6 +284,9 @@ export function SettingsForm({ initial }: Props) {
           tg_bot_token: form.tg_bot_token, // пустая строка = не менять
           tg_chat_id: form.tg_chat_id.trim(),
           notify_admin_email: form.notify_admin_email === "1" ? "1" : "0",
+          /* Task 132: обложка/финал генеративного PDF (/uploads/pdf/… или пусто) */
+          pdf_cover_first: form.pdf_cover_first.trim(),
+          pdf_cover_last: form.pdf_cover_last.trim(),
         }),
       });
       const json = await res.json();
@@ -669,6 +775,42 @@ export function SettingsForm({ initial }: Props) {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* ── Task 132: генеративный PDF — обложка и финальная страница ── */}
+      <div className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
+        <h2 className="text-lg font-semibold text-[var(--color-heading)]">
+          PDF по подаркам
+        </h2>
+        <p className="-mt-2 text-sm text-[var(--color-muted)]">
+          Страницы для PDF, который собирается в разделе «Товары»: выделите подарки →
+          «Сформировать PDF». Обложка станет первой страницей, финал — последней,
+          между ними — карточки подарков (фото, название, цена). Пусто = сразу карточки.
+        </p>
+        <PdfCoverRow
+          testId="pdf-cover-first"
+          title="Обложка (первая страница)"
+          hint="Например, заставка «Новогодние подарки». Картинка вписывается в лист А4 целиком, без обрезки."
+          value={form.pdf_cover_first}
+          uploading={uploadingPdfPage}
+          onUpload={async (file) => {
+            const url = await uploadPdfPageImage(file);
+            if (url) setField("pdf_cover_first", url);
+          }}
+          onChange={(u) => setField("pdf_cover_first", u)}
+        />
+        <PdfCoverRow
+          testId="pdf-cover-last"
+          title="Последняя страница"
+          hint="Например, контакты и условия заказа. Пусто = последней страницы нет."
+          value={form.pdf_cover_last}
+          uploading={uploadingPdfPage}
+          onUpload={async (file) => {
+            const url = await uploadPdfPageImage(file);
+            if (url) setField("pdf_cover_last", url);
+          }}
+          onChange={(u) => setField("pdf_cover_last", u)}
+        />
       </div>
 
       {/* ── Витрина: снегопад ── */}

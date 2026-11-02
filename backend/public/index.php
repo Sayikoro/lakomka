@@ -314,6 +314,12 @@ $stmt->execute([$m[1]]);
         AdminUploadController::saveSnowflakeSvg();
     }
 
+    /* Task 132: обложка/финальная страница генеративного PDF */
+    if ($path === '/api/admin/uploads/pdf-page' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminUploadController.php';
+        AdminUploadController::savePdfPageImage();
+    }
+
     /* ========== ADMIN: SITE UPDATE (Настройки → «Обновление») ========== */
     if ($path === '/api/admin/site-update' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminSiteUpdateController.php';

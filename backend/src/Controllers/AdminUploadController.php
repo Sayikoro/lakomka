@@ -87,6 +87,63 @@ class AdminUploadController
     }
 
     /* ============================================================
+       ЗАГРУЗКА СТРАНИЦ ГЕНЕРАТИВНОГО PDF (Task 132)
+       POST /api/admin/uploads/pdf-page   multipart: field `file`
+       Обложка (первая страница) и последняя страница PDF, который
+       собирается в «Товары → Сформировать PDF». Файлы складываются
+       в public/uploads/pdf (витрине они не нужны, но /uploads —
+       стандартное место медиа; доступ к API закрыт auth-редактором).
+       ============================================================ */
+    public static function savePdfPageImage(): void
+    {
+        Auth::requireEditor();
+
+        $dir = Paths::uploadsRoot() . '/pdf';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            jsonResponse(['error' => 'Файл не загружен'], 422);
+        }
+        $file = $_FILES['file'];
+        if ($file['size'] > 32 * 1024 * 1024) {
+            jsonResponse(['error' => 'Картинка больше 32 MB'], 422);
+        }
+        $mime = mime_content_type($file['tmp_name']);
+        if ($mime === 'image/heic' || $mime === 'image/heif') {
+            jsonResponse(['error' => 'Это фото в формате iPhone (HEIC) — сайт его не поймёт. '
+                . 'Откройте фото и сохраните/экспортируйте как JPG, затем загрузите снова.'], 422);
+        }
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            jsonResponse(['error' => "Формат не поддерживается: $mime (нужен JPG/PNG/WebP)"], 422);
+        }
+
+        $ext = match ($mime) {
+            'image/jpeg' => 'jpg',
+            'image/png'  => 'png',
+            'image/webp' => 'webp',
+            default      => 'bin',
+        };
+        $filename = time() . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $dest = $dir . '/' . $filename;
+
+        if (!move_uploaded_file($file['tmp_name'], $dest)) {
+            jsonResponse(['error' => 'Не удалось сохранить файл'], 500);
+        }
+
+        /* Страница A4 при 150 dpi — 1240×1754; обложки обычно рисуют
+           в большем размере, жмём до 2400px (как hero). При неудаче
+           остаётся оригинал. */
+        $opt = MediaOptimizer::optimizeImageFile($dest, 2400, 82);
+        if ($opt['converted']) {
+            $filename = $opt['name'];
+        }
+
+        jsonResponse(['data' => ['url' => '/uploads/pdf/' . $filename, 'optimized' => $opt['note']]]);
+    }
+
+    /* ============================================================
        ЗАГРУЗКА SVG-СНЕЖИНКИ (снегопад на витрине)
        POST /api/admin/uploads/snowflake   multipart: field `file`
        Файлы складываются в public/uploads/snowflake
