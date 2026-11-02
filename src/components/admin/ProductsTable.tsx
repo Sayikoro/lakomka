@@ -76,7 +76,8 @@ export function ProductsTable({ initialProducts, reload }: Props) {
   const [search, setSearch] = useState(""); // применённый поиск (после дебаунса)
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(50);
+  /* Task 130: 20 товаров на страницу (просил владелец) */
+  const [perPage, setPerPage] = useState(20);
   const [total, setTotal] = useState<number | null>(null);
   const [pages, setPages] = useState(1);
   const [fetching, setFetching] = useState(false);
@@ -189,6 +190,12 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     priceTouched && priceBounds.max > 0 &&
     (effPrice[0] > priceBounds.min || effPrice[1] < priceBounds.max);
 
+  /* Task 130: примитивы для deps эффекта загрузки (см. комментарий там) */
+  const priceLo = effPrice[0];
+  const priceHi = effPrice[1];
+  const weightLo = weightSteps[effWeight[0]] ?? 0;
+  const weightHi = weightSteps[effWeight[1]] ?? 0;
+
   // Категории, реально представленные в наборе (фасет с сервера —
   // текущая страница всего набора не покрывает)
   const categoryOptions = useMemo(() => {
@@ -282,8 +289,23 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     apiUrl, page, perPage, search, filter, category, sort, refreshTick,
-    priceTouched, priceRange, weightTouched, weightIdx, facets, categories,
+    priceTouched, priceRange, weightTouched, weightIdx, categories,
+    /* Task 130: FIX «бесконечно обновляется пагинация». Раньше в deps был
+     * сам объект facets, а эффект его же и перезаписывал (setFacets —
+     * новый объект каждый раз) → fetch → effect → fetch… бесконечный цикл
+     * перезапросов. Оставляем только ПРИМИТИВЫ, производные от facets:
+     * их значения между ответами совпадают — цикл не возобновляется. */
+    priceActive, priceLo, priceHi, weightActive, weightLo, weightHi,
   ]);
+
+  /* Task 130: обновить список, когда товары изменили вне таблицы
+   * (импорт ZIP в ProductsImportExport шлёт событие) — «пагинация
+   * обновляется, когда добавлен новый товар» */
+  useEffect(() => {
+    const onChange = () => reloadSelf();
+    window.addEventListener("lakomka-products-changed", onChange);
+    return () => window.removeEventListener("lakomka-products-changed", onChange);
+  }, [reloadSelf]);
 
   /** Восстановить из корзины (Task 100) и перечитать текущую страницу */
   const restoreProducts = async (ids: number[]) => {
@@ -972,7 +994,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
             <select
               value={perPage}
               onChange={(e) => {
-                setPerPage(Number(e.target.value) || 50);
+                setPerPage(Number(e.target.value) || 20);
                 setPage(1);
               }}
               aria-label="Товаров на странице"

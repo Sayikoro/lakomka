@@ -167,6 +167,9 @@ export function ProductsImportExport() {
       setResult(json.data);
       void refreshArchive();
       router.refresh();
+      /* Task 130: таблица товаров ниже по странице перечитывает текущую
+       * страницу с сервера — новые товары видны сразу, без перезагрузки */
+      window.dispatchEvent(new Event("lakomka-products-changed"));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка загрузки");
     } finally {

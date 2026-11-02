@@ -797,6 +797,17 @@ class AdminFilesController
         Paths::ensureDir($itemDir);
 
         $dest = $itemDir . '/' . basename($rel);
+
+        /* meta.json ДО переноса (Task 130): если процесс умрёт между
+           переименованием и записью meta, позиция оставалась навсегда
+           «без meta.json» — не видна и не восстановима. Теперь orig/имя
+           известны заранее, перенос может оборваться безопасно. */
+        @file_put_contents($itemDir . '/meta.json', json_encode([
+            'orig'     => $rel,
+            'name'     => basename($rel),
+            'is_dir'   => is_dir($abs),
+            'moved_at' => date('c'),
+        ], JSON_UNESCAPED_UNICODE));
         if (!@rename($abs, $dest)) {
             /* rename через устройства не проходит — копия + удаление */
             if (is_dir($abs)) {
@@ -817,55 +828,93 @@ class AdminFilesController
             }
         }
 
-        @file_put_contents($itemDir . '/meta.json', json_encode([
-            'orig'     => $rel,
-            'name'     => basename($rel),
-            'is_dir'   => is_dir($dest),
-            'moved_at' => date('c'),
-        ], JSON_UNESCAPED_UNICODE));
-
         return $itemId;
     }
 
-    /** GET /api/admin/files/trash — содержимое корзины (позиции старше 30 дней чистятся). */
+    /** GET /api/admin/files/trash — содержимое корзины (позиции старше 30 дней чистятся).
+     *  Task 130: каждая позиция получает «свой» подарок — product{name,slug,thumb}
+     *  (папка products/<папка> узнаётся через productContext, как в списках видео/
+     *  картинок), чтобы владелец находил битые файлы по названию подарка, а не по
+     *  безликим «video-0.mov». Позиции без meta.json тоже показываются (имя берём
+     *  из содержимого) — их можно скачать и стереть, восстановить нельзя. */
     public static function trashList(): void
     {
         Auth::requireEditor();
 
         $trash = self::trashDir();
         $items = [];
+        $ctx = null;      // контекст товаров — лениво, только если есть позиции
+        $pdo = null;
         foreach (scandir($trash, SCANDIR_SORT_ASCENDING) ?: [] as $id) {
             if ($id === '.' || $id === '..') continue;
             $itemDir = $trash . '/' . $id;
             if (!is_dir($itemDir)) continue;
             $meta = json_decode((string)@file_get_contents($itemDir . '/meta.json'), true);
-            if (!is_array($meta)) continue;
 
             /* Автоочистка: 30 дней в корзине — позиция удаляется */
-            $movedTs = strtotime((string)($meta['moved_at'] ?? '')) ?: (@filemtime($itemDir) ?: time());
+            $movedTs = is_array($meta)
+                ? (strtotime((string)($meta['moved_at'] ?? '')) ?: (@filemtime($itemDir) ?: time()))
+                : (@filemtime($itemDir) ?: time());
             if (time() - $movedTs > 30 * 86400) {
-                foreach (scandir($itemDir) ?: [] as $n) {
-                    if ($n === '.' || $n === '..' || $n === 'meta.json') continue;
-                    is_dir($itemDir . '/' . $n) ? self::rrmdir($itemDir . '/' . $n) : @unlink($itemDir . '/' . $n);
-                }
-                @unlink($itemDir . '/meta.json');
-                @rmdir($itemDir);
+                self::rrmdir($itemDir);
                 continue;
             }
 
+            /* Содержимое позиции: имя/размер; заодно — живые позиции без meta */
             $size = 0;
-            foreach (scandir($itemDir) ?: [] as $n) {
+            $firstName = '';
+            $entries = 0;
+            foreach (scandir($itemDir, SCANDIR_SORT_ASCENDING) ?: [] as $n) {
                 if ($n === '.' || $n === '..' || $n === 'meta.json') continue;
                 $p = $itemDir . '/' . $n;
                 $size += is_dir($p) ? self::dirSize($p) : (@filesize($p) ?: 0);
+                $entries++;
+                if ($firstName === '') $firstName = $n;
             }
+
+            if (!is_array($meta)) {
+                /* Позиция без meta.json (обрыв записи до Task 130): показать,
+                   чтобы владелец мог скачать файл или стереть позицию */
+                if ($entries === 0) { @rmdir($itemDir); continue; }
+                $items[] = [
+                    'id'       => $id,
+                    'name'     => $firstName,
+                    'orig'     => '',
+                    'is_dir'   => is_dir($itemDir . '/' . $firstName),
+                    'size'     => $size,
+                    'moved_at' => date('c', $movedTs),
+                    'product'  => null,
+                    'no_meta'  => true,
+                ];
+                continue;
+            }
+
+            $orig = (string)($meta['orig'] ?? '');
+            /* Подарок позиции: по исходному пути products/<папка>/… */
+            $product = null;
+            if ($orig !== '') {
+                $folder = (bool)($meta['is_dir'] ?? false)
+                    ? $orig
+                    : (str_contains($orig, '/') ? preg_replace('#/[^/]*$#', '', $orig) : '');
+                if ($folder !== '') {
+                    if ($pdo === null) $pdo = Database::get();
+                    if ($ctx === null) $ctx = self::productContext($pdo);
+                    $product = self::productFor($ctx, '/uploads/' . $orig, $folder);
+                }
+            }
+
             $items[] = [
                 'id'       => $id,
                 'name'     => (string)($meta['name'] ?? $id),
-                'orig'     => (string)($meta['orig'] ?? ''),
+                'orig'     => $orig,
                 'is_dir'   => (bool)($meta['is_dir'] ?? false),
                 'size'     => $size,
                 'moved_at' => date('c', $movedTs),
+                'product'  => $product === null ? null : [
+                    'name'  => $product['name'],
+                    'slug'  => $product['slug'],
+                    'thumb' => $product['thumb'],
+                ],
             ];
         }
 
@@ -874,7 +923,11 @@ class AdminFilesController
         jsonResponse(['data' => ['items' => $items]]);
     }
 
-    /** POST /api/admin/files/restore {id} — вернуть файл/папку из корзины. */
+    /** POST /api/admin/files/restore {id} — вернуть файл/папку из корзины.
+     *  Task 130: крепкая версия — внятная ошибка для позиции без meta.json,
+     *  фолбэк на единственный файл позиции (если имя в meta не совпало —
+     *  именно так выглядело «Файл в корзине не найден» у владельца), и
+     *  копия+удаление, если rename не проходит (другая ФС/права). */
     public static function trashRestore(PDO $pdo): void
     {
         $payload = Auth::requireEditor();
@@ -884,9 +937,12 @@ class AdminFilesController
         if ($id === '') jsonResponse(['error' => 'Не указана позиция'], 422);
 
         $itemDir = self::trashDir() . '/' . $id;
+        if (!is_dir($itemDir)) {
+            jsonResponse(['error' => 'Позиция не найдена — возможно, уже восстановлена или очищена'], 404);
+        }
         $meta = json_decode((string)@file_get_contents($itemDir . '/meta.json'), true);
-        if (!is_dir($itemDir) || !is_array($meta)) {
-            jsonResponse(['error' => 'Позиция не найдена'], 404);
+        if (!is_array($meta)) {
+            jsonResponse(['error' => 'У позиции нет meta.json (путь неизвестен). Скачайте файл из корзины кнопкой «⬇» и загрузите заново.'], 404);
         }
 
         $orig = (string)$meta['orig'];
@@ -895,6 +951,9 @@ class AdminFilesController
         }
 
         $root = realpath(Paths::uploadsRoot());
+        if ($root === false) {
+            jsonResponse(['error' => 'Хранилище uploads недоступно'], 500);
+        }
         $target = $root . '/' . $orig;
         $finalTarget = $target;
 
@@ -913,14 +972,32 @@ class AdminFilesController
         }
 
         $tdir = dirname($finalTarget);
-        if (!is_dir($tdir)) @mkdir($tdir, 0777, true);
+        if (!is_dir($tdir) && !@mkdir($tdir, 0777, true) && !is_dir($tdir)) {
+            jsonResponse(['error' => 'Не удалось создать папку для возврата: ' . $tdir], 500);
+        }
 
-        $src = $itemDir . '/' . (string)$meta['name'];
-        if (!file_exists($src)) {
-            jsonResponse(['error' => 'Файл в корзине не найден'], 404);
+        $src = $itemDir . '/' . (string)($meta['name'] ?? '');
+        if ((string)($meta['name'] ?? '') === '' || (!is_file($src) && !is_dir($src))) {
+            /* Фолбэк: в позиции ровно один элемент — возвращаем его, даже если
+               имя в meta не совпало с реальным содержимым */
+            $entries = [];
+            foreach (scandir($itemDir, SCANDIR_SORT_ASCENDING) ?: [] as $n) {
+                if ($n === '.' || $n === '..' || $n === 'meta.json') continue;
+                $entries[] = $n;
+            }
+            if (count($entries) === 1) {
+                $src = $itemDir . '/' . $entries[0];
+            } else {
+                jsonResponse(['error' => 'Файл в корзине не найден (позиция ' . $id . ')'], 404);
+            }
         }
         if (!@rename($src, $finalTarget)) {
-            jsonResponse(['error' => 'Не удалось вернуть файл'], 500);
+            /* rename не прошёл (права/другая ФС) — копия + удаление оригинала */
+            $copied = is_dir($src) ? self::copyRecursive($src, $finalTarget) : @copy($src, $finalTarget);
+            if (!$copied) {
+                jsonResponse(['error' => 'Не удалось вернуть файл — не хватило прав на ' . $finalTarget], 500);
+            }
+            is_dir($src) ? self::rrmdir($src) : @unlink($src);
         }
         @unlink($itemDir . '/meta.json');
         @rmdir($itemDir);
@@ -928,6 +1005,29 @@ class AdminFilesController
         $rel = ltrim(substr($finalTarget, strlen($root)), '/');
         AdminLog::add($pdo, AdminLog::actor($payload), 'files.restore', "{$id} → {$rel}");
         jsonResponse(['data' => ['ok' => true, 'path' => $rel]]);
+    }
+
+    /** POST /api/admin/files/trash-empty — очистить корзину целиком (Task 130).
+     *  Одно обычное подтверждение на фронте, без перечисления позиций. */
+    public static function trashEmpty(): void
+    {
+        $payload = Auth::requireEditor();
+
+        $trash = self::trashDir();
+        $removed = 0;
+        foreach (scandir($trash, SCANDIR_SORT_ASCENDING) ?: [] as $id) {
+            if ($id === '.' || $id === '..') continue;
+            $itemDir = $trash . '/' . $id;
+            if (is_dir($itemDir)) {
+                self::rrmdir($itemDir);
+                if (!is_dir($itemDir)) $removed++;
+            } else {
+                @unlink($itemDir);
+                $removed++;
+            }
+        }
+        AdminLog::add(Database::get(), AdminLog::actor($payload), 'files.trash-empty', "позиций: {$removed}");
+        jsonResponse(['data' => ['ok' => true, 'removed' => $removed]]);
     }
 
     /* ── НЕИСПОЛЬЗУЕМЫЕ ФАЙЛЫ (Task 103) ──
@@ -1739,7 +1839,10 @@ class AdminFilesController
         if (!is_file($abs)) jsonResponse(['error' => 'Файл не найден'], 404);
 
         $size = @filesize($abs) ?: 0;
-        $name = basename($abs);
+        /* ?as= — переименовать при скачивании (Task 130: корзина отдаёт
+           файл именем подарка, а не безликим «video-0.mov») */
+        $as = self::sanitizeName((string)($_GET['as'] ?? ''));
+        $name = $as !== '' ? $as : basename($abs);
 
         while (ob_get_level() > 0) { ob_end_clean(); }
         header('Content-Type: application/octet-stream');
@@ -1782,9 +1885,29 @@ class AdminFilesController
 
     private static function rrmdir(string $dir): void
     {
-        foreach (glob($dir . '/*', GLOB_NOSORT) ?: [] as $f) {
-            is_dir($f) ? self::rrmdir($f) : @unlink($f);
+        /* scandir вместо glob — glob('/*') не видит точечные файлы
+           (.DS_Store и т.п.), из-за них rmdir молча не проходил */
+        foreach (scandir($dir, SCANDIR_SORT_NONE) ?: [] as $f) {
+            if ($f === '.' || $f === '..') continue;
+            is_dir($dir . '/' . $f) ? self::rrmdir($dir . '/' . $f) : @unlink($dir . '/' . $f);
         }
         @rmdir($dir);
+    }
+
+    /** Рекурсивная копия папки (фолбэк восстановления, если rename не прошёл). */
+    private static function copyRecursive(string $src, string $dst): bool
+    {
+        if (!is_dir($dst) && !@mkdir($dst, 0777, true) && !is_dir($dst)) return false;
+        foreach (scandir($src, SCANDIR_SORT_NONE) ?: [] as $n) {
+            if ($n === '.' || $n === '..') continue;
+            $s = $src . '/' . $n;
+            $t = $dst . '/' . $n;
+            if (is_dir($s)) {
+                if (!self::copyRecursive($s, $t)) return false;
+            } elseif (!@copy($s, $t)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -57,9 +57,14 @@ LOGIN=$(curl -s -c "$CJ" -X POST "$BASE/auth/login" -H "Content-Type: applicatio
 [ -n "$(jget "$LOGIN" "data.token")" ] && ok "админ залогинен" || bad "логин: $LOGIN"
 
 UP="$ROOT/public/uploads"
-SRC_JPG=$(ls "$UP"/products/*/*.jpg 2>/dev/null | head -1)
-if [ -z "$SRC_JPG" ]; then SRC_JPG=$(ls "$UP"/products/*/*.webp 2>/dev/null | head -1); fi
-[ -n "$SRC_JPG" ] || { bad "нет исходной картинки в uploads"; echo "── ИТОГ: PASS=$PASS FAIL=$FAIL ──"; exit 1; }
+# Task 130: фикстура самодостаточна — генерируем настоящий JPEG через GD.
+# Раньше брали «первую попавшуюся» картинку из products/, но после массовой
+# конвертации в webp там не осталось jpg вовсе, а тестовый прогон мог
+# подложить и мусор (ASCII-заглушки от разведочных скриптов).
+SRC_JPG=/tmp/t116-src.jpg
+$PHP -r '$im = imagecreatetruecolor(240, 180); imagefill($im, 0, 0, imagecolorallocate($im, 200, 60, 60)); imagejpeg($im, $argv[1], 92);' "$SRC_JPG" 2>/dev/null
+if [ ! -s "$SRC_JPG" ]; then SRC_JPG=$(ls "$UP"/products/*/*.jpg 2>/dev/null | head -1); fi
+[ -n "$SRC_JPG" ] || { bad "нет исходной картинки (GD не сгенерировал)"; echo "── ИТОГ: PASS=$PASS FAIL=$FAIL ──"; exit 1; }
 mkdir -p "$UP/products/test-a-116" "$UP/products/test-b-116" "$UP/products/test-unused-116"
 cp "$SRC_JPG" "$UP/products/test-a-116/0.jpg"
 cp "$SRC_JPG" "$UP/products/test-b-116/0.jpg"

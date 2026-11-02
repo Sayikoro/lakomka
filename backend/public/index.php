@@ -523,6 +523,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::trashRestore($pdo);
     }
+    /* Task 130: очистить корзину файлов целиком */
+    if ($path === '/api/admin/files/trash-empty' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
+        AdminFilesController::trashEmpty();
+    }
     if ($path === '/api/admin/files/unused' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::unused($pdo);

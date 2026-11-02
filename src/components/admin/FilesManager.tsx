@@ -58,7 +58,10 @@ interface FolderData {
   section?: string;
 }
 
-/* Корзина файлов (Task 100): позиция = перемещённый файл/папка */
+/* Корзина файлов (Task 100): позиция = перемещённый файл/папка.
+ * Task 130: + product (подарок позиции: название/обложка — находить
+ * битые файлы по названию подарка) и no_meta (позиция без meta.json:
+ * восстановить нельзя, скачать/стереть можно). */
 interface TrashItem {
   id: string;
   name: string;
@@ -66,6 +69,8 @@ interface TrashItem {
   is_dir: boolean;
   size: number;
   moved_at: string;
+  product?: { name: string; slug: string; thumb: string | null } | null;
+  no_meta?: boolean;
 }
 
 /* «Неиспользуемые» (Task 103): файл без привязок к товарам */
@@ -469,7 +474,7 @@ export function FilesManager() {
   };
 
   const purgeTrashItem = async (it: TrashItem) => {
-    if (!window.confirm(`Удалить «${it.name}» навсегда? Вернуть будет нельзя.`)) return;
+    if (!window.confirm(`Удалить «${it.product?.name ?? it.name}» навсегда? Вернуть будет нельзя.`)) return;
     setTrashBusyId(it.id);
     setError(null);
     try {
@@ -485,6 +490,45 @@ export function FilesManager() {
         return;
       }
       await loadTrash();
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setTrashBusyId(null);
+    }
+  };
+
+  /* Task 130: скачать позицию корзины — файл именем ПОДАРКА (или как есть),
+   * чтобы затем загрузить исправный файл через импорт/карточку товара */
+  const trashDownloadUrl = (it: TrashItem): string => {
+    const asName = it.product && !it.is_dir
+      ? `${it.product.name}.${(it.name.split(".").pop() ?? "bin").toLowerCase()}`
+      : it.name;
+    return `${apiUrl}/admin/files/download?path=${encodeURIComponent(`media/.trash/${it.id}/${it.name}`)}&as=${encodeURIComponent(asName)}`;
+  };
+
+  /* Task 130: «Очистить корзину» одной кнопкой с обычным подтверждением */
+  const emptyTrash = async () => {
+    if (trashItems.length === 0) return;
+    if (
+      !window.confirm(
+        `Очистить корзину полностью? Позиций: ${trashItems.length}. Вернуть будет нельзя.`
+      )
+    )
+      return;
+    setTrashBusyId("*");
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/files/trash-empty`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Не удалось очистить корзину");
+        return;
+      }
+      setTrashItems([]);
+      setUploadNote({ ok: true, text: `Корзина очищена (${json.data?.removed ?? 0}).` });
     } catch {
       setError("Ошибка сети");
     } finally {
@@ -1505,7 +1549,8 @@ export function FilesManager() {
       </div>
 
       {/* ── Модалка: создать папку ── */}
-      {/* ── Корзина удалённых файлов (Task 100) ── */}
+      {/* ── Корзина удалённых файлов (Task 100; Task 130: подарки с обложками,
+              скачивание именем подарка и «Очистить корзину») ── */}
       {trashOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <button
@@ -1515,9 +1560,27 @@ export function FilesManager() {
             className="absolute inset-0 bg-black/30"
           />
           <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl">
-            <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
-              Корзина
-            </h3>
+            <div className="mb-1 flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold text-[var(--color-heading)]">
+                Корзина{trashItems.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-[var(--color-muted)]">
+                    позиций: {trashItems.length}
+                  </span>
+                )}
+              </h3>
+              {trashItems.length > 0 && (
+                <button
+                  type="button"
+                  data-testid="trash-empty"
+                  disabled={trashBusyId !== null}
+                  onClick={() => void emptyTrash()}
+                  title="Удалить всё из корзины навсегда (одно подтверждение)"
+                  className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {trashBusyId === "*" ? "Очищаем…" : "Очистить корзину"}
+                </button>
+              )}
+            </div>
             <p className="mb-4 text-xs text-[var(--color-muted)]">
               Удалённые файлы и папки хранятся 30 дней, потом стираются автоматически.
             </p>
@@ -1533,31 +1596,69 @@ export function FilesManager() {
                   {trashItems.map((it) => (
                     <li
                       key={it.id}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] p-2.5 text-sm"
+                      className="flex items-center gap-2.5 rounded-lg border border-[var(--color-border)] p-2.5 text-sm"
                     >
+                      {/* Обложка подарка (Task 130) — иначе 📁/📄 */}
+                      {it.product?.thumb ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={it.product.thumb}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded-lg border border-[var(--color-border)] object-cover"
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        />
+                      ) : (
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] text-base" aria-hidden>
+                          {it.is_dir ? "📁" : "📄"}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
+                        {it.product && (
+                          <span className="block truncate font-medium text-[var(--color-heading)]" title={it.product.name}>
+                            🎁 {it.product.name}
+                          </span>
+                        )}
                         <span className="block truncate font-medium text-[var(--color-heading)]">
-                          {it.is_dir ? "📁 " : "📄 "}
                           {it.name}
+                          {it.no_meta && (
+                            <span
+                              className="ml-2 inline-block rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"
+                              title="Позиция без meta.json: путь неизвестен. Можно скачать или стереть, восстановить — нет."
+                            >
+                              без meta
+                            </span>
+                          )}
                         </span>
                         <span className="block truncate text-xs text-[var(--color-muted)]" title={`был: ${it.orig}`}>
-                          был: {it.orig} · {humanSize(it.size)} ·{" "}
+                          {it.orig ? `был: ${it.orig}` : "путь неизвестен"} · {humanSize(it.size)} ·{" "}
                           {new Date(it.moved_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </span>
                       <button
                         type="button"
-                        disabled={trashBusyId === it.id}
+                        disabled={trashBusyId !== null || !!it.no_meta}
+                        title={it.no_meta ? "Позиция без meta.json — путь возврата неизвестен. Скачайте файл и загрузите заново." : "Вернуть на прежнее место"}
                         onClick={() => void restoreTrashItem(it)}
-                        className="shrink-0 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs text-[var(--color-primary)] hover:border-[var(--color-primary)] disabled:opacity-50"
+                        className="shrink-0 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs text-[var(--color-primary)] hover:border-[var(--color-primary)] disabled:opacity-40"
                       >
                         Восстановить
                       </button>
+                      {!it.is_dir && (
+                        <button
+                          type="button"
+                          disabled={trashBusyId !== null}
+                          title="Скачать из корзины (с подарком — файл будет назван именем подарка)"
+                          onClick={() => window.open(trashDownloadUrl(it), "_blank", "noopener,noreferrer")}
+                          className="shrink-0 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs text-[var(--color-body)] hover:border-[var(--color-primary)] disabled:opacity-40"
+                        >
+                          ⬇
+                        </button>
+                      )}
                       <button
                         type="button"
-                        disabled={trashBusyId === it.id}
+                        disabled={trashBusyId !== null}
                         onClick={() => void purgeTrashItem(it)}
-                        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
                       >
                         Стереть
                       </button>
