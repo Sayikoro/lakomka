@@ -31,18 +31,19 @@ mkdir -p "$PKG/uploads/products/e2e131-dir"
 echo "e2e131" > "$PKG/uploads/products/e2e131-dir/keep-me.txt"
 
 AB="agent-browser"
-$AB close 2>/dev/null >/dev/null
-E(){ $AB eval "$1" 2>/dev/null | tr -d '"'; }
-$AB set viewport 1440 900 >/dev/null 2>&1
+# страховка: зависший вызов браузера не должен уронить весь прогон по таймауту сессии
+$AB timeout 60000 close 2>/dev/null >/dev/null || true
+E(){ timeout 60 $AB eval "$1" 2>/dev/null | tr -d '"'; }
+$AB timeout 60000 set viewport 1440 900 >/dev/null 2>&1 || true
 
 echo "── A. PDF по выделенным подаркам ──"
-$AB open "$BASE/admin/orders" >/dev/null 2>&1; sleep 3
-$AB eval "fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@lakomka.local',password:'Lakomka2026!'})}).then(r=>r.json()).then(j=>{window.__login=j&&j.data?'OK':'ERR'})" >/dev/null 2>&1
+timeout 60 $AB open "$BASE/admin/orders" >/dev/null 2>&1; sleep 3
+timeout 60 $AB eval "fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@lakomka.local',password:'Lakomka2026!'})}).then(r=>r.json()).then(j=>{window.__login=j&&j.data?'OK':'ERR'})" >/dev/null 2>&1
 sleep 2
-$AB open "$BASE/admin/products" >/dev/null 2>&1; sleep 6
+timeout 60 $AB open "$BASE/admin/products" >/dev/null 2>&1; sleep 5
 
 # клик по чекбоксу первой строки
-$AB eval "(function(){var c=document.querySelectorAll('tbody input[type=checkbox]')[0]; if(!c) return 'no-checkbox'; c.click(); return 'clicked';})()" >/dev/null 2>&1
+timeout 60 $AB eval "(function(){var c=document.querySelectorAll('tbody input[type=checkbox]')[0]; if(!c) return 'no-checkbox'; c.click(); return 'clicked';})()" >/dev/null 2>&1
 sleep 1
 BAR=$(E "(function(){return document.querySelector('[data-testid=bulk-bar]')?'visible':'none';})()")
 [ "$BAR" = "visible" ] && ok "выделение строки → появилась панель bulk-bar" || bad "bulk-bar: $BAR"
@@ -55,13 +56,13 @@ echo "$PDFCHK" | grep -q "^%PDF:" && SZ=$(echo "$PDFCHK" | cut -d: -f2) && [ "${
   && ok "PDF по 2 товарам: %PDF-сигнатура, $SZ байт" || bad "pdf fetch: $PDFCHK"
 
 # клик по кнопке: ошибки сети/сервера быть не должно
-$AB eval "(function(){var b=document.querySelector('[data-testid=pdf-btn]'); if(!b) return 'no-btn'; b.click(); return 'pressed';})()" >/dev/null 2>&1
+timeout 60 $AB eval "(function(){var b=document.querySelector('[data-testid=pdf-btn]'); if(!b) return 'no-btn'; b.click(); return 'pressed';})()" >/dev/null 2>&1
 sleep 6
 ERR=$(E "(function(){return document.body.textContent.indexOf('Не удалось сформировать PDF')>=0?'err':'clean';})()")
 [ "$ERR" = "clean" ] && ok "клик по кнопке — без ошибки скачивания" || bad "ошибка после клика: $ERR"
 
 # снять выделение → панель исчезла
-$AB eval "(function(){var c=document.querySelectorAll('tbody input[type=checkbox]')[0]; if(c&&c.checked) c.click(); return 'unsel';})()" >/dev/null 2>&1
+timeout 60 $AB eval "(function(){var c=document.querySelectorAll('tbody input[type=checkbox]')[0]; if(c&&c.checked) c.click(); return 'unsel';})()" >/dev/null 2>&1
 sleep 1
 BAR2=$(E "(function(){return document.querySelector('[data-testid=bulk-bar]')?'visible':'none';})()")
 [ "$BAR2" = "none" ] && ok "снятие выделения → панель скрылась" || bad "bulk-bar после снятия: $BAR2"
@@ -83,7 +84,7 @@ BE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/backend/storage/trash/$TRID/k
 UP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/uploads/.trash/$TRID/keep-me.txt")
 [ "$UP" = "404" ] && ok "прямой GET /uploads/.trash/… → 404 (файла нет в публичной зоне)" || bad "uploads direct: $UP"
 # restore и уборка
-curl -s -b "$CJ" -X POST "$BASE/api/admin/files/trash-restore" -H "Content-Type: application/json" -d "{\"id\":\"$TRID\"}" >/dev/null
+curl -s -b "$CJ" -X POST "$BASE/api/admin/files/restore" -H "Content-Type: application/json" -d "{\"id\":\"$TRID\"}" >/dev/null
 [ -f "$PKG/uploads/products/e2e131-dir/keep-me.txt" ] && ok "restore вернул файл на место" || bad "restore не сработал"
 
 echo "── C. Экспорты в приватном хранилище ──"
@@ -97,7 +98,7 @@ BE2=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/backend/storage/exports/e2e1
 
 # ── уборка ──
 rm -rf "$PKG/uploads/products/e2e131-dir" "$PKG/backend/storage/exports/e2e131-old.zip"
-$AB close >/dev/null 2>&1
+timeout 60 $AB close >/dev/null 2>&1 || true
 
 echo
 echo "═══ Итог: PASS=$PASS FAIL=$FAIL ═══"
