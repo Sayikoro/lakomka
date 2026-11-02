@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/admin/LogoutButton";
 import { DownloadsProvider } from "@/components/admin/downloads/Downloads";
 import { NewOrdersBadge, UpdateBadge } from "@/components/admin/AdminIndicators";
+import { ThemeToggle } from "@/components/admin/ThemeToggle";
 
 type Role = "super_admin" | "editor" | "viewer";
 
@@ -133,7 +134,7 @@ export default function AdminLayout({
   const sidebar = (
     <aside
       data-testid="admin-sidebar"
-      className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--color-border)] bg-white shadow-xl transition-transform duration-200 lg:translate-x-0 lg:shadow-none ${
+      className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--color-border)] bg-[var(--color-card)] shadow-xl transition-transform duration-200 lg:translate-x-0 lg:shadow-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
@@ -180,9 +181,13 @@ export default function AdminLayout({
         })}
       </nav>
 
-      {/* Низ сайдбара: обновление, пользователь, выход */}
+      {/* Низ сайдбара: обновление, пользователь, тема, выход */}
       <div className="shrink-0 border-t border-[var(--color-border)] px-4 py-3 text-sm">
         <UpdateBadge isSuperAdmin={user?.role === "super_admin"} />
+        {/* Task 121: переключатель тёмной темы — на всех ролях */}
+        <div className="mt-2">
+          <ThemeToggle />
+        </div>
         {user && (
           <div className="mt-2">
             <p
@@ -218,7 +223,7 @@ export default function AdminLayout({
 
       <div className="lg:pl-64">
         {/* Верхняя панель мобильных/планшетов: бургер + название */}
-        <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-white px-4 lg:hidden">
+        <div className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-card)] px-4 lg:hidden">
           <button
             type="button"
             onClick={() => setMenuOpen(true)}

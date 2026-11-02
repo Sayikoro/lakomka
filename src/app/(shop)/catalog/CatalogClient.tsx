@@ -392,7 +392,8 @@ export function CatalogClient({
                   {pickedIcons.get(c.slug) ? (
                     <SmartImg
                       src={pickedIcons.get(c.slug)!}
-                      alt=""
+                      /* Task 121: alt = название категории (доступность + SEO) */
+                      alt={c.name}
                       loading="lazy"
                       wrapperClassName="h-9 w-9 rounded-xl"
                       skeletonClassName="rounded-xl"

@@ -100,7 +100,7 @@ interface GithubCheck {
 }
 
 const cardCls =
-  "rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5";
+  "rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-5";
 const labelCls = "text-sm text-[var(--color-muted)]";
 const valueCls = "text-sm font-medium text-[var(--color-heading)]";
 

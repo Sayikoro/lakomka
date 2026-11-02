@@ -180,6 +180,7 @@ export function SettingsForm({ initial }: Props) {
           metrika_code: form.metrika_code,
           tg_bot_token: form.tg_bot_token, // пустая строка = не менять
           tg_chat_id: form.tg_chat_id.trim(),
+          notify_admin_email: form.notify_admin_email === "1" ? "1" : "0",
         }),
       });
       const json = await res.json();
@@ -244,7 +245,7 @@ export function SettingsForm({ initial }: Props) {
   return (
     <form onSubmit={save} className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="space-y-6">
-      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Контакты и почта
         </h2>
@@ -381,7 +382,7 @@ export function SettingsForm({ initial }: Props) {
       </div>
 
       {/* ── Аналитика и уведомления: Метрика + Telegram (Task 107/108) ── */}
-      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Аналитика и уведомления
         </h2>
@@ -475,10 +476,32 @@ export function SettingsForm({ initial }: Props) {
           Тест и уведомления используют СОХРАНЁННЫЕ настройки — сначала нажмите «Сохранить».
           Ошибка доставки в Telegram никогда не мешает заказу — он оформится, а письмо придёт как обычно.
         </p>
+
+        <hr className="border-[var(--color-border)]" />
+
+        {/* Task 121: дубли заказов админу на email (письмо шлётся на «Email администратора» выше) */}
+        <label className="flex cursor-pointer items-start gap-3 text-sm" data-testid="notify-admin-label">
+          <input
+            type="checkbox"
+            checked={form.notify_admin_email === "1"}
+            onChange={(e) => setField("notify_admin_email", e.target.checked ? "1" : "0")}
+            className="mt-1 accent-[var(--color-primary)]"
+            data-testid="notify-admin-toggle"
+          />
+          <span>
+            <span className="font-medium text-[var(--color-heading)]">
+              Дублировать заказы админу на email
+            </span>
+            <span className="block text-xs text-[var(--color-muted)]">
+              Копия каждого заказа уйдёт на «Email администратора» (поле выше). Telegram-уведомления
+              работают независимо. По умолчанию включено.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* ── Витрина: hero и шаблон карточки товара ── */}
-      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Витрина
         </h2>
@@ -649,7 +672,7 @@ export function SettingsForm({ initial }: Props) {
       </div>
 
       {/* ── Витрина: снегопад ── */}
-      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+      <div className="space-y-6 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Снегопад
         </h2>
@@ -743,7 +766,7 @@ export function SettingsForm({ initial }: Props) {
                     type="color"
                     value={/^#[0-9a-fA-F]{6}$/.test(form.snow_color || "") ? form.snow_color : "#f5f5f5"}
                     onChange={(e) => setField("snow_color", e.target.value.toUpperCase())}
-                    className="h-9 w-12 cursor-pointer rounded-md border border-[var(--color-border)] bg-white p-1"
+                    className="h-9 w-12 cursor-pointer rounded-md border border-[var(--color-border)] bg-[var(--color-card)] p-1"
                     aria-label="Цвет снежинок"
                   />
                   <input
@@ -865,7 +888,7 @@ export function SettingsForm({ initial }: Props) {
           )}
         </div>
 
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-4 text-xs text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-4 text-xs text-[var(--color-muted)]">
           <p className="mb-2 font-medium text-[var(--color-heading)]">Настройки Yandex 360:</p>
           <ul className="space-y-1 list-disc pl-4">
             <li>Хост: <code>smtp.yandex.ru</code></li>
@@ -877,7 +900,7 @@ export function SettingsForm({ initial }: Props) {
       </aside>
 
       {/* ── Обслуживание: бэкап базы (Task 105) ── */}
-      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6 lg:col-span-2">
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6 lg:col-span-2">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Обслуживание
         </h2>

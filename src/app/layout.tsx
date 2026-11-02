@@ -11,6 +11,7 @@ import { CookieBanner } from "@/components/ui/CookieBanner";
 import { getPublicSettings } from "@/lib/settings";
 import { TextsProvider } from "@/components/texts/TextsProvider";
 import { AiGuard } from "@/components/security/AiGuard";
+import { THEME_NOFLASH_SCRIPT, AdminThemeSync } from "@/components/admin/ThemeToggle";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -75,8 +76,14 @@ export default async function RootLayout({
   const cfg = await getPublicSettings();
 
   return (
-    <html lang="ru" className={poppins.variable}>
+    <html lang="ru" className={poppins.variable} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
+        {/* Task 121: тёмная тема админки — атрибут на <html> ставится ДО
+           первой отрисовки (без вспышки светлой). Только на /admin-*;
+           витрину не трогаем. suppressHydrationWarning — атрибут ставится
+           только на клиенте, React не должен ругаться на html. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_NOFLASH_SCRIPT }} />
+        <AdminThemeSync />
         <AiGuard />
         <TextsProvider texts={cfg.texts}>
           <RoutePreloader />

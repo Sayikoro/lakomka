@@ -153,7 +153,7 @@ export function ProductTabs({ product }: Props) {
       <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.component?.name ?? ""}>
         {selected && (
           <div className="space-y-4">
-            <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-bg-soft)]">
+            <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-[var(--radius-card)] bg-white">
               {selected.component?.images?.[0]?.url ? (
                 <Image src={selected.component.images[0].url} alt={selected.component.name}
                   fill sizes="400px" className="object-contain p-4" />
@@ -199,7 +199,7 @@ function CompositionCard({ item, onDetails }: { item: BundleItem; onDetails: () 
 
   return (
     <div className="flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
-      <div className="relative aspect-square overflow-hidden bg-[var(--color-bg-soft)]">
+      <div className="relative aspect-square overflow-hidden bg-white">
         {img ? (
           <Image src={img} alt={c?.name ?? ""} fill
             sizes="(max-width: 640px) 50vw, 25vw" className="object-contain p-3" />
@@ -243,7 +243,7 @@ function CompositionRow({ item, onDetails }: { item: BundleItem; onDetails: () =
 
   return (
     <li className="flex items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-2">
-      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[14px] bg-[var(--color-bg-soft)]">
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[14px] bg-white">
         {img ? (
           <Image src={img} alt={c?.name ?? ""} fill sizes="80px"
             className="object-contain p-1.5" />

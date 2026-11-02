@@ -304,7 +304,7 @@ export function MediaUploader({ productId, initial }: Props) {
   const firstId = items[0]?.id;
 
   return (
-    <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+    <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-[var(--color-heading)]">
           Медиа-файлы{" "}
@@ -511,7 +511,7 @@ export function MediaUploader({ productId, initial }: Props) {
       {urlModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setUrlModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-md rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Добавить видео по ссылке
             </h3>

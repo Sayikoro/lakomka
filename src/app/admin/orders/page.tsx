@@ -113,15 +113,15 @@ export default function AdminOrdersPage() {
       )}
 
       {orders === null ? (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка…
         </div>
       ) : orders.length === 0 ? (
-        <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-12 text-center text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-[var(--color-muted)]">
           Заказов пока нет
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
+        <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">

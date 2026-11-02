@@ -214,7 +214,7 @@ export function BundleEditor({ productId, initial, initialRecipeWeight }: Props)
   }
 
   return (
-    <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+    <section className="space-y-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
       {/* Панель заполнения по граммовке */}
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -240,7 +240,7 @@ export function BundleEditor({ productId, initial, initialRecipeWeight }: Props)
               setSelectedWeight(e.target.value === "" ? "" : Number(e.target.value))
             }
             disabled={filling || weightOptions.length === 0}
-            className="rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-sm"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-sm"
           >
             {weightOptions.length === 0 && (
               <option value="">Нет рецептов</option>
@@ -356,7 +356,7 @@ export function BundleEditor({ productId, initial, initialRecipeWeight }: Props)
       {pickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setPickerOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-md rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Добавить компонент
             </h3>

@@ -263,7 +263,7 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl bg-white shadow-xl">
+      <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl bg-[var(--color-card)] shadow-xl">
         {/* Шапка: заголовок, крошки, поиск, фильтр */}
         <div className="border-b border-[var(--color-border)] p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -375,7 +375,7 @@ export function MediaGallery({ open, onClose, onPick, accept = "all", apiUrl = "
                       className={`px-2.5 py-1.5 transition ${
                         filter === k
                           ? "bg-[var(--color-primary)] text-white"
-                          : "bg-white text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
+                          : "bg-[var(--color-card)] text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
                       }`}
                     >
                       {label}

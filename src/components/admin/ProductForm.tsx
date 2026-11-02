@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { MediaGallery, type GalleryPick } from "@/components/admin/MediaGallery";
@@ -51,6 +51,10 @@ const PACKAGING_OPTIONS = [
   { value: "pouch", label: "Мешочек" },
 ];
 
+/* Task 121: автосохранение черновика формы — ключ в localStorage.
+ * new-товар — отдельный ключ «new», конкретный товар — по его id. */
+const DRAFT_PREFIX = "lakomka_product_draft_";
+
 const RECIPE_WEIGHT_OPTIONS = [
   { value: "", label: "— не задано —" },
   { value: 200, label: "200 г" },
@@ -79,6 +83,91 @@ export function ProductForm({ mode, initial }: Props) {
   // в БД пишется только ссылка на уже существующий файл в /uploads).
   const [picked, setPicked] = useState<GalleryPick[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(false);
+
+  /* ── Task 121: автосохранение черновика + защита от ухода ──
+   * Длинная форма теряла всё при случайном закрытии вкладки. Теперь:
+   * каждая правка через 800 мс пишется в localStorage, при открытии
+   * страницы черновик восстанавливается (с плашкой «Сбросить»), а при
+   * попытке уйти с несохранённой формой браузер спрашивает подтверждение. */
+  const draftKey = mode === "edit" && initial?.id ? `${DRAFT_PREFIX}${initial.id}` : `${DRAFT_PREFIX}new`;
+  const [draftRestored, setDraftRestored] = useState(false);
+  const dirtyRef = useRef(false);
+  const initialSnapshot = useRef<string>(
+    JSON.stringify({ form: initial ?? DEFAULTS, picked: [] })
+  );
+
+  /* Восстановление черновика — ПОСЛЕ монтирования (в статическом деплое
+   * HTML запечён с дефолтами: пишем в state на клиенте, не в рендере).
+   * set — в микротаске: react-hooks/set-state-in-effect запрещает
+   * синхронный setState в теле эффекта. */
+  useEffect(() => {
+    Promise.resolve().then(() => {
+      try {
+        const raw = localStorage.getItem(draftKey);
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { form?: ProductFormValues; picked?: GalleryPick[]; at?: number } | null;
+        if (!saved || typeof saved !== "object" || !saved.form) return;
+        const cur = initial ?? DEFAULTS;
+        const differs = (Object.keys(cur) as (keyof ProductFormValues)[]).some(
+          (k) => cur[k] !== saved.form?.[k]
+        );
+        if (differs) {
+          setForm((f) => ({ ...f, ...saved.form }));
+          if (Array.isArray(saved.picked)) setPicked(saved.picked);
+          setDraftRestored(true);
+        }
+      } catch {
+        /* битый/чужой черновик — молча игнорируем */
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  /* Автосохранение с дебаунсом 800 мс — только когда форма реально
+   * отличается от изначальной (черновик не пишется «вхолостую») */
+  useEffect(() => {
+    let snapshot = "";
+    try {
+      snapshot = JSON.stringify({ form, picked });
+    } catch {
+      return; // в picked попадает что-то несериализуемое — не пишем
+    }
+    const dirty = snapshot !== initialSnapshot.current;
+    dirtyRef.current = dirty;
+    if (!dirty) return;
+    const t = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          draftKey,
+          JSON.stringify({ form, picked, at: Date.now() })
+        );
+      } catch {
+        /* переполнение квоты localStorage — черновик не критичен */
+      }
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [form, picked, draftKey]);
+
+  /* Подтверждение при уходе с несохранённой формой */
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = ""; // легаси-Chrome: без этого диалог не показывается
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, []);
+
+  function discardDraft() {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch { /* не критично */ }
+    setForm(initial ?? DEFAULTS);
+    setPicked([]);
+    setDraftRestored(false);
+    dirtyRef.current = false;
+  }
 
   function set<K extends keyof ProductFormValues>(k: K, v: ProductFormValues[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -136,6 +225,10 @@ export function ProductForm({ mode, initial }: Props) {
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Не удалось сохранить"); return; }
 
+      /* Успешное сохранение — черновик больше не нужен */
+      try { localStorage.removeItem(draftKey); } catch { /* не критично */ }
+      dirtyRef.current = false;
+
       if (mode === "create") {
         const newId = Number(json.data?.id);
         // привязываем выбранные в галерее файлы к новому товару (по очереди)
@@ -163,7 +256,24 @@ export function ProductForm({ mode, initial }: Props) {
   const label = "mb-1 block text-sm font-medium text-[var(--color-heading)]";
 
   return (
-    <form onSubmit={submit} className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+    <form onSubmit={submit} className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
+      {draftRestored && (
+        <div
+          data-testid="draft-restored"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
+        >
+          <span>
+            Восстановлен несохранённый черновик этой формы (автосохранение).
+          </span>
+          <button
+            type="button"
+            onClick={discardDraft}
+            className="shrink-0 underline underline-offset-2 hover:no-underline"
+          >
+            Сбросить черновик
+          </button>
+        </div>
+      )}
       {/* Тип */}
       <div>
         <label className={label}>Тип товара</label>
@@ -175,7 +285,7 @@ export function ProductForm({ mode, initial }: Props) {
             className={`rounded-lg border-2 px-3 py-2 text-left text-sm transition disabled:opacity-50 ${
               form.type === "simple"
                 ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
-                : "border-[var(--color-border)] bg-white hover:border-[var(--color-primary)]"
+                : "border-[var(--color-border)] bg-[var(--color-card)] hover:border-[var(--color-primary)]"
             }`}
           >
             <div className="font-medium">Простой</div>
@@ -190,7 +300,7 @@ export function ProductForm({ mode, initial }: Props) {
             className={`rounded-lg border-2 px-3 py-2 text-left text-sm transition disabled:opacity-50 ${
               form.type === "bundle"
                 ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
-                : "border-[var(--color-border)] bg-white hover:border-[var(--color-primary)]"
+                : "border-[var(--color-border)] bg-[var(--color-card)] hover:border-[var(--color-primary)]"
             }`}
           >
             <div className="font-medium">Набор</div>
@@ -205,7 +315,7 @@ export function ProductForm({ mode, initial }: Props) {
             className={`rounded-lg border-2 px-3 py-2 text-left text-sm transition disabled:opacity-50 ${
               form.type === "recipe"
                 ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
-                : "border-[var(--color-border)] bg-white hover:border-[var(--color-primary)]"
+                : "border-[var(--color-border)] bg-[var(--color-card)] hover:border-[var(--color-primary)]"
             }`}
           >
             <div className="font-medium">Часть набора</div>

@@ -78,7 +78,7 @@ export function PasswordModal({ user, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
-      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+      <div className="relative w-full max-w-md rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
         <h2 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
           Сменить пароль
         </h2>
@@ -93,7 +93,7 @@ export function PasswordModal({ user, onClose }: Props) {
                 Новый пароль. Он показывается <b>только один раз</b> — сохраните
                 в менеджере паролей и передайте пользователю.
               </p>
-              <code className="block break-all rounded bg-white px-2 py-1 text-sm font-mono text-[var(--color-heading)]">
+              <code className="block break-all rounded bg-[var(--color-card)] px-2 py-1 text-sm font-mono text-[var(--color-heading)]">
                 {generated}
               </code>
               <button

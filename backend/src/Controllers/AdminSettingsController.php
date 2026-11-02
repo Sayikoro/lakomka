@@ -35,6 +35,10 @@ class AdminSettingsController
            маскируется как smtp_pass; chat_id — число или @username канала */
         'tg_bot_token',
         'tg_chat_id',
+        /* Task 121: дублировать заказы админу на email ("1"/"0", по умолчанию "1") */
+        'notify_admin_email',
+        /* Task 121: интервал авто-бэкапа БД, суток (0 = выключено, по умолчанию 3) */
+        'backup_interval_days',
         /* витрина: снегопад */
         'snow_enabled',
         'snow_count',
@@ -130,6 +134,12 @@ class AdminSettingsController
                 /* Ключа нет в БД (обновление со старой версии) — в админке
                    честно показываем фактическое поведение витрины: видео включено */
                 $out[$k] = '1';
+            } elseif ($k === 'notify_admin_email' && ($map[$k] ?? '') === '') {
+                /* Task 121: по умолчанию дубли админу включены */
+                $out[$k] = '1';
+            } elseif ($k === 'backup_interval_days' && ($map[$k] ?? '') === '') {
+                /* Task 121: авто-бэкап по умолчанию раз в 3 суток */
+                $out[$k] = '3';
             } else {
                 $out[$k] = $map[$k] ?? '';
             }
@@ -223,11 +233,11 @@ class AdminSettingsController
         }
 
         // Валидация
-        /* Булеаны (hero_slider_enabled, snow_enabled) принимаем в любом виде:
+        /* Булеаны (hero_slider_enabled, snow_enabled, notify_admin_email) принимаем в любом виде:
            true/false, "true"/"false", "on"/"off", "да"/"нет" — иначе старый
            кэш браузера или другой клиент ловит 422 «…: 0 | 1» и настройки
            не сохраняются вовсе. null = ключ не менять. */
-        foreach (['hero_slider_enabled', 'snow_enabled', 'card_video_enabled'] as $bk) {
+        foreach (['hero_slider_enabled', 'snow_enabled', 'card_video_enabled', 'notify_admin_email'] as $bk) {
             if (!array_key_exists($bk, $data)) continue;
             $v = $data[$bk];
             if (is_bool($v)) {
@@ -266,6 +276,18 @@ class AdminSettingsController
         if (isset($data['card_video_enabled'])
             && !in_array((string)$data['card_video_enabled'], ['0', '1'], true)) {
             jsonResponse(['error' => 'card_video_enabled: 0 | 1'], 422);
+        }
+        if (isset($data['notify_admin_email'])
+            && !in_array((string)$data['notify_admin_email'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'notify_admin_email: 0 | 1'], 422);
+        }
+        /* Интервал авто-бэкапа: целые сутки 0–30 (0 = выключено) */
+        if (isset($data['backup_interval_days'])) {
+            $bid = (string)$data['backup_interval_days'];
+            if (!preg_match('/^\d+$/', $bid) || (int)$bid > 30) {
+                jsonResponse(['error' => 'backup_interval_days: целое число 0–30 суток (0 = выключено)'], 422);
+            }
+            $data['backup_interval_days'] = (string)(int)$bid;
         }
         if (isset($data['snow_count']) && !preg_match('/^\d+$/', (string)$data['snow_count'])) {
             jsonResponse(['error' => 'snow_count: целое число 0–500'], 422);

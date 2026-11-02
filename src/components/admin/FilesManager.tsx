@@ -976,7 +976,7 @@ export function FilesManager() {
   }, [path]);
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
+    <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]">
       {error && (
         <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           <span>{error}</span>
@@ -1053,7 +1053,7 @@ export function FilesManager() {
                     ? "Подтверждение удаления включено (кликните, чтобы удалять без вопроса)"
                     : "Удаление без подтверждения (кликните, чтобы вернуть вопрос)"
                 }
-                className={`rounded-md border bg-white p-1.5 transition ${
+                className={`rounded-md border bg-[var(--color-card)] p-1.5 transition ${
                   confirmDelete
                     ? "border-[var(--color-border)] text-[var(--color-body)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                     : "border-amber-300 bg-amber-50 text-amber-700"
@@ -1077,7 +1077,7 @@ export function FilesManager() {
                   ? `Загрузить файлы в «${folder?.title ?? path}»`
                   : "Откройте папку, чтобы загрузить файлы"
               }
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M12 16V4M6.5 9.5 12 4l5.5 5.5" />
@@ -1099,7 +1099,7 @@ export function FilesManager() {
                   ? `Создать папку в «${folder?.title ?? path}»`
                   : "Откройте раздел, чтобы создать папку"
               }
-              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:pointer-events-none disabled:opacity-40"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z" />
@@ -1118,7 +1118,7 @@ export function FilesManager() {
                     void loadTrash();
                   }}
                   title="Удалённые файлы: восстановить или удалить навсегда (храним 30 дней)"
-                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M4 7h16M9.5 7V4.8A.8.8 0 0 1 10.3 4h3.4a.8.8 0 0 1 .8.8V7M6.5 7l.8 12.2a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5L17.5 7" />
@@ -1132,7 +1132,7 @@ export function FilesManager() {
                     void loadUnused();
                   }}
                   title="Файлы, не привязанные ни к одному товару — можно удалить и освободить место"
-                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-card)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M4 19.5V6a2 2 0 0 1 2-2h9l5 5v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5Z" />
@@ -1248,7 +1248,7 @@ export function FilesManager() {
           >
             {dragOver && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-primary)]/5">
-                <p className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[var(--color-primary)] shadow-md">
+                <p className="rounded-full bg-[var(--color-card)] px-4 py-2 text-sm font-medium text-[var(--color-primary)] shadow-md">
                   Отпустите, чтобы загрузить файлы в эту папку
                 </p>
               </div>
@@ -1514,7 +1514,7 @@ export function FilesManager() {
             onClick={() => setTrashOpen(false)}
             className="absolute inset-0 bg-black/30"
           />
-          <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+          <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
               Корзина
             </h3>
@@ -1588,7 +1588,7 @@ export function FilesManager() {
             onClick={() => setUnusedOpen(false)}
             className="absolute inset-0 bg-black/30"
           />
-          <div className="relative flex max-h-[80vh] w-full max-w-xl flex-col rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+          <div className="relative flex max-h-[80vh] w-full max-w-xl flex-col rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
               Неиспользуемые файлы
             </h3>
@@ -1689,7 +1689,7 @@ export function FilesManager() {
               e.preventDefault();
               void createFolder();
             }}
-            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
           >
             <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
               Новая папка
@@ -1738,7 +1738,7 @@ export function FilesManager() {
               e.preventDefault();
               void renameEntry();
             }}
-            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
           >
             <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
               Переименовать
@@ -1786,7 +1786,7 @@ export function FilesManager() {
               e.preventDefault();
               confirmRemoveEntry();
             }}
-            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+            className="relative w-full max-w-sm rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
           >
             <h3 className="mb-1 text-lg font-semibold text-[var(--color-heading)]">
               Удалить?
@@ -1836,7 +1836,7 @@ export function FilesManager() {
         <div
           ref={menuRef}
           role="menu"
-          className="fixed z-[95] min-w-[224px] max-w-[280px] overflow-hidden rounded-xl border border-[var(--color-border)] bg-white py-1 shadow-2xl"
+          className="fixed z-[95] min-w-[224px] max-w-[280px] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] py-1 shadow-2xl"
           style={{ left: menuPos.x, top: menuPos.y }}
           onContextMenu={(ev) => ev.preventDefault()}
         >
@@ -1884,7 +1884,7 @@ export function FilesManager() {
             onClick={() => setPropsInfo(null)}
             className="absolute inset-0 bg-black/30"
           />
-          <div className="relative w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-md rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-4 flex items-center gap-2.5 text-lg font-semibold text-[var(--color-heading)]">
               <EntryGlyph entry={propsInfo.entry} big />
               <span className="min-w-0 flex-1 break-all text-base leading-snug">{propsInfo.entry.name}</span>
@@ -1995,7 +1995,7 @@ export function FilesManager() {
             onClick={() => setShowSidebar(false)}
             className="absolute inset-0 bg-black/30"
           />
-          <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto border-r border-[var(--color-border)] bg-white p-3 shadow-xl">
+          <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto border-r border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-xl">
             <p className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
               Папки
             </p>
@@ -2100,7 +2100,7 @@ function ToolButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      className="rounded-md border border-[var(--color-border)] bg-white p-1.5 text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[var(--color-border)] disabled:hover:text-[var(--color-body)]"
+      className="rounded-md border border-[var(--color-border)] bg-[var(--color-card)] p-1.5 text-[var(--color-body)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:cursor-default disabled:opacity-35 disabled:hover:border-[var(--color-border)] disabled:hover:text-[var(--color-body)]"
     >
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         {children}
@@ -2167,7 +2167,7 @@ function TreeRow({
 }) {
   return (
     <div
-      className={`flex items-center gap-1 rounded-md pr-2 hover:bg-white ${active ? "bg-white shadow-sm" : ""}`}
+      className={`flex items-center gap-1 rounded-md pr-2 hover:bg-[var(--color-card)] ${active ? "bg-[var(--color-card)] shadow-sm" : ""}`}
       style={{ paddingLeft: 4 + depth * 14 }}
     >
       {expandable ? (

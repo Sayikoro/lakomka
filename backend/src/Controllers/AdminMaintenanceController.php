@@ -49,4 +49,44 @@ class AdminMaintenanceController
 
         jsonResponse(['data' => ['total' => $total, 'items' => $rows]]);
     }
+
+    /* ============================================================
+       Task 121: ЗДОРОВЬЕ САЙТА (вкладка в Настройках) и ЖУРНАЛ ВХОДОВ
+       (страница «Пользователи»). Оба — только для super_admin: health
+       раскрывает служебные детали (пути, версии), логины — приватное.
+       ============================================================ */
+
+    /** GET /api/admin/health — показатели состояния сайта (super_admin). */
+    public static function health(PDO $pdo): void
+    {
+        Auth::requireSuperAdmin();
+
+        require_once __DIR__ . '/../Health.php';
+        jsonResponse(['data' => Health::collect($pdo)]);
+    }
+
+    /** GET /api/admin/logins?limit=300 — попытки входа за сутки (super_admin).
+     *  Таблица login_attempts сама чистится: записи старше суток удаляются
+     *  при каждом успешном логине (AuthController). */
+    public static function logins(PDO $pdo): void
+    {
+        Auth::requireSuperAdmin();
+
+        $limit = (int)($_GET['limit'] ?? 300);
+        if ($limit < 1 || $limit > 1000) $limit = 300;
+
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT id, ip, email, success, created_at
+                 FROM login_attempts ORDER BY id DESC LIMIT $limit"
+            );
+            $stmt->execute();
+            $rows = $stmt->fetchAll();
+        } catch (Throwable $e) {
+            /* Таблицы ещё нет (обновление с совсем старой версии) — пусто */
+            $rows = [];
+        }
+
+        jsonResponse(['data' => ['items' => $rows]]);
+    }
 }

@@ -141,7 +141,7 @@ export function CandiesManager() {
           className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
             tab === "candies"
               ? "bg-[var(--color-primary)] text-white"
-              : "border border-[var(--color-border)] bg-white text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+              : "border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
           }`}
         >
           Конфеты <span className="opacity-70">({candies.length})</span>
@@ -151,7 +151,7 @@ export function CandiesManager() {
           className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
             tab === "sets"
               ? "bg-[var(--color-primary)] text-white"
-              : "border border-[var(--color-border)] bg-white text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+              : "border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
           }`}
         >
           Кастомные наборы <span className="opacity-70">({sets.length})</span>
@@ -183,7 +183,7 @@ export function CandiesManager() {
       )}
 
       {loading ? (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-10 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-10 text-center text-sm text-[var(--color-muted)]">
           Загружаем…
         </div>
       ) : tab === "candies" ? (
@@ -271,7 +271,7 @@ function CandiesTable({
         />
       </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
+      <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
@@ -410,7 +410,7 @@ function CandyModal({
       <form
         onSubmit={submit}
         onMouseDown={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
       >
         <h2 className="mb-4 text-lg font-medium text-[var(--color-heading)]">
           {initial ? "Редактировать конфету" : "Новая конфета"}
@@ -539,7 +539,7 @@ function DeleteCandyModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
       >
         <h2 className="mb-2 text-lg font-medium text-[var(--color-heading)]">Удалить «{candy.name}»?</h2>
         {used ? (
@@ -596,7 +596,7 @@ function SetsList({
 }) {
   if (sets.length === 0) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-10 text-center">
+      <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-[var(--color-card)] p-10 text-center">
         <p className="mb-1 font-medium text-[var(--color-heading)]">Кастомных наборов пока нет</p>
         <p className="mx-auto max-w-lg text-sm text-[var(--color-muted)]">
           Кастомный набор — это именованная подборка конфет: удобный внутренний справочник,
@@ -609,7 +609,7 @@ function SetsList({
   return (
     <div className="grid gap-3">
       {sets.map((s) => (
-        <div key={s.id} className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-4 ${deletingId === s.id ? "opacity-50" : ""}`}>
+        <div key={s.id} className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-4 ${deletingId === s.id ? "opacity-50" : ""}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -728,7 +728,7 @@ function SetModal({
       <form
         onSubmit={submit}
         onMouseDown={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
       >
         <h2 className="mb-4 text-lg font-medium text-[var(--color-heading)]">
           {initial ? "Редактировать набор" : "Новый кастомный набор"}
@@ -887,7 +887,7 @@ function CandyCoverModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl"
       >
         <h2 className="mb-2 text-lg font-medium text-[var(--color-heading)]">
           {candy.image_url ? "Заменить фото" : "Загрузить фото"}

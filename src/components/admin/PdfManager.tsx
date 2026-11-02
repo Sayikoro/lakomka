@@ -338,7 +338,7 @@ export function PdfManager({ items: initialItems }: { items: Item[] }) {
           return (
             <div
               key={item.alias}
-              className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5"
+              className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-5"
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-start gap-4">

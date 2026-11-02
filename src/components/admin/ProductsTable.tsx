@@ -3,9 +3,13 @@
 /* Список товаров админки с фильтрами как в клиентском каталоге (Task 90):
  * плитки категорий с иконками, двойные ползунки цены и веса (общий
  * DualSlider из ui/DualSlider), сортировка «название/цена» и сброс.
- * Админ-специфичные фильтры сохранены: поиск по названию/SKU и статусный
- * select (в каталоге / скрытые / тип товара / корзина). Все фильтры
- * клиентские — список приходит целиком с /api/admin/products.
+ * Админ-специфичные фильтры: поиск по названию/SKU и статусный select.
+ *
+ * Task 121: ВСЕ ФИЛЬТРЫ СЕРВЕРНЫЕ — список приходит страницами
+ * (page/per_page, поиск и диапазоны считаются в SQL), в ответе — total,
+ * pages и фасеты (границы цены, ступени веса, категории набора).
+ * Сотни товаров больше не грузятся целиком: LIMIT 500 легаси-режима
+ * остался для остальных вкладок (рецепты, состав, корзина).
  *
  * Task 97-106 добавили:
  *  - дублирование товара в один клик (черновик с теми же картинками);
@@ -14,7 +18,7 @@
  *    (удалённое живёт в «Корзине», восстановление в один клик);
  *  - метки медиа в строке: «нет фото» и «видео: N». */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DualSlider, SORT_OPTIONS, priceLabel, weightLabel } from "@/components/ui/DualSlider";
 import type { SortKey } from "@/components/ui/DualSlider";
@@ -53,16 +57,29 @@ const CATEGORY_ICONS: Record<string, string> = Object.fromEntries(
   mockCategories.map((c) => [c.slug, c.imageUrl])
 );
 
+/** Окно номеров страниц для пагинации: 1 … (текущая ±2) … последняя */
+function pageNumbers(current: number, total: number): number[] {
+  const out = new Set<number>([1, total]);
+  for (let n = current - 2; n <= current + 2; n++) {
+    if (n >= 1 && n <= total) out.add(n);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 export function ProductsTable({ initialProducts, reload }: Props) {
+  /* Task 121: данные — С СЕРВЕРА страницами. initialProducts (легаси-
+   * ответ родителя) используется только для первой отрисовки, пока не
+   * отработал собственный запрос (ownDataRef). */
   const [products, setProducts] = useState(initialProducts);
-  // router.refresh() приносит новые props — синхронизируем state, иначе таблица
-  // навсегда показывает snapshot на момент монтирования (после импорта список
-  // выглядел «не обновившимся», хотя данные в БД уже были новые).
-  useEffect(() => {
-    setProducts(initialProducts);
-  }, [initialProducts]);
-  const [search, setSearch] = useState("");
+  const ownDataRef = useRef(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState(""); // применённый поиск (после дебаунса)
   const [filter, setFilter] = useState<Filter>("all");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const [total, setTotal] = useState<number | null>(null);
+  const [pages, setPages] = useState(1);
+  const [fetching, setFetching] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,11 +101,21 @@ export function ProductsTable({ initialProducts, reload }: Props) {
   const [category, setCategory] = useState<string>("all"); // slug | "all"
   const [sort, setSort] = useState<SortKey>("default");
   // Ползунки: пока пользователь их не трогал — следуют за границами данных
-  // (без эффектов и boundsReady: «прикоснулся» = touched, сброс = touched=false)
+  // («прикоснулся» = touched, сброс = touched=false)
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]);
   const [priceTouched, setPriceTouched] = useState(false);
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]);
   const [weightTouched, setWeightTouched] = useState(false);
+
+  /* Фасеты с сервера (Task 121): границы цены, ступени веса, категории
+     набора и иконки плиток — считаются по ВСЕМУ набору, не по странице */
+  const [facets, setFacets] = useState<{
+    priceMin: number;
+    priceMax: number;
+    weightSteps: number[];
+    categoriesPresent: number[];
+    categoryThumbs: { id: number; url: string }[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,8 +131,16 @@ export function ProductsTable({ initialProducts, reload }: Props) {
       cancelled = true;
     };
   }, [apiUrl]);
-  /* Корзина: отдельный список (сервер отдаёт только удалённые) */
-  const [deletedList, setDeletedList] = useState<AdminProduct[] | null>(null);
+
+  /* router.refresh() приносит новые props — синхронизируем state, только
+   * пока таблица ещё не перешла на собственные серверные данные.
+   * set в микротаске — react-hooks/set-state-in-effect запрещает синхрон. */
+  useEffect(() => {
+    if (ownDataRef.current) return;
+    Promise.resolve().then(() => {
+      if (!ownDataRef.current) setProducts(initialProducts);
+    });
+  }, [initialProducts]);
 
   const showUndoToast = (ids: number[], label: string) => {
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
@@ -114,92 +149,29 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     setUndo({ ids, label, timer });
   };
 
-  useEffect(() => {
-    if (filter !== "deleted" || deletedList !== null) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${apiUrl}/admin/products?filter=deleted`, {
-          credentials: "include",
-          cache: "no-store",
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok) setDeletedList((json.data as AdminProduct[]) ?? []);
-      } catch {
-        /* пусто */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  /* ── Серверная пагинация (Task 121) ──
+   * Границы цены/ступени веса приходят фасетами; ползунки шлют свои
+   * значения в SQL. Дебаунс 250 мс: перетаскивание ползунка и набор
+   * поиска дают ОДИН запрос после паузы. refreshTick — ручной «перечитать
+   * текущую страницу» после bulk/дублирования/восстановления. */
+  const fetchToken = useRef(0);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const reloadSelf = useCallback(() => {
+    setRefreshTick((t) => t + 1);
+    void reload?.(); // родитель перечитает легаси-список (счётчик в шапке)
+  }, [reload]);
 
-  const restoreProducts = async (ids: number[]) => {
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`${apiUrl}/admin/products/${id}/restore`, {
-            method: "POST",
-            credentials: "include",
-          })
-        )
-      );
-      setUndo(null);
-      setSelected(new Set());
-      setDeletedList(null); // перечитаем корзину при следующем открытии
-      await reload?.();
-    } catch {
-      setError("Не удалось восстановить");
-    }
-  };
-
-  // Ступени веса из списка товаров (по возрастанию) — как в каталоге
-  const weightSteps = useMemo(() => {
-    const set = new Set<number>();
-    products.forEach((p) => p.recipe_weight_g && set.add(p.recipe_weight_g));
-    return Array.from(set).sort((a, b) => a - b);
-  }, [products]);
-
-  // Границы цены по списку, округлённые до сотен рублей — как в каталоге
   const priceBounds = useMemo(() => {
-    let min = Infinity;
-    let max = 0;
-    products.forEach((p) => {
-      if (p.price_kopecks < min) min = p.price_kopecks;
-      if (p.price_kopecks > max) max = p.price_kopecks;
-    });
-    if (!Number.isFinite(min)) return { min: 0, max: 0 };
+    const rawMin = facets?.priceMin ?? 0;
+    const rawMax = facets?.priceMax ?? 0;
+    if (rawMax <= 0) return { min: 0, max: 0 };
+    const min = Math.floor(rawMin / 10000) * 10000;
     return {
-      min: Math.floor(min / 10000) * 10000,
-      max: Math.max(Math.ceil(max / 10000) * 10000, Math.floor(min / 10000) * 10000 + 10000),
+      min,
+      max: Math.max(Math.ceil(rawMax / 10000) * 10000, min + 10000),
     };
-  }, [products]);
-
-  // Категории, реально представленные среди товаров (порядок — общий)
-  const categoryOptions = useMemo(() => {
-    if (!categories) return [];
-    const present = new Set<number>();
-    products.forEach((p) => p.category_id && present.add(p.category_id));
-    return categories.filter((c) => present.has(c.id));
-  }, [categories, products]);
-
-  // Иконки плиток: первое фото товара категории (thumb из API),
-  // без товаров — фолбэк из мока, ровно как в каталоге
-  const iconBySlug = useMemo(() => {
-    const byId = new Map<number, string>();
-    for (const p of products) {
-      if (p.category_id == null || byId.has(p.category_id)) continue;
-      if (!p.thumb) continue;
-      byId.set(p.category_id, p.thumb);
-    }
-    const map = new Map<string, string>();
-    for (const c of categories ?? []) {
-      const icon = byId.get(c.id);
-      map.set(c.slug, icon ?? CATEGORY_ICONS[c.slug] ?? mockCategories[0].imageUrl);
-    }
-    return map;
-  }, [products, categories]);
+  }, [facets]);
+  const weightSteps = useMemo(() => facets?.weightSteps ?? [], [facets]);
 
   // Эффективные границы ползунков: до первого касания — весь span данных
   const effWeight = useMemo<[number, number]>(
@@ -217,77 +189,149 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     priceTouched && priceBounds.max > 0 &&
     (effPrice[0] > priceBounds.min || effPrice[1] < priceBounds.max);
 
-  // База для таблицы: живые товары или список корзины (Task 100)
-  const base = useMemo(
-    () => (filter === "deleted" ? (deletedList ?? []) : products),
-    [filter, deletedList, products]
-  );
+  // Категории, реально представленные в наборе (фасет с сервера —
+  // текущая страница всего набора не покрывает)
+  const categoryOptions = useMemo(() => {
+    if (!categories) return [];
+    const present = new Set(facets?.categoriesPresent ?? []);
+    if (present.size === 0) return categories; // фасетов ещё нет — показываем все
+    return categories.filter((c) => present.has(c.id));
+  }, [categories, facets]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const cat = categoryOptions.find((c) => c.slug === category);
-    const wLo = weightSteps[effWeight[0]];
-    const wHi = weightSteps[effWeight[1]];
-    return base.filter((p) => {
-      /* В корзине — просто плоский список с поиском */
-      if (filter === "deleted") {
-        if (!q) return true;
-        return `${p.name} ${p.sku ?? ""}`.toLowerCase().includes(q);
-      }
-      if (filter === "catalog" && !(p.show_in_catalog === 1 && p.is_published === 1 && p.type !== "recipe")) return false;
-      if (filter === "hidden" && !(p.show_in_catalog === 0 || p.is_published === 0)) return false;
-      if (filter === "bundles" && p.type !== "bundle") return false;
-      if (filter === "simple" && p.type !== "simple") return false;
-      if (filter === "recipe" && p.type !== "recipe") return false;
-      if (cat && p.category_id !== cat.id) return false;
-      if (weightActive) {
-        const w = p.recipe_weight_g ?? 0;
-        if (w < wLo || w > wHi) return false;
-      }
-      if (priceActive && (p.price_kopecks < effPrice[0] || p.price_kopecks > effPrice[1])) return false;
-      if (q) {
-        const haystack = `${p.name} ${p.sku ?? ""}`.toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [base, search, filter, categoryOptions, category, weightSteps, effWeight, weightActive, effPrice, priceActive]);
-
-  // Сортировка отфильтрованного списка — те же варианты, что в каталоге
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    switch (sort) {
-      case "name-asc":
-        arr.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-        break;
-      case "name-desc":
-        arr.sort((a, b) => b.name.localeCompare(a.name, "ru"));
-        break;
-      case "price-asc":
-        arr.sort((a, b) => a.price_kopecks - b.price_kopecks);
-        break;
-      case "price-desc":
-        arr.sort((a, b) => b.price_kopecks - a.price_kopecks);
-        break;
+  // Иконки плиток: первая картинка товара категории (фасет с сервера),
+  // без товаров — фолбэк из мока, ровно как в каталоге
+  const iconBySlug = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const t of facets?.categoryThumbs ?? []) byId.set(t.id, t.url);
+    const map = new Map<string, string>();
+    for (const c of categories ?? []) {
+      const icon = byId.get(c.id);
+      map.set(c.slug, icon ?? CATEGORY_ICONS[c.slug] ?? mockCategories[0].imageUrl);
     }
-    return arr;
-  }, [filtered, sort]);
+    return map;
+  }, [facets, categories]);
+
+  useEffect(() => {
+    const t = window.setTimeout(async () => {
+      const token = ++fetchToken.current;
+      setFetching(true);
+      try {
+        const qp = new URLSearchParams({
+          page: String(page),
+          per_page: String(perPage),
+          filter,
+        });
+        if (search.trim() !== "") qp.set("q", search.trim());
+        const cat = (categories ?? []).find((c) => c.slug === category);
+        if (cat) qp.set("category", String(cat.id));
+        if (sort !== "default") {
+          const sortMap: Record<string, string> = {
+            "name-asc": "name_asc",
+            "name-desc": "name_desc",
+            "price-asc": "price_asc",
+            "price-desc": "price_desc",
+          };
+          const s = sortMap[sort];
+          if (s) qp.set("sort", s);
+        }
+        if (priceActive) {
+          qp.set("price_min", String(effPrice[0]));
+          qp.set("price_max", String(effPrice[1]));
+        }
+        if (weightActive) {
+          qp.set("weight_min", String(weightSteps[effWeight[0]] ?? 0));
+          qp.set("weight_max", String(weightSteps[effWeight[1]] ?? 0));
+        }
+        const res = await fetch(`${apiUrl}/admin/products?${qp.toString()}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (token !== fetchToken.current) return; // устарел — есть свежее
+        if (!res.ok) {
+          setError(json.error ?? `Ошибка ${res.status}`);
+          setProducts([]);
+          return;
+        }
+        ownDataRef.current = true;
+        setProducts((json.data as AdminProduct[]) ?? []);
+        setTotal(typeof json.total === "number" ? json.total : null);
+        setPages(typeof json.pages === "number" && json.pages > 0 ? json.pages : 1);
+        setFacets({
+          priceMin: typeof json.price_min === "number" ? json.price_min : 0,
+          priceMax: typeof json.price_max === "number" ? json.price_max : 0,
+          weightSteps: Array.isArray(json.weight_steps)
+            ? (json.weight_steps as number[])
+            : [],
+          categoriesPresent: Array.isArray(json.categories_present)
+            ? (json.categories_present as number[])
+            : [],
+          categoryThumbs: Array.isArray(json.category_thumbs)
+            ? (json.category_thumbs as { id: number; url: string }[])
+            : [],
+        });
+      } catch (e) {
+        if (token === fetchToken.current) {
+          setError(e instanceof Error ? e.message : "Ошибка сети");
+        }
+      } finally {
+        if (token === fetchToken.current) setFetching(false);
+      }
+    }, 250);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    apiUrl, page, perPage, search, filter, category, sort, refreshTick,
+    priceTouched, priceRange, weightTouched, weightIdx, facets, categories,
+  ]);
+
+  /** Восстановить из корзины (Task 100) и перечитать текущую страницу */
+  const restoreProducts = async (ids: number[]) => {
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`${apiUrl}/admin/products/${id}/restore`, {
+            method: "POST",
+            credentials: "include",
+          })
+        )
+      );
+      setUndo(null);
+      setSelected(new Set());
+      reloadSelf(); // сервер вернёт страницу уже без/с восстановленными
+    } catch {
+      setError("Не удалось восстановить");
+    }
+  };
 
   const hasFilters =
     category !== "all" ||
+    searchInput.trim() !== "" ||
     search.trim() !== "" ||
     filter !== "all" ||
     weightActive ||
     priceActive;
 
   const resetFilters = () => {
+    setSearchInput("");
     setSearch("");
     setFilter("all");
     setCategory("all");
     setSort("default");
     setPriceTouched(false);
     setWeightTouched(false);
+    setPage(1);
   };
+
+  /* Поиск с дебаунсом (Task 121): печатаем — запрос уходит через 400 мс
+   * после паузы; смена поиска сбрасывает на первую страницу */
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
 
   async function patch(id: number, payload: Record<string, unknown>) {
     setSavingId(id);
@@ -330,7 +374,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
         return;
       }
       setProducts((list) => list.filter((p) => p.id !== id));
-      setDeletedList(null);
+      setTotal((t) => (t === null ? null : Math.max(0, t - 1)));
       showUndoToast([id], `«${name}» перемещён в корзину`);
     } catch {
       setError("Ошибка сети");
@@ -353,7 +397,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
         setError(json.error ?? "Не удалось дублировать");
         return;
       }
-      await reload?.();
+      reloadSelf();
     } catch {
       setError("Ошибка сети");
     } finally {
@@ -382,7 +426,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
       if (action === "delete") {
         const deletedIds = [...selected];
         setProducts((list) => list.filter((p) => !selected.has(p.id)));
-        setDeletedList(null);
+        setTotal((t) => (t === null ? null : Math.max(0, t - deletedIds.length)));
         setSelected(new Set());
         showUndoToast(
           deletedIds,
@@ -390,7 +434,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
         );
       } else {
         setSelected(new Set());
-        await reload?.();
+        reloadSelf();
       }
     } catch {
       setError("Ошибка сети");
@@ -404,8 +448,8 @@ export function ProductsTable({ initialProducts, reload }: Props) {
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <input
           type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Поиск по названию или SKU"
           className="w-full max-w-sm rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none"
         />
@@ -414,6 +458,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
           onChange={(e) => {
             setFilter(e.target.value as Filter);
             setSelected(new Set());
+            setPage(1);
           }}
           className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
         >
@@ -426,15 +471,19 @@ export function ProductsTable({ initialProducts, reload }: Props) {
           <option value="deleted">Корзина</option>
         </select>
         <span className="text-sm text-[var(--color-muted)]">
-          Найдено: {filtered.length}
+          Найдено: {total ?? products.length}
+          {fetching && <span className="ml-2 animate-pulse">обновляем…</span>}
         </span>
         <label className="ml-auto flex items-center gap-2 text-sm text-[var(--color-muted)]">
           <span className="hidden sm:inline">Сортировка</span>
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
+            onChange={(e) => {
+              setSort(e.target.value as SortKey);
+              setPage(1);
+            }}
             aria-label="Сортировка"
-            className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-sm text-[var(--color-heading)] focus:border-[var(--color-primary)] focus:outline-none"
+            className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-sm text-[var(--color-heading)] focus:border-[var(--color-primary)] focus:outline-none"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -447,13 +496,16 @@ export function ProductsTable({ initialProducts, reload }: Props) {
 
       {/* ── Панель фильтров каталога: плитки категорий + ползунки цены/веса ── */}
       {(categoryOptions.length > 0 || priceBounds.max > 0 || weightSteps.length > 1) && (
-        <div className="mb-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-5">
+        <div className="mb-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-5">
           {categoryOptions.length > 0 && (
             <div>
               <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">Категория</div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-[repeat(auto-fill,minmax(120px,1fr))]">
                 <button
-                  onClick={() => setCategory("all")}
+                  onClick={() => {
+                    setCategory("all");
+                    setPage(1);
+                  }}
                   aria-pressed={category === "all"}
                   className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border p-2.5 text-center text-[12px] font-medium leading-tight transition-colors ${
                     category === "all"
@@ -472,7 +524,10 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                 {categoryOptions.map((c) => (
                   <button
                     key={c.slug}
-                    onClick={() => setCategory(c.slug)}
+                    onClick={() => {
+                      setCategory(c.slug);
+                      setPage(1);
+                    }}
                     aria-pressed={category === c.slug}
                     className={`flex flex-col items-center gap-1.5 rounded-2xl border p-2.5 text-center text-[12px] font-medium leading-tight transition-colors ${
                       category === c.slug
@@ -556,7 +611,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
       {filter !== "deleted" && selected.size > 0 && (
         <div
           data-testid="bulk-bar"
-          className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--color-primary)] bg-white p-3 text-sm shadow-sm"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--color-primary)] bg-[var(--color-card)] p-3 text-sm shadow-sm"
         >
           <span className="font-medium text-[var(--color-heading)]">
             Выбрано: {selected.size}
@@ -642,7 +697,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
+      <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
@@ -651,10 +706,10 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                   <input
                     type="checkbox"
                     aria-label="Выбрать всё"
-                    checked={sorted.length > 0 && sorted.every((p) => selected.has(p.id))}
+                    checked={products.length > 0 && products.every((p) => selected.has(p.id))}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelected(new Set(sorted.map((p) => p.id)));
+                        setSelected(new Set(products.map((p) => p.id)));
                       } else {
                         setSelected(new Set());
                       }
@@ -673,7 +728,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((p) => {
+            {products.map((p) => {
               const isRecipe = p.type === "recipe";
               const isDeletedRow = filter === "deleted";
               return (
@@ -800,7 +855,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                                   setError(json.error ?? "Не удалось удалить");
                                   return;
                                 }
-                                setDeletedList((list) => (list ?? []).filter((x) => x.id !== p.id));
+                                reloadSelf();
                               } catch {
                                 setError("Ошибка сети");
                               }
@@ -835,7 +890,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                 </tr>
               );
             })}
-            {sorted.length === 0 && (
+            {products.length === 0 && (
               <tr>
                 <td colSpan={8} className="p-10 text-center text-sm text-[var(--color-muted)]">
                   {filter === "deleted"
@@ -847,6 +902,89 @@ export function ProductsTable({ initialProducts, reload }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* ── Пагинация (Task 121): сервер отдаёт страницу за страницей ── */}
+      {pages > 1 && (
+        <div
+          data-testid="pagination"
+          className="mt-4 flex flex-wrap items-center justify-between gap-3"
+        >
+          <span className="text-sm text-[var(--color-muted)]">
+            Страница {page} из {pages}
+            {total !== null && ` · всего ${total}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={page <= 1 || fetching}
+              onClick={() => setPage(1)}
+              aria-label="Первая страница"
+              className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              disabled={page <= 1 || fetching}
+              onClick={() => setPage(page - 1)}
+              aria-label="Предыдущая страница"
+              className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+            >
+              ‹
+            </button>
+            {pageNumbers(page, pages).map((n) => (
+              <button
+                key={n}
+                type="button"
+                disabled={fetching}
+                onClick={() => setPage(n)}
+                aria-current={n === page ? "page" : undefined}
+                className={`min-w-[34px] rounded-lg border px-2 py-1.5 text-sm transition-colors ${
+                  n === page
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                    : "border-[var(--color-border)] hover:border-[var(--color-primary)]"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={page >= pages || fetching}
+              onClick={() => setPage(page + 1)}
+              aria-label="Следующая страница"
+              className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+            >
+              ›
+            </button>
+            <button
+              type="button"
+              disabled={page >= pages || fetching}
+              onClick={() => setPage(pages)}
+              aria-label="Последняя страница"
+              className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+            >
+              »
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+            На странице
+            <select
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value) || 50);
+                setPage(1);
+              }}
+              aria-label="Товаров на странице"
+              className="rounded-lg border border-[var(--color-border)] px-2 py-1.5 text-sm"
+            >
+              {[20, 50, 100, 200].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* ── Тост «удалено — отменить» (Task 100) ── */}
       {undo && (

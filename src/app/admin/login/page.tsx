@@ -63,7 +63,7 @@ function LoginForm() {
     <div className="min-h-screen bg-[var(--color-bg-soft)] flex items-center justify-center px-4">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm rounded-[var(--radius-card)] bg-white p-8 shadow-sm"
+        className="w-full max-w-sm rounded-[var(--radius-card)] bg-[var(--color-card)] p-8 shadow-sm"
       >
         <h1 className="mb-6 text-2xl font-medium text-[var(--color-heading)]">
           Вход в админку
@@ -75,8 +75,8 @@ function LoginForm() {
             <p className="mt-1">
               Суперадмин создан автоматически:
               <br />
-              логин <code className="rounded bg-white px-1">admin@lakomka.local</code>, пароль{" "}
-              <code className="rounded bg-white px-1">Lakomka2026!</code>
+              логин <code className="rounded bg-[var(--color-card)] px-1">admin@lakomka.local</code>, пароль{" "}
+              <code className="rounded bg-[var(--color-card)] px-1">Lakomka2026!</code>
             </p>
             <p className="mt-1">
               Войдите и сразу смените пароль (Пользователи) — тогда эта

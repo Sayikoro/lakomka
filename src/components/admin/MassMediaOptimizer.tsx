@@ -258,7 +258,7 @@ export function MassMediaOptimizer() {
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-3">
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-3">
         <span className="mr-1 text-sm font-medium text-[var(--color-heading)]">Массовая оптимизация:</span>
         <button type="button" onClick={() => open("video")}
           className="rounded-[var(--radius-btn)] border-2 border-[var(--color-primary)] px-4 py-1.5 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)] hover:text-white">
@@ -288,7 +288,7 @@ export function MassMediaOptimizer() {
             {fixReport.lost.length > 0 && <span className="text-red-700"> · потеряно: {fixReport.lost.length}</span>}
           </p>
           {fixReport.converted && fixReport.converted.length > 0 && (
-            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-[var(--color-card)] p-2 text-xs">
               {fixReport.converted.map((f, i) => (
                 <li key={`c-${i}`}>
                   <b>{f.where}</b>: {f.from} — создан {f.to}
@@ -297,7 +297,7 @@ export function MassMediaOptimizer() {
             </ul>
           )}
           {fixReport.fixed.length > 0 && (
-            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+            <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-[var(--color-card)] p-2 text-xs">
               {fixReport.fixed.map((f, i) => (
                 <li key={`f-${i}`}>
                   <b>{f.where}</b>: {f.from} → <b>{f.to}</b>
@@ -310,7 +310,7 @@ export function MassMediaOptimizer() {
               <p className="mt-2 text-xs text-red-800">
                 Файлов нет ни в одном формате — картинки придётся перезалить в товаре:
               </p>
-              <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-white p-2 text-xs">
+              <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-lg bg-[var(--color-card)] p-2 text-xs">
                 {fixReport.lost.map((l, i) => (
                   <li key={`l-${i}`}>
                     <b>{l.where}</b>: {l.url}
@@ -320,7 +320,7 @@ export function MassMediaOptimizer() {
             </>
           )}
           <button type="button" onClick={() => setFixReport(null)}
-            className="mt-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-white px-3 py-1 text-xs hover:bg-[var(--color-bg-soft)]">
+            className="mt-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1 text-xs hover:bg-[var(--color-bg-soft)]">
             Скрыть
           </button>
         </div>
@@ -330,7 +330,7 @@ export function MassMediaOptimizer() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={close} aria-hidden />
           <div role="dialog" aria-modal="true"
-            className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-[var(--radius-card)] bg-white p-6 shadow-xl">
+            className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-[var(--radius-card)] bg-[var(--color-card)] p-6 shadow-xl">
             <div className="mb-3 flex items-start justify-between gap-4">
               <h2 className="text-xl font-semibold text-[var(--color-heading)]">
                 {kind === "video" ? "Массовая оптимизация видео" : "Картинки → WebP"}

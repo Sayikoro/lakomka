@@ -85,7 +85,7 @@ export function AdminLogTab() {
   }, [apiUrl]);
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+    <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-[var(--color-heading)]">

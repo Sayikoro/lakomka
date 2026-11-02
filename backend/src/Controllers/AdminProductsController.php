@@ -9,7 +9,26 @@ class AdminProductsController
     /* ============================================================
        СПИСОК
        GET /api/admin/products?q=...&filter=all|catalog|hidden|bundles|simple|recipe
+
+       Task 121: серверная пагинация. Без page= — старый режим
+       (LIMIT 500, ответ {data}), им пользуются WeightRecipesViewer,
+       BundleEditor и корзина. С page= — новый:
+         page (1..N), per_page (10–200, по умолчанию 50),
+         sort=default|name_asc|name_desc|price_asc|price_desc,
+         category=<id>, price_min/price_max (копейки),
+         weight_min/weight_max (граммы).
+       Ответ: {data, total, page, per_page, pages, price_min, price_max,
+               weight_steps[], categories_present[]}
+       (bounds/ступени/категории считаются по набору q+filter+category —
+       чтобы ползунки не «прыгали» при смене своих же значений).
        ============================================================ */
+    private const SELECT_COLS = 'SELECT id, sku, slug, name, description, manufacturer, type,
+                       price_kopecks, stock_qty, show_in_catalog, is_published,
+                       category_id, video_url, packaging_material,
+                       weight_g, length_cm, width_cm, height_cm,
+                       recipe_weight_g, deleted_at
+                FROM products';
+
     public static function list(PDO $pdo): void
     {
         Auth::requireAuth();
@@ -17,44 +36,160 @@ class AdminProductsController
         $search = trim($_GET['q'] ?? '');
         $filter = $_GET['filter'] ?? 'all';
 
-        $sql = 'SELECT id, sku, slug, name, description, manufacturer, type,
-                       price_kopecks, stock_qty, show_in_catalog, is_published,
-                       category_id, video_url, packaging_material,
-                       weight_g, length_cm, width_cm, height_cm,
-                       recipe_weight_g, deleted_at
-                FROM products WHERE 1=1';
+        $where = ' WHERE 1=1';
         $params = [];
 
         if ($search !== '') {
-            $sql .= ' AND (name LIKE ? OR sku LIKE ?)';
+            $where .= ' AND (name LIKE ? OR sku LIKE ?)';
             $params[] = "%$search%";
             $params[] = "%$search%";
         }
 
         if ($filter === 'catalog') {
-            $sql .= " AND deleted_at IS NULL AND show_in_catalog = 1 AND is_published = 1 AND type IN ('simple','bundle')";
+            $where .= " AND deleted_at IS NULL AND show_in_catalog = 1 AND is_published = 1 AND type IN ('simple','bundle')";
         } elseif ($filter === 'hidden') {
-            $sql .= ' AND deleted_at IS NULL AND (show_in_catalog = 0 OR is_published = 0)';
+            $where .= ' AND deleted_at IS NULL AND (show_in_catalog = 0 OR is_published = 0)';
         } elseif ($filter === 'bundles') {
-            $sql .= " AND deleted_at IS NULL AND type = 'bundle'";
+            $where .= " AND deleted_at IS NULL AND type = 'bundle'";
         } elseif ($filter === 'simple') {
-            $sql .= " AND deleted_at IS NULL AND type = 'simple'";
+            $where .= " AND deleted_at IS NULL AND type = 'simple'";
         } elseif ($filter === 'recipe') {
-            $sql .= " AND deleted_at IS NULL AND type = 'recipe'";
+            $where .= " AND deleted_at IS NULL AND type = 'recipe'";
         } elseif ($filter === 'deleted') {
             /* Корзина: только мягко-удалённые (Task 100) */
-            $sql .= ' AND deleted_at IS NOT NULL';
+            $where .= ' AND deleted_at IS NOT NULL';
         } else {
             /* По умолчанию удалённые (в корзине) не показываем */
-            $sql .= ' AND deleted_at IS NULL';
+            $where .= ' AND deleted_at IS NULL';
         }
 
-        $sql .= ' ORDER BY id DESC LIMIT 500';
+        /* ── Task 121: пагинация ── */
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 0;
+        if ($page === 0) {
+            /* ЛЕГАЦИЯ: прежний ответ {data} для всех прочих потребителей */
+            $stmt = $pdo->prepare(self::SELECT_COLS . $where . ' ORDER BY id DESC LIMIT 500');
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll();
+            self::enrich($pdo, $rows);
+            jsonResponse(['data' => $rows]);
+            return;
+        }
 
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        if ($page < 1) $page = 1;
+        $perPage = (int)($_GET['per_page'] ?? 50);
+        if ($perPage < 10) $perPage = 10;
+        if ($perPage > 200) $perPage = 200;
+
+        /* Сортировка — те же варианты, что были в клиентской таблице */
+        $sort = (string)($_GET['sort'] ?? 'default');
+        $orderBy = match ($sort) {
+            'name_asc'   => 'name ASC, id DESC',
+            'name_desc'  => 'name DESC, id DESC',
+            'price_asc'  => 'price_kopecks ASC, id DESC',
+            'price_desc' => 'price_kopecks DESC, id DESC',
+            default      => 'id DESC',
+        };
+
+        /* Категория и диапазоны — в SQL */
+        $whereFull = $where;
+        $paramsFull = $params;
+
+        $categoryId = (int)($_GET['category'] ?? 0);
+        if ($categoryId > 0) {
+            $whereFull .= ' AND category_id = ?';
+            $paramsFull[] = $categoryId;
+        }
+        if (isset($_GET['price_min'], $_GET['price_max'])) {
+            $whereFull .= ' AND price_kopecks BETWEEN ? AND ?';
+            $paramsFull[] = max(0, (int)$_GET['price_min']);
+            $paramsFull[] = max(0, (int)$_GET['price_max']);
+        }
+        if (isset($_GET['weight_min'], $_GET['weight_max'])) {
+            $whereFull .= ' AND COALESCE(recipe_weight_g, 0) BETWEEN ? AND ?';
+            $paramsFull[] = max(0, (int)$_GET['weight_min']);
+            $paramsFull[] = max(0, (int)$_GET['weight_max']);
+        }
+
+        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM products' . $whereFull);
+        $countStmt->execute($paramsFull);
+        $total = (int)$countStmt->fetchColumn();
+        $pages = max(1, (int)ceil($total / $perPage));
+        if ($page > $pages) $page = $pages;
+
+        $stmt = $pdo->prepare(
+            self::SELECT_COLS . $whereFull
+            . " ORDER BY $orderBy LIMIT $perPage OFFSET " . (($page - 1) * $perPage)
+        );
+        $stmt->execute($paramsFull);
         $rows = $stmt->fetchAll();
+        self::enrich($pdo, $rows);
 
+        /* Фасеты по набору q+filter+category (без price/weight — чтобы
+           ползунки не пересчитывали сами себя) */
+        $whereFacet = $where . ($categoryId > 0 ? ' AND category_id = ' . $categoryId : '');
+        $priceRow = $pdo->prepare(
+            'SELECT MIN(price_kopecks) AS lo, MAX(price_kopecks) AS hi FROM products' . $whereFacet
+        );
+        $priceRow->execute($params);
+        $priceBounds = $priceRow->fetch() ?: ['lo' => 0, 'hi' => 0];
+
+        $wq = $pdo->prepare(
+            'SELECT DISTINCT recipe_weight_g FROM products' . $whereFacet
+            . ' AND recipe_weight_g IS NOT NULL ORDER BY recipe_weight_g ASC'
+        );
+        $wq->execute($params);
+        $weightSteps = array_map('intval', $wq->fetchAll(PDO::FETCH_COLUMN));
+
+        /* Категории, представленные в наборе q+filter (без category — чтобы
+           плитки категорий не исчезали при выбранной категории) */
+        $cq = $pdo->prepare(
+            'SELECT DISTINCT category_id FROM products' . $where . ' AND category_id IS NOT NULL'
+        );
+        $cq->execute($params);
+        $categoriesPresent = array_map('intval', $cq->fetchAll(PDO::FETCH_COLUMN));
+
+        /* Иконки плиток категорий: первая картинка товара категории
+           (минимальный sort_order, id — как в enrich, но по категориям).
+           При пагинации текущая страница не покрывает все категории,
+           поэтому иконки считаются сервером по всему набору. */
+        $tq = $pdo->prepare(
+            'SELECT p.category_id AS cid,
+                    (SELECT pi.url FROM product_images pi
+                     WHERE pi.product_id = p.id AND pi.media_type = \'image\'
+                     ORDER BY pi.sort_order, pi.id LIMIT 1) AS url
+             FROM products p' . $where . ' AND p.category_id IS NOT NULL
+             ORDER BY p.id ASC'
+        );
+        $tq->execute($params);
+        $catThumbs = [];
+        foreach ($tq->fetchAll() as $r) {
+            $cid = (int)$r['cid'];
+            if ($r['url'] !== null && !isset($catThumbs[$cid])) {
+                $catThumbs[$cid] = $r['url'];
+            }
+        }
+        $catThumbsList = [];
+        foreach ($catThumbs as $cid => $url) {
+            $catThumbsList[] = ['id' => $cid, 'url' => $url];
+        }
+
+        jsonResponse([
+            'data' => $rows,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'pages' => $pages,
+            'price_min' => (int)($priceBounds['lo'] ?? 0),
+            'price_max' => (int)($priceBounds['hi'] ?? 0),
+            'weight_steps' => $weightSteps,
+            'categories_present' => $categoriesPresent,
+            'category_thumbs' => $catThumbsList,
+        ]);
+    }
+
+    /** Дописать к строкам списка thumb/imgs/vids — один запрос на всё. */
+    private static function enrich(PDO $pdo, array &$rows): void
+    {
         /* Task 90: URL первой картинки товара — иконки категорий в
            фильтре-плитках админки (как в клиентском каталоге). Один
            запрос по всем картинкам, первым считается минимум
@@ -95,8 +230,6 @@ class AdminProductsController
             $row['vids'] = $vids;
         }
         unset($row);
-
-        jsonResponse(['data' => $rows]);
     }
 
     /* ============================================================

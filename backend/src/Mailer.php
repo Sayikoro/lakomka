@@ -45,6 +45,9 @@ class Mailer
 
     public function sendOrderToAdmin(array $order, array $items): bool
     {
+        /* Task 121: тумблер «дублировать заказы админу на email» — по
+           умолчанию включено; выключается в Настройках (notify_admin_email). */
+        if (($this->settings['notify_admin_email'] ?? '1') === '0') return true;
         $email = $this->setting('admin_email');
         if ($email === '') return true;
         $subject = "Новый заказ {$order['order_number']} — {$this->fmtPrice($order['total_kopecks'])}";

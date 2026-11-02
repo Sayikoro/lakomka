@@ -111,7 +111,7 @@ function OrderViewInner() {
 
   if (loading) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
         Загрузка заказа…
       </div>
     );
@@ -166,7 +166,7 @@ function OrderViewInner() {
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Левая колонка — состав и данные */}
         <div className="space-y-6">
-          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
             <h2 className="mb-4 text-lg font-semibold text-[var(--color-heading)]">
               Состав заказа
             </h2>
@@ -209,7 +209,7 @@ function OrderViewInner() {
             </table>
           </section>
 
-          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
             <h2 className="mb-4 text-lg font-semibold text-[var(--color-heading)]">
               Клиент
             </h2>
@@ -298,14 +298,14 @@ function OrderViewInner() {
               Статус
             </h2>
             <p className="mb-4">
-              <span className="inline-block rounded-full bg-white px-3 py-1 text-sm font-medium text-[var(--color-heading)]">
+              <span className="inline-block rounded-full bg-[var(--color-card)] px-3 py-1 text-sm font-medium text-[var(--color-heading)]">
                 {STATUS_LABELS[order.status] ?? order.status}
               </span>
             </p>
             <StatusChanger orderId={order.id} currentStatus={order.status} onChanged={load} />
           </section>
 
-          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
             <h2 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               История
             </h2>
@@ -337,7 +337,7 @@ export default function AdminOrderViewPage() {
   return (
     <Suspense
       fallback={
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка заказа…
         </div>
       }

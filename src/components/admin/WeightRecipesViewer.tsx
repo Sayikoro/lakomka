@@ -498,7 +498,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
               className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
                 selected === w.weight_g
                   ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
-                  : "border-[var(--color-border)] bg-white hover:border-[var(--color-primary)]"
+                  : "border-[var(--color-border)] bg-[var(--color-card)] hover:border-[var(--color-primary)]"
               }`}
             >
               <span className="font-medium">{w.weight_g} г</span>
@@ -562,7 +562,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
                   {rows.length === 0 ? "В рецепте нет позиций." : "Ничего не найдено."}
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white">
+                <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
@@ -721,7 +721,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
       {pickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setPickerOpen(false)} />
-          <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Добавить конфету в {selected} г
             </h3>
@@ -783,7 +783,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
       {newWeightOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setNewWeightOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-sm rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Своя граммовка
             </h3>
@@ -819,7 +819,7 @@ export function WeightRecipesViewer({ initialWeights }: Props) {
       {customOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setCustomOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-sm rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
             <h3 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               Своя позиция в {selected} г
             </h3>
@@ -921,7 +921,7 @@ function CoverModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+      <div className="relative w-full max-w-md rounded-2xl bg-[var(--color-card)] p-6 shadow-xl">
         <h3 className="mb-2 text-lg font-semibold text-[var(--color-heading)]">
           Сменить картинку
         </h3>

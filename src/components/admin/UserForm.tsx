@@ -88,7 +88,7 @@ export function UserForm({ mode, initial }: Props) {
   return (
     <form
       onSubmit={submit}
-      className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6"
+      className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6"
     >
       <div>
         <label className={label}>Email *</label>

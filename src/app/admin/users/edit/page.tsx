@@ -80,7 +80,7 @@ function UserEditInner() {
 
   if (loading) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
         Загрузка…
       </div>
     );
@@ -126,7 +126,7 @@ export default function AdminUserEditPage() {
   return (
     <Suspense
       fallback={
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка…
         </div>
       }

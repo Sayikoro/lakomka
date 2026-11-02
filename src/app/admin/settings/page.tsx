@@ -32,6 +32,10 @@ export interface AdminSettings {
   tg_bot_token: string;
   tg_bot_token_set: boolean;
   tg_chat_id: string;
+  /* Task 121: дублировать заказы админу на email ("1"/"0") */
+  notify_admin_email: string;
+  /* Task 121: интервал авто-бэкапа БД, суток (0 — выключено) */
+  backup_interval_days: string;
   /* снегопад */
   snow_enabled: string;
   snow_count: string;
@@ -68,6 +72,8 @@ const DEFAULTS: AdminSettings = {
   tg_bot_token: "",
   tg_bot_token_set: false,
   tg_chat_id: "",
+  notify_admin_email: "1",
+  backup_interval_days: "3",
   snow_enabled: "0",
   snow_count: "110",
   snow_count_mobile: "60",
@@ -116,7 +122,7 @@ export default function AdminSettingsPage() {
       ) : settings ? (
         <SettingsTabs settings={settings} />
       ) : (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка…
         </div>
       )}

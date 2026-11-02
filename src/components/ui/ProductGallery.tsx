@@ -100,7 +100,9 @@ export function ProductGallery({ media, productName }: Props) {
               {item.type === "image" ? (
                 <Image
                   src={item.url}
-                  alt={item.alt || ""}
+                  /* Task 121: alt = название товара (как просил владелец):
+                     без своего alt у миниатюры — «Название — фото N» */
+                  alt={item.alt || `${productName} — фото ${i + 1}`}
                   fill
                   sizes="64px"
                   className="object-contain p-1"

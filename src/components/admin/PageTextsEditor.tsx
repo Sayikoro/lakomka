@@ -111,7 +111,7 @@ export function PageTextsEditor() {
 
   if (loading) {
     return (
-      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6 text-sm text-[var(--color-muted)]">
+      <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6 text-sm text-[var(--color-muted)]">
         Загружаем тексты…
       </div>
     );
@@ -120,7 +120,7 @@ export function PageTextsEditor() {
   return (
     <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
       {/* Слева — список всех страниц витрины */}
-      <aside className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-3">
+      <aside className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-3">
         <div className="px-2 pb-2 pt-1 text-[13px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
           Страницы
         </div>
@@ -162,7 +162,7 @@ export function PageTextsEditor() {
       </aside>
 
       {/* Справа — поля выбранной страницы */}
-      <div className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
+      <div className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-[var(--color-heading)]">
             {page?.title}

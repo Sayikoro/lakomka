@@ -428,6 +428,15 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminMaintenanceController.php';
         AdminMaintenanceController::dbBackup($pdo);
     }
+    /* Task 121: «Здоровье сайта» и журнал входов (обе — super_admin) */
+    if ($path === '/api/admin/health' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminMaintenanceController.php';
+        AdminMaintenanceController::health($pdo);
+    }
+    if ($path === '/api/admin/logins' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminMaintenanceController.php';
+        AdminMaintenanceController::logins($pdo);
+    }
     if (preg_match('#^/api/admin/orders/(\d+)$#', $path, $m)) {
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         $id = (int)$m[1];

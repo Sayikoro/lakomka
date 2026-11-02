@@ -57,11 +57,11 @@ export default function AdminWeightRecipesPage() {
       )}
 
       {weights === null ? (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка…
         </div>
       ) : weights.length === 0 ? (
-        <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-white p-12 text-center text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-[var(--color-muted)]">
           Рецептов нет. Загрузите CSV кнопкой «Загрузить CSV».
         </div>
       ) : (

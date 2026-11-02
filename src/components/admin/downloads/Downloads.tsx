@@ -226,7 +226,7 @@ function DownloadsDock({
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="self-end rounded-full border border-[var(--color-border)] bg-white px-3 py-1 text-xs font-medium text-[var(--color-body)] shadow-sm hover:bg-[var(--color-bg-soft)]"
+        className="self-end rounded-full border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1 text-xs font-medium text-[var(--color-body)] shadow-sm hover:bg-[var(--color-bg-soft)]"
       >
         {collapsed
           ? `Загрузки (${activeCount > 0 ? activeCount : items.length})`
@@ -250,7 +250,7 @@ function DownloadsDock({
           return (
             <div
               key={item.id}
-              className="rounded-xl border border-[var(--color-border)] bg-white p-3 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.35)]"
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.35)]"
             >
               <div className="flex items-start gap-2">
                 <FileGlyph name={item.name} />

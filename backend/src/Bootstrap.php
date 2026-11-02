@@ -61,6 +61,26 @@ class Bootstrap
         } catch (Throwable $e) {
             error_log('[system-files] ' . $e->getMessage());
         }
+
+        /* Task 121: авто-бэкап БД по расписанию. Дёшево: glob + filemtime;
+           сам дамп — «VACUUM INTO» в storage/backups (вне веб-корня),
+           ротация 10 штук уже в DbMigrations::prune. Интервал — настройка
+           backup_interval_days (сутки, 0 = выключено, по умолчанию 3). */
+        try {
+            $interval = 3;
+            $row = $pdo->query(
+                "SELECT value FROM settings WHERE key = 'backup_interval_days'"
+            )->fetchColumn();
+            if ($row !== false && $row !== null && (int)$row >= 0) {
+                $interval = (int)$row;
+            }
+            $dump = DbMigrations::maybeAutoBackup($pdo, $interval);
+            if ($dump !== '') {
+                error_log('[backup] авто-бэкап базы: ' . basename($dump));
+            }
+        } catch (Throwable $e) {
+            error_log('[backup] ' . $e->getMessage());
+        }
     }
 
     /** Схема БД: если якорных таблиц нет — применяем каноническую схему. */

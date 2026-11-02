@@ -80,7 +80,7 @@ export default function AdminPdfPage() {
       )}
 
       {docs === null ? (
-        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-12 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center text-sm text-[var(--color-muted)]">
           Загрузка…
         </div>
       ) : (

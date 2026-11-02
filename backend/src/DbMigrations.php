@@ -161,6 +161,30 @@ class DbMigrations
         return is_file($file) ? $file : '';
     }
 
+    /**
+     * Авто-бэкап по расписанию (Task 121): если последнему дампу больше
+     * $intervalDays суток — снять свежий (тег «auto»). Вызывается из
+     * Bootstrap::ensure() при первом запросе; сам по себе дёшев: один
+     * glob + filemtime. $intervalDays = 0 — выключено.
+     * @return string путь дампа или '' (нечего/не удалось)
+     */
+    public static function maybeAutoBackup(PDO $pdo, int $intervalDays): string
+    {
+        if ($intervalDays <= 0) return '';
+
+        $dir = Paths::backupsDir();
+        $newest = 0;
+        foreach (glob($dir . '/*.sqlite') ?: [] as $f) {
+            $m = @filemtime($f);
+            if ($m && $m > $newest) $newest = $m;
+        }
+        /* Свежего дампа нет вообще — снимаем; есть моложе интервала — молчим */
+        if ($newest !== 0 && (time() - $newest) < $intervalDays * 86400) {
+            return '';
+        }
+        return self::dump($pdo, 'auto');
+    }
+
     /** Оставить только последние KEEP_BACKUPS дампов */
     private static function prune(string $dir): void
     {
