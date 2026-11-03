@@ -138,7 +138,7 @@ export function ProcessSteps() {
         className="absolute inset-x-0 -top-20 -bottom-20 will-change-transform"
       >
         <SmartImage
-          src="/uploads/process-bg.png"
+          src="/brand/process-bg.webp"
           alt=""
           fill
           sizes="100vw"

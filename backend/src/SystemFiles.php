@@ -25,7 +25,7 @@ class SystemFiles
         'ico-step1.svg',             // ProcessSteps.tsx — блок «Как мы работаем»
         'ico-step2.svg',
         'ico-step3.svg',
-        'process-bg.png',            // ProcessSteps.tsx — фон блока
+        'process-bg.png',            // ProcessSteps.tsx — фон блока (легаси; актуальный — /brand/process-bg.webp)
     ];
 
     /** Файл витрины, на который ссылается код (rel — путь внутри uploads/) */

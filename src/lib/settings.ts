@@ -44,7 +44,7 @@ export interface ShopFrontSettings {
    компонентами — Hero подтягивает свежий конфиг на статическом сайте). */
 
 export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
-  hero_image: "/hero-bg.jpg",
+  hero_image: "/hero-bg.webp",
   hero_slider_enabled: false,
   hero_slides: [],
   product_card_template: "new",

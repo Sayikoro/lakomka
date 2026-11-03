@@ -619,7 +619,7 @@ export function SettingsForm({ initial }: Props) {
             <div className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={form.hero_image || "/hero-bg.jpg"}
+                src={form.hero_image || "/hero-bg.webp"}
                 alt="Текущий фон hero"
                 className="h-full w-full object-cover"
               />
@@ -649,7 +649,7 @@ export function SettingsForm({ initial }: Props) {
                 placeholder="/uploads/hero/... или https://..."
               />
               <p className="text-xs text-[var(--color-muted)]">
-                Пусто = картинка по умолчанию (/hero-bg.jpg). Картинка сжимается перед загрузкой автоматически.
+                Пусто = картинка по умолчанию (/hero-bg.webp). Картинка сжимается перед загрузкой автоматически.
                 На сайте появится после обновления главной страницы (F5) — пересборка сайта не нужна.
               </p>
             </div>

@@ -213,7 +213,7 @@ export const mockCategories: Category[] = [
   { slug: "karton",    name: "Картон",      imageUrl: wpu("LA_035.png") },
   { slug: "meshochki", name: "Мешочки",     imageUrl: wpu("KA_101.png") },
   { slug: "tekstil",   name: "Текстиль",    imageUrl: wpu("KA_020.png") },
-  { slug: "tuby",      name: "Тубы",        imageUrl: wpu("KAM_023.png") },
+  { slug: "tuby",      name: "Тубы",        imageUrl: "/brand/tuby.webp" },
 ];
 
 /* -------------------------------------------------- */

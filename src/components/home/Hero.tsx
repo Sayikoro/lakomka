@@ -130,6 +130,8 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
             alt=""
             fill
             priority={i === 0}
+            fetchPriority={i === 0 ? "high" : "auto"}
+            startVisible={i === 0}
             sizes="100vw"
             className="object-cover"
             skeletonClassName="bg-[#1d2430]"

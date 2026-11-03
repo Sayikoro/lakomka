@@ -46,15 +46,20 @@ type SmartImageProps = Omit<ImageProps, "onLoad" | "onError"> & {
   /** Доп. классы на скелетоне (например скругление) */
   skeletonClassName?: string;
   onLoad?: () => void;
+  /** LCP-картинка: без скелетона и с opacity-100 уже в SSR-разметке —
+   * браузер рисует её, как только пришли байты, не дожидаясь
+   * гидратации (иначе на мобиле LCP откладывается на секунды). */
+  startVisible?: boolean;
 };
 
 export function SmartImage({
   skeletonClassName = "",
   onLoad,
   className,
+  startVisible = false,
   ...rest
 }: SmartImageProps) {
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(startVisible);
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
   /* Task 116: текущий src может заменяться на сиблинга с другим
