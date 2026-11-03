@@ -54,7 +54,7 @@ SB=$(E "document.querySelector('[data-testid=\"admin-sidebar\"]') ? 'YES' : 'NO'
 LEFT=$(E "(function(){var s=document.querySelector('[data-testid=\"admin-sidebar\"]');if(!s)return 'NONE';var b=s.getBoundingClientRect();return Math.round(b.left)+':'+Math.round(b.width)})()")
 [ "$LEFT" = "0:256" ] && ok "сайдбар прижат влево (left=0, ширина 256) [$LEFT]" || bad "сайдбар не слева: $LEFT"
 CNT=$(E "document.querySelectorAll('[data-testid=\"admin-sidebar\"] nav a').length")
-[ "$CNT" = "9" ] && ok "у супер-админа 9 разделов (включая Пользователи/Настройки) [$CNT]" || bad "разделов: $CNT"
+[ "$CNT" = "10" ] && ok "у супер-админа 10 разделов (с Task 133 — включая Аналитику) [$CNT]" || bad "разделов: $CNT"
 ACT=$(E "(function(){var a=document.querySelector('[data-testid=\"admin-sidebar\"] a[aria-current=\"page\"]');return a?a.textContent.trim():'NONE'})()")
 case "$ACT" in
   *"Заказы"*) ok "активный пункт — Заказы [$ACT]";;

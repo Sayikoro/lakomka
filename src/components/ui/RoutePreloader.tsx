@@ -35,6 +35,29 @@ export function RoutePreloader() {
     }
   }, []);
 
+  /* ---- Бут-сплэш: React гидратился — статическую заставку можно гасить ----
+   * Штатно её прячет инлайн-скрипт BootSplash (по DOMContentLoaded, минимум
+   * 900 мс показа). Этот эффект — страховка: гидратация означает, что JS
+   * дошёл и контент страницы уже в DOM, так что заставка не нужна, даже если
+   * скрипт не выполнился (старый браузер, агрессивное расширение). */
+  useEffect(() => {
+    try {
+      /* Инлайн-скрипт BootSplash жив и сам ведёт жизненный цикл заставки
+       * (включая минимальные 900 мс показа) — не вмешиваемся, иначе на
+       * быстрой сети двойной цикл hidden→done гасил заставку раньше
+       * брендовой паузы (поймано на e2e). */
+      if ((window as unknown as { __bootArmed?: boolean }).__bootArmed) return;
+      const h = document.documentElement;
+      const st = h.getAttribute("data-boot");
+      if (st === "hidden" || st === "done") return;
+      h.setAttribute("data-boot", "hidden");
+      const t = setTimeout(() => h.setAttribute("data-boot", "done"), 350);
+      return () => clearTimeout(t);
+    } catch {
+      /* DOM недоступен — заставка погасится своей CSS-страховкой */
+    }
+  }, []);
+
   /* ---- Ротация фраз пока виден ---- */
   useEffect(() => {
     if (!visible) return;

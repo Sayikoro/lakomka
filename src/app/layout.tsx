@@ -7,6 +7,7 @@ import { ShopChrome } from "@/components/layout/ShopChrome";
 import { SITE } from "@/lib/site";
 import { OrganizationJsonLd } from "@/components/seo/OrganizationJsonLd";
 import { RoutePreloader } from "@/components/ui/RoutePreloader";
+import { BootSplash } from "@/components/ui/BootSplash";
 import { CookieBanner } from "@/components/ui/CookieBanner";
 import { getPublicSettings } from "@/lib/settings";
 import { TextsProvider } from "@/components/texts/TextsProvider";
@@ -78,6 +79,11 @@ export default async function RootLayout({
   return (
     <html lang="ru" className={poppins.variable} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
+        {/* Task 136: бут-сплэш со смешными фразами — ПЕРВЫЙ элемент body,
+           запекается в статический HTML и отрисовывается до гидратации,
+           пока едут CSS/JS (RoutePreloader покрывает только клиентскую
+           навигацию). На /admin* гасится инлайн-скриптом. */}
+        <BootSplash />
         {/* Task 121: тёмная тема админки — атрибут на <html> ставится ДО
            первой отрисовки (без вспышки светлой). Только на /admin-*;
            витрину не трогаем. suppressHydrationWarning — атрибут ставится
