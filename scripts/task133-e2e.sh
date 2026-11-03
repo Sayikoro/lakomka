@@ -85,8 +85,9 @@ SUM=$(curl -s -b /tmp/t133-e2e-cookies.txt "$BASE/api/admin/analytics/summary?da
 E "var b=document.querySelector('[data-testid=analytics-sessions] tbody button'); if(b){b.click();'opened'}else{'no-sessions'}" | grep -q opened && ok "таймлайн визита открыт из таблицы" || bad "нет кнопки таймлайна (сессии пусты?)"
 sleep 2
 E "!!document.querySelector('[data-testid=analytics-timeline]')" | grep -q true && ok "модалка таймлайна показана" || bad "нет analytics-timeline"
-TLTXT=$(E "(document.querySelector('[data-testid=analytics-timeline]')?.innerText||'').slice(0,300)")
+TLTXT=$(E "(document.querySelector('[data-testid=analytics-timeline]')?.innerText||'').slice(0,800)")
 echo "$TLTXT" | grep -q "Страница" && ok "таймлайн содержит события визита ($(echo "$TLTXT" | head -c 80 | tr '\n' ' ')…)" || bad "таймлайн пуст: $TLTXT"
+echo "$TLTXT" | grep -q "Отпечаток:" && ok "в модалке виден отпечаток визита (Task 134)" || bad "нет блока отпечатка"
 E "document.querySelector('[data-testid=analytics-timeline] .text-\\\\[var(--color-muted)\\\\]')?.textContent" >/dev/null 2>&1 || true
 
 # API-проверка данных за визитом браузера
