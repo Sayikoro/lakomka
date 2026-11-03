@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../AdminLog.php';
+require_once __DIR__ . '/../VisitGuard.php';
 
 /**
  * Task 133: аналитика посещений в админке (вкладка «Аналитика»).
@@ -61,12 +62,28 @@ class AdminAnalyticsController
 
         $blocked = (int)$pdo->query('SELECT COUNT(*) FROM ip_blocks')->fetchColumn();
 
+        /* Task 134: люди с высоким баллом «похожести на бота» (30…59) —
+           например ИИ-агент, замазавший webdriver. Владелец видит их
+           с бейджем «Подозрение» и может разобрать таймлайн. */
+        try {
+            $sp = $pdo->prepare(
+                "SELECT COUNT(*) FROM visit_sessions
+                 WHERE first_seen >= ? AND is_bot = 0 AND bot_score >= ?"
+            );
+            $sp->execute([$cutoff, VisitGuard::SUSPICION_THRESHOLD]);
+            $suspected = (int)$sp->fetchColumn();
+        } catch (Throwable $err) {
+            error_log('[analytics suspected] ' . $err->getMessage());
+            $suspected = 0;
+        }
+
         jsonResponse(['data' => [
             'days' => $days,
             'period' => [
                 'sessions' => (int)($sess['total'] ?? 0),
                 'humans' => (int)($sess['humans'] ?? 0),
                 'bots' => (int)($sess['bots'] ?? 0),
+                'suspected' => $suspected,
                 'views' => (int)($sess['views'] ?? 0),
                 'events' => (int)($ev['events'] ?? 0),
                 'pageviews' => (int)($ev['pageviews'] ?? 0),
@@ -266,7 +283,9 @@ class AdminAnalyticsController
 
         $stmt = $pdo->prepare(
             "SELECT id, sid, ip_hash, ip_mask, user_agent, is_bot, bot_reason, blocked,
-                    referrer, landing, screen, views, events, first_seen, last_seen
+                    referrer, landing, screen, views, events, first_seen, last_seen,
+                    bot_score, webdriver, mouse_moves, touches, key_downs, no_input,
+                    accept_lang, fp
              FROM visit_sessions WHERE " . implode(' AND ', $where) . '
              ORDER BY last_seen DESC LIMIT ' . $limit
         );
@@ -296,7 +315,7 @@ class AdminAnalyticsController
             $items[] = $r;
         }
 
-        $s = $pdo->prepare('SELECT id, sid, ip_hash, ip_mask, user_agent, is_bot, bot_reason, blocked, referrer, landing, screen, views, events, first_seen, last_seen FROM visit_sessions WHERE id = ?');
+        $s = $pdo->prepare('SELECT id, sid, ip_hash, ip_mask, user_agent, is_bot, bot_reason, blocked, referrer, landing, screen, views, events, first_seen, last_seen, bot_score, webdriver, mouse_moves, touches, key_downs, no_input, accept_lang, fp FROM visit_sessions WHERE id = ?');
         $s->execute([$id]);
         $session = $s->fetch();
 

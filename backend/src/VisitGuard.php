@@ -18,6 +18,14 @@
  * Поведенческий бот-детект: сессия, в которой ≥ 25 pageview за 2 минуты,
  * помечается is_bot=1 (reason «behavior») — браузерный человек столько
  * страниц за две минуты не открывает, а скрипт-обходчик — да.
+ *
+ * Task 134: бот-детект v2 — отпечаток браузера и человеческий ввод.
+ * ИИ-агенты (DeepSeek и подобные) ходят с обычным Chrome-UA, неспешно,
+ * поэтому детект по UA/флуду их пропускал. Трекер витрины теперь присылает
+ * env (navigator.webdriver, window.chrome, плагины, языки, тач) и sig
+ * (счётчики движений мыши, касаний, нажатий клавиш); сервер плюс к этому
+ * проверяет Accept-Language. Взвешенный балл botScore(): ≥60 — бот
+ * (reason «fp:…»), 30…59 — «Подозрение» в списке посетителей.
  */
 class VisitGuard
 {
@@ -31,7 +39,13 @@ class VisitGuard
         'facebookexternalhit|semrush|ahrefs|mj12bot|dotbot|petalbot|bytespider|googlebot|' .
         'bingbot|yandexbot|yandeximages|yandexmetrika|baiduspider|duckduckbot|gptbot|' .
         'oai-searchbot|claudebot|ccbot|applebot|megaindex|serpstat|mauibot|linkdex|' .
+        'perplexity|chatgpt-user|meta-externalagent|amazonbot|diffbot|youbot|deepseek|' .
         'pingdom|uptimerobot|lighthouse|pagespeed|gtmetrix|http_request|guzzle|monit)/i';
+
+    /** Балл, с которого сессия считается ботом (reason «fp:…»). */
+    public const BOT_SCORE_THRESHOLD = 60;
+    /** Балл, с которого в списке посетителей появляется бейдж «Подозрение». */
+    public const SUSPICION_THRESHOLD = 30;
 
     /* ============================================================
        ИДЕНТИФИКАЦИЯ ЗАПРОСА
@@ -121,6 +135,127 @@ class VisitGuard
             return true;
         }
         return preg_match(self::BOT_UA_RE, $ua) === 1;
+    }
+
+    /* ============================================================
+       БОТ-ДЕТЕКТ V2: ОТПЕЧАТОК + ЧЕЛОВЕЧЕСКИЙ ВВОД (Task 134)
+       ============================================================ */
+
+    /**
+     * Взвешенный балл «похожести на бота» (0…100) и список флагов.
+     *
+     * $env — почищенные данные от трекера: wd (navigator.webdriver),
+     * chrome (есть window.chrome), plugins, langs, touch, mm/ts/kd
+     * (движения мыши / касания / нажатия клавиш). $envSent — присылал ли
+     * клиент отпечаток вообще (старые клиенты не штрафуем). $alPresent —
+     * был ли в HTTP-запросе заголовок Accept-Language.
+     *
+     * Веса подобраны так, чтобы ни один одиночный «мягкий» признак не
+     * делал человека ботом: webdriver (70) — канонический флаг автоматизации,
+     * он один достаточен; остальные срабатывают только в сочетаниях.
+     *
+     * @return array{score: int, flags: string[], no_input: int}
+     */
+    public static function botScore(
+        array $env,
+        bool $envSent,
+        bool $alPresent,
+        int $clicks,
+        int $views,
+        int $ageSec
+    ): array {
+        $score = 0;
+        $flags = [];
+        $noInput = 0;
+
+        $wd = (int)($env['wd'] ?? 0) === 1;
+        $chrome = (int)($env['chrome'] ?? 0) === 1;
+        $touch = (int)($env['touch'] ?? 0) === 1;
+        $plugins = (int)($env['plugins'] ?? -1);
+        $langs = (int)($env['langs'] ?? -1);
+
+        // 1) navigator.webdriver — честный флаг Selenium/Puppeteer/Playwright
+        if ($wd) {
+            $score += 70;
+            $flags[] = 'webdriver';
+        }
+
+        // 2) UA обещает Chrome/Chromium, а window.chrome отсутствует —
+        //    переименованный headless-клиент или подделка. Только когда
+        //    отпечаток реально прислан: у старого клиента chrome=0 —
+        //    это «нет данных», а не «объекта нет».
+        $ua = (string)($env['ua'] ?? self::userAgent());
+        if ($envSent && stripos($ua, 'chrome/') !== false && !$chrome) {
+            $score += 35;
+            $flags[] = 'no-chrome';
+        }
+
+        // 3) Нет Accept-Language: браузеры человека отправляют его всегда
+        if (!$alPresent) {
+            $score += 30;
+            $flags[] = 'no-lang';
+        }
+
+        // 4) Пустые плагины И языки — «голый» клиент (только когда отпечаток
+        //    реально прислан; у мобильных Safari plugins=0, но языки есть)
+        if ($envSent && $plugins === 0 && $langs === 0) {
+            $score += 20;
+            $flags[] = 'bare';
+        }
+
+        // 5) Ноль человеческого ввода за всю сессию: ни движения мыши,
+        //    ни касания, ни клавиатуры, ни клика. Тач-устройства не штрафуем
+        //    (человек может просто читать); быстрый отказ (<8с, 1 страница)
+        //    — слабый сигнал, долгое листание без ввода — сильный.
+        $hasInput = (int)($env['mm'] ?? 0) > 0
+            || (int)($env['ts'] ?? 0) > 0
+            || (int)($env['kd'] ?? 0) > 0
+            || $clicks > 0;
+        if ($envSent && !$touch && !$hasInput) {
+            $noInput = 1;
+            if ($views >= 3) {
+                $score += 45;
+                $flags[] = 'no-input';
+            } elseif ($ageSec >= 8) {
+                $score += 35;
+                $flags[] = 'no-input';
+            } else {
+                $score += 10;
+                $flags[] = 'quiet';
+            }
+        }
+
+        return ['score' => min($score, 100), 'flags' => $flags, 'no_input' => $noInput];
+    }
+
+    /**
+     * Почистить env/sig от трекера: только числовые поля в разумных
+     * пределах, tz — строка без управляющих символов.
+     */
+    public static function cleanEnv(array $envIn, array $sigIn): array
+    {
+        $clamp = static function (mixed $v, int $max): int {
+            if (!is_numeric($v)) {
+                return 0;
+            }
+            $n = (int)$v;
+            return max(0, min($n, $max));
+        };
+        $bool = static function (mixed $v): int {
+            return (int)(is_bool($v) ? $v : in_array($v, [1, '1', true], true));
+        };
+
+        return [
+            'wd'      => $bool($envIn['wd'] ?? 0),
+            'chrome'  => $bool($envIn['chrome'] ?? 0),
+            'plugins' => $clamp($envIn['plugins'] ?? 0, 99),
+            'langs'   => $clamp($envIn['langs'] ?? 0, 99),
+            'touch'   => $bool($envIn['touch'] ?? 0),
+            'tz'      => self::cleanString((string)($envIn['tz'] ?? ''), 40),
+            'mm'      => $clamp($sigIn['mm'] ?? 0, 100_000),
+            'ts'      => $clamp($sigIn['ts'] ?? 0, 100_000),
+            'kd'      => $clamp($sigIn['kd'] ?? 0, 100_000),
+        ];
     }
 
     /* ============================================================
@@ -274,6 +409,19 @@ class VisitGuard
         $ref = self::cleanString($body['ref'] ?? '', 300);
         $land = self::cleanString($body['land'] ?? '', 300);
 
+        /* Task 134: отпечаток браузера и счётчики человеческого ввода. */
+        $envIn = is_array($body['env'] ?? null) ? $body['env'] : [];
+        $sigIn = is_array($body['sig'] ?? null) ? $body['sig'] : [];
+        $envSent = $envIn !== [] || $sigIn !== [];
+        $env = self::cleanEnv($envIn, $sigIn);
+        $alPresent = trim((string)($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')) !== '';
+        $env['ua'] = $ua; // botScore сверяет window.chrome с настоящим UA запроса
+        $fpJson = json_encode(
+            ['wd' => $env['wd'], 'chrome' => $env['chrome'], 'plugins' => $env['plugins'],
+             'langs' => $env['langs'], 'tz' => $env['tz'], 'touch' => $env['touch'], 'al' => $alPresent ? 1 : 0],
+            JSON_UNESCAPED_UNICODE
+        ) ?: '';
+
         $prepared = [];
         foreach ($events as $ev) {
             $e = self::cleanEvent($ev);
@@ -284,7 +432,7 @@ class VisitGuard
 
         /* Сессия: ключ (sid, ip_hash) — подмена sid с чужого IP создаёт
            отдельную строку, чужую аналитику не загрязняет. */
-        $stmt = $pdo->prepare('SELECT id FROM visit_sessions WHERE sid = ? AND ip_hash = ?');
+        $stmt = $pdo->prepare('SELECT * FROM visit_sessions WHERE sid = ? AND ip_hash = ?');
         $stmt->execute([$sid, $ipHash]);
         $row = $stmt->fetch();
         if ($row) {
@@ -294,10 +442,17 @@ class VisitGuard
                 $pdo->prepare(
                     "INSERT INTO visit_sessions
                        (sid, ip_hash, ip_mask, user_agent, is_bot, bot_reason,
-                        referrer, landing, screen, views, events, first_seen, last_seen)
-                     VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, 0, 0, ?, ?)"
-                )->execute([$sid, $ipHash, $ipMask, $ua, $isBot, $ref, $land, $screen, $now, $now]);
+                        referrer, landing, screen, views, events, first_seen, last_seen,
+                        webdriver, mouse_moves, touches, key_downs, accept_lang, fp)
+                     VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)"
+                )->execute([
+                    $sid, $ipHash, $ipMask, $ua, $isBot, $ref, $land, $screen, $now, $now,
+                    $env['wd'], $env['mm'], $env['ts'], $env['kd'], $alPresent ? 1 : 0, $fpJson,
+                ]);
                 $sessionId = (int)$pdo->lastInsertId();
+                /* $row нужен ниже (views/webdriver/first_seen) — перечитываем */
+                $stmt->execute([$sid, $ipHash]);
+                $row = $stmt->fetch() ?: $row;
             } catch (Throwable $e) {
                 /* Гонка воркеров на один и тот же (sid, ip_hash) —
                    повторно читаем уже созданную строку. */
@@ -334,8 +489,45 @@ class VisitGuard
             }
         }
 
+        /* ── Бот-детект v2 (Task 134): балл по отпечатку и вводу. ──
+           Считается на каждом батче по накопленному состоянию сессии:
+           ни один «мягкий» признак сам по себе человека ботом не делает,
+           но сочетания (webdriver / нет Chrome-объекта + нет языка +
+           нет ввода) уверенно ловят ИИ-агентов с обычным Chrome-UA. */
+        $sessionViews = (int)$row['views'] + $views;
+        $clickStmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM visit_events WHERE session_id = ? AND type = 'click'"
+        );
+        $clickStmt->execute([$sessionId]);
+        $clicks = (int)$clickStmt->fetchColumn();
+        $ageSec = max(0, time() - (strtotime((string)$row['first_seen']) ?: time()));
+        $fp = self::botScore($env, $envSent, $alPresent, $clicks, $sessionViews, $ageSec);
+
+        $webdriver = ((int)($row['webdriver'] ?? 0) === 1 || $env['wd'] === 1) ? 1 : 0;
+        $newScore = max((int)($row['bot_score'] ?? 0), $fp['score']);
+        $upd = $pdo->prepare(
+            'UPDATE visit_sessions
+             SET last_seen = ?, views = views + ?, events = events + ?,
+                 webdriver = ?, mouse_moves = MAX(mouse_moves, ?),
+                 touches = MAX(touches, ?), key_downs = MAX(key_downs, ?),
+                 bot_score = ?, no_input = ?, accept_lang = ?, fp = ?
+             WHERE id = ?'
+        );
+        $upd->execute([
+            $now, $views, count($prepared),
+            $webdriver, $env['mm'], $env['ts'], $env['kd'],
+            $newScore, $fp['no_input'], $alPresent ? 1 : 0, $fpJson,
+            $sessionId,
+        ]);
+
+        if (!$isBot && $fp['score'] >= self::BOT_SCORE_THRESHOLD) {
+            $pdo->prepare('UPDATE visit_sessions SET is_bot = 1, bot_reason = ? WHERE id = ?')
+                ->execute(['fp:' . implode(',', $fp['flags']), $sessionId]);
+        }
+
         /* Поведенческий бот-детект: ≥ 25 pageview за 2 минуты у сессии,
-           которая не бот по UA. */
+           которая не бот по UA. Проверяется ПОСЛЕ отпечатка и перекрывает
+           его причину — флуд страниц сильнее «мягких» признаков. */
         if (!$isBot && $views > 0) {
             $recent = $pdo->prepare(
                 "SELECT COUNT(*) FROM visit_events
@@ -348,12 +540,6 @@ class VisitGuard
                 )->execute([$sessionId]);
             }
         }
-
-        $pdo->prepare(
-            'UPDATE visit_sessions
-             SET last_seen = ?, views = views + ?, events = events + ?
-             WHERE id = ?'
-        )->execute([$now, $views, count($prepared), $sessionId]);
 
         /* Периодическая чистка: события 90 дней, сессии и боты — 180. */
         if (random_int(1, 40) === 1) {

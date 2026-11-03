@@ -23,6 +23,7 @@ interface Period {
   sessions: number;
   humans: number;
   bots: number;
+  suspected: number;
   views: number;
   events: number;
   pageviews: number;
@@ -70,6 +71,15 @@ interface SessionRow {
   events: number;
   first_seen: string;
   last_seen: string;
+  /* Task 134: отпечаток и ввод */
+  bot_score: number;
+  webdriver: number;
+  mouse_moves: number;
+  touches: number;
+  key_downs: number;
+  no_input: number;
+  accept_lang: number;
+  fp: string;
 }
 interface BotRow {
   ua: string;
@@ -144,6 +154,38 @@ function hostOf(ref: string): string {
     return new URL(ref).host;
   } catch {
     return ref.slice(0, 40);
+  }
+}
+
+/** Человек с высоким баллом «похожести на бота» (Task 134). */
+const SUSPICION_THRESHOLD = 30;
+
+/** Отпечаток сессии (fp — JSON-строка от бэкенда) для модалки таймлайна. */
+interface Fingerprint {
+  wd: number;
+  chrome: number;
+  plugins: number;
+  langs: number;
+  tz: string;
+  touch: number;
+  al: number;
+}
+
+function parseFp(fp: string): Fingerprint | null {
+  if (!fp) return null;
+  try {
+    const j = JSON.parse(fp) as Partial<Fingerprint>;
+    return {
+      wd: Number(j.wd ?? 0),
+      chrome: Number(j.chrome ?? 0),
+      plugins: Number(j.plugins ?? 0),
+      langs: Number(j.langs ?? 0),
+      tz: String(j.tz ?? ""),
+      touch: Number(j.touch ?? 0),
+      al: Number(j.al ?? 0),
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -404,7 +446,11 @@ export default function AdminAnalyticsPage() {
               value={fmtNum(p.sessions)}
               hint={`сегодня: ${fmtNum(summary.today.sessions)}`}
             />
-            <Card label="Люди" value={fmtNum(p.humans)} hint="не боты по UA и поведению" />
+            <Card
+              label="Люди"
+              value={fmtNum(p.humans)}
+              hint={`подозрительных: ${fmtNum(p.suspected ?? 0)}`}
+            />
             <Card label="Боты" value={fmtNum(p.bots)} hint="краулеры и скрипты" />
             <Card
               label="Просмотры страниц"
@@ -636,8 +682,23 @@ export default function AdminAnalyticsPage() {
                           Заблокирован
                         </span>
                       ) : s.is_bot === 1 ? (
-                        <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800" title={s.bot_reason}>
-                          Бот{s.bot_reason === "behavior" ? " (поведение)" : ""}
+                        <span
+                          className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-800"
+                          title={s.bot_reason}
+                        >
+                          Бот
+                          {s.bot_reason === "behavior"
+                            ? " (поведение)"
+                            : s.bot_reason.startsWith("fp:")
+                              ? " (отпечаток)"
+                              : ""}
+                        </span>
+                      ) : (s.bot_score ?? 0) >= SUSPICION_THRESHOLD ? (
+                        <span
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                          title={`Балл похожести на бота: ${s.bot_score}`}
+                        >
+                          Подозрение {s.bot_score}
                         </span>
                       ) : (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
@@ -782,13 +843,35 @@ export default function AdminAnalyticsPage() {
                 <p className="mt-0.5 text-xs text-[var(--color-muted)]">
                   {fmtTime(timelineSession.first_seen)} → {fmtTime(timelineSession.last_seen)} ·
                   страниц: {timelineSession.views} · событий: {timelineSession.events} ·{" "}
-                  {timelineSession.is_bot === 1 ? "бот" : "человек"}
+                  {timelineSession.is_bot === 1
+                    ? `бот${timelineSession.bot_reason ? ` (${timelineSession.bot_reason})` : ""}`
+                    : (timelineSession.bot_score ?? 0) >= SUSPICION_THRESHOLD
+                      ? `подозрение (${timelineSession.bot_score})`
+                      : "человек"}
                 </p>
                 {timelineSession.user_agent && (
                   <p className="mt-1 max-w-xl break-all text-[11px] text-[var(--color-muted)]">
                     {timelineSession.user_agent}
                   </p>
                 )}
+                {(() => {
+                  const fp = parseFp(timelineSession.fp);
+                  if (!fp) return null;
+                  return (
+                    <p
+                      data-testid="analytics-fp"
+                      className="mt-1 rounded-lg bg-[var(--color-bg-soft)] px-2 py-1 text-[11px] text-[var(--color-muted)]"
+                    >
+                      Отпечаток: webdriver: {fp.wd === 1 ? "да" : "нет"} · Chrome-объект:{" "}
+                      {fp.chrome === 1 ? "есть" : "нет"} · плагинов: {fp.plugins} · языков:{" "}
+                      {fp.langs} · тач: {fp.touch === 1 ? "да" : "нет"} · мышь:{" "}
+                      {timelineSession.mouse_moves ?? 0} · касания: {timelineSession.touches ?? 0} ·
+                      клавиатура: {timelineSession.key_downs ?? 0} · Accept-Language:{" "}
+                      {fp.al === 1 ? "есть" : "нет"}
+                      {fp.tz ? ` · ${fp.tz}` : ""}
+                    </p>
+                  );
+                })()}
               </div>
               <button
                 type="button"

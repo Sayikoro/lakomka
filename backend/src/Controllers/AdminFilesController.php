@@ -742,7 +742,7 @@ class AdminFilesController
        восстановить или удалить навсегда из «Корзины». В остальных
        разделах (экспорт/импорт/бэкапы — одноразовые) удаление обычное.
        Путь вида media/.trash/… — полное удаление из корзины. */
-    public static function delete(PDO $pdo = null): void
+    public static function delete(?PDO $pdo = null): void
     {
         $payload = Auth::requireEditor();
         $pdo = $pdo ?? Database::get();

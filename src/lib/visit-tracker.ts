@@ -12,6 +12,12 @@
    Всё уходит батчем на POST /api/analytics/collect раз в 6 секунд
    и при закрытии/скрытии вкладки (sendBeacon). Никаких куки и
    персональных данных: только локальный случайный sid в localStorage.
+
+   Task 134 (бот-детект v2): вместе с батчем уходят env — обезличенный
+   отпечаток браузера (navigator.webdriver, наличие window.chrome,
+   число плагинов/языков, тач, часовой пояс) и sig — счётчики
+   человеческого ввода (движения мыши, касания, нажатия клавиш).
+   Сервер по ним отличает ИИ-агентов с обычным Chrome-UA от людей.
    ============================================================ */
 
 type VisitEventType = "pageview" | "click" | "scroll" | "gift_view" | "cart_add" | "leave";
@@ -24,11 +30,28 @@ export interface VisitEvent {
   m?: Record<string, string | number>;
 }
 
+interface VisitEnv {
+  wd: number; // navigator.webdriver — флаг автоматизации
+  chrome: number; // есть ли window.chrome (сверяется с UA на сервере)
+  plugins: number;
+  langs: number;
+  tz: string;
+  touch: number; // тач-устройство (maxTouchPoints > 0)
+}
+
+interface VisitSig {
+  mm: number; // движения мыши
+  ts: number; // касания
+  kd: number; // нажатия клавиш
+}
+
 interface FlushPayload {
   sid: string;
   screen: string;
   ref: string;
   land: string;
+  env?: VisitEnv;
+  sig?: VisitSig;
   events: VisitEvent[];
 }
 
@@ -50,6 +73,11 @@ let pathStartedAt = 0;
 let maxScrollPct = 0;
 let scrollAttached = false;
 const lastGiftViewAt = new Map<string, number>();
+
+/* Task 134: отпечаток (снимается один раз при инициализации) и
+   накопленные счётчики ввода (растут всю сессию, сервер берёт максимум). */
+let envSnapshot: VisitEnv | null = null;
+const sigCounters: VisitSig = { mm: 0, ts: 0, kd: 0 };
 
 function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL ?? "/api";
@@ -117,21 +145,53 @@ function scheduleFlush(): void {
   }, FLUSH_INTERVAL_MS);
 }
 
-async function flush(): Promise<void> {
-  if (queue.length === 0) return;
-  const events = queue;
-  queue = [];
+/** Обезличенный отпечаток браузера для бот-детекта (Task 134). */
+function collectEnv(): VisitEnv | null {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return null;
+  try {
+    const nav = navigator as Navigator & { webdriver?: boolean; maxTouchPoints?: number };
+    const plugins = nav.plugins ? nav.plugins.length : 0;
+    const langs = nav.languages ? nav.languages.length : 0;
+    const tz =
+      typeof Intl !== "undefined"
+        ? (Intl.DateTimeFormat().resolvedOptions().timeZone ?? "")
+        : "";
+    return {
+      wd: nav.webdriver === true ? 1 : 0,
+      chrome: (window as unknown as { chrome?: unknown }).chrome !== undefined ? 1 : 0,
+      plugins,
+      langs,
+      tz: tz.slice(0, 40),
+      touch: (nav.maxTouchPoints ?? 0) > 0 ? 1 : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildPayload(events: VisitEvent[]): FlushPayload | null {
+  if (typeof window === "undefined") return null;
   const { sid, ref, land } = refreshSession();
   const payload: FlushPayload = {
     sid,
     ref,
     land,
-    screen:
-      typeof window !== "undefined"
-        ? `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`
-        : "",
+    screen: `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`,
     events,
   };
+  if (envSnapshot) {
+    payload.env = envSnapshot;
+    payload.sig = { ...sigCounters };
+  }
+  return payload;
+}
+
+async function flush(): Promise<void> {
+  if (queue.length === 0) return;
+  const events = queue;
+  queue = [];
+  const payload = buildPayload(events);
+  if (!payload) return;
   try {
     await fetch(`${apiBase()}/analytics/collect`, {
       method: "POST",
@@ -150,17 +210,8 @@ function flushOnHide(): void {
   if (queue.length === 0) return;
   const events = queue;
   queue = [];
-  const { sid, ref, land } = refreshSession();
-  const payload: FlushPayload = {
-    sid,
-    ref,
-    land,
-    screen:
-      typeof window !== "undefined"
-        ? `${window.screen?.width ?? 0}x${window.screen?.height ?? 0}`
-        : "",
-    events,
-  };
+  const payload = buildPayload(events);
+  if (!payload) return;
   try {
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
       const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
@@ -203,18 +254,29 @@ function onClickCapture(e: MouseEvent): void {
   push({ t: "click", path: currentPath || location.pathname, m });
 }
 
+/* ---------- человеческий ввод для бот-детекта (Task 134) ---------- */
+
+function onInputSignal(kind: keyof VisitSig): void {
+  sigCounters[kind] = Math.min(sigCounters[kind] + 1, 100000);
+}
+
 /* ---------- публичное API ---------- */
 
-/** Инициализация: сессия, слушатели кликов и закрытия вкладки. */
+/** Инициализация: сессия, слушатели кликов, ввода и закрытия вкладки. */
 export function initTracker(): void {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
+  envSnapshot = collectEnv();
   refreshSession();
   document.addEventListener("click", onClickCapture, { capture: true });
   window.addEventListener("pagehide", flushOnHide);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flushOnHide();
   });
+  /* Человеческий ввод: только счётчики, без координат и содержимого. */
+  window.addEventListener("mousemove", () => onInputSignal("mm"), { passive: true });
+  window.addEventListener("touchstart", () => onInputSignal("ts"), { passive: true });
+  window.addEventListener("keydown", () => onInputSignal("kd"), { capture: true });
 }
 
 /**
