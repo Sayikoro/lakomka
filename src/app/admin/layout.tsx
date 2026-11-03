@@ -42,6 +42,7 @@ const ROLE_LABELS: Record<string, string> = {
  * «Текст на страницах» — редактор и супер-админ (Task 112). */
 const NAV: { href: string; label: string; icon: string; roles?: Role[] }[] = [
   { href: "/admin/orders", label: "Заказы", icon: "🧾" },
+  { href: "/admin/analytics", label: "Аналитика", icon: "📊" },
   { href: "/admin/products", label: "Товары", icon: "📦" },
   { href: "/admin/weight-recipes", label: "Рецепты", icon: "⚖️" },
   { href: "/admin/candies", label: "Конфеты", icon: "🍬" },

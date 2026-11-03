@@ -1,6 +1,7 @@
 import { getPublicSettings } from "@/lib/settings";
 import { YandexMetrika } from "@/components/analytics/YandexMetrika";
 import { MetrikaBlock } from "@/components/analytics/MetrikaBlock";
+import { VisitTracker } from "@/components/analytics/VisitTracker";
 import { AdminToolbar } from "@/components/layout/AdminToolbar";
 
 /* Layout группы (shop): снегопад теперь живёт в Hero-блоке главной
@@ -33,6 +34,8 @@ export default async function ShopLayout({
           Запечённый код — начальное содержимое контейнера. */}
       <MetrikaBlock bakedCode={metrikaCode} />
       {metrikaCode === "" && ymId !== "" && <YandexMetrika counterId={ymId} />}
+      {/* Task 133: собственная аналитика посещений витрины */}
+      <VisitTracker />
       {children}
       <AdminToolbar />
     </>

@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartLine, Product } from "@/lib/types";
 import { ymReachGoal } from "@/lib/metrika";
+import { trackCartAdd } from "@/lib/visit-tracker";
 
 interface CartState {
   lines: CartLine[];
@@ -30,6 +31,8 @@ export const useCart = create<CartState>()(
             price: Math.round(product.price_kopecks / 100),
             quantity: qty,
           });
+          /* Task 133: собственная аналитика — «добавил подарок в корзину» */
+          trackCartAdd(product.slug, product.name);
           const existing = state.lines.find((l) => l.product.id === product.id);
           if (existing) {
             return {

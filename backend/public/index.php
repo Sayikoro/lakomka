@@ -125,6 +125,20 @@ try {
     }
 
     /* ========== PUBLIC ========== */
+    /* Task 133: сбор аналитики витрины (без авторизации; блок-лист,
+       rate-limit и разбор ботов — внутри VisitGuard). */
+    if ($path === '/api/analytics/collect' && $method === 'POST') {
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::collect($pdo);
+    }
+
+    /* Task 133: щит публичного каталога — блок-лист IP, rate-limit, учёт ботов */
+    if (in_array($path, ['/api/products', '/api/categories', '/api/settings/public',
+                         '/api/candy-filters', '/api/pdfs'], true) && $method === 'GET') {
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'public-read', [[60, 120], [3600, 3000]]);
+    }
+
         if ($path === '/api/products' && $method === 'GET') {
         // Каталог: только simple и bundle, recipe всегда скрыт;
         // удалённые (в корзине админки, deleted_at) не показываются (Task 100)
@@ -161,6 +175,8 @@ try {
     }
 
     if (preg_match('#^/api/products/by-legacy/(.+)$#', $path, $m) && $method === 'GET') {
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'public-read', [[60, 120], [3600, 3000]]);
         $stmt = $pdo->prepare(
             'SELECT slug FROM products WHERE legacy_slug = ? AND is_published = 1 AND deleted_at IS NULL LIMIT 1'
         );
@@ -171,7 +187,9 @@ try {
     }
 
     if (preg_match('#^/api/products/([a-z0-9-]+)$#', $path, $m) && $method === 'GET') {
-        
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'product', [[60, 120], [3600, 3000]]);
+
     $stmt = $pdo->prepare(
     "SELECT * FROM products WHERE slug = ? AND is_published = 1
        AND type IN ('simple', 'bundle') AND deleted_at IS NULL"
@@ -220,6 +238,9 @@ $stmt->execute([$m[1]]);
     }
 
     if ($path === '/api/orders' && $method === 'POST') {
+        /* Task 133: антиспам заказов — 5/мин и 30/час с одного IP */
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'order-create', [[60, 5], [3600, 30]]);
         require_once __DIR__ . '/../src/Controllers/OrderController.php';
         OrderController::create($pdo);
     }
@@ -453,6 +474,40 @@ $stmt->execute([$m[1]]);
             Auth::requireEditor();
             AdminOrdersController::updateStatus($pdo, $id);
         }
+    }
+
+    /* ========== ADMIN: ANALYTICS (Task 133) ========== */
+    if ($path === '/api/admin/analytics/summary' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::summary($pdo);
+    }
+    if ($path === '/api/admin/analytics/sessions' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::sessions($pdo);
+    }
+    if (preg_match('#^/api/admin/analytics/sessions/(\d+)/events$#', $path, $m) && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::sessionEvents($pdo, (int)$m[1]);
+    }
+    if ($path === '/api/admin/analytics/bots' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::bots($pdo);
+    }
+    if ($path === '/api/admin/analytics/block' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::block($pdo);
+    }
+    if ($path === '/api/admin/analytics/unblock' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::unblock($pdo);
+    }
+    if ($path === '/api/admin/analytics/blocks' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::blocks($pdo);
+    }
+    if ($path === '/api/admin/analytics/wipe' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminAnalyticsController.php';
+        AdminAnalyticsController::wipe($pdo);
     }
 
     /* ========== ADMIN: SETTINGS ========== */

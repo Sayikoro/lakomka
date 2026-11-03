@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { fetchLiveProductBySlug, productsDiffer } from "@/lib/product-api";
+import { trackGiftView } from "@/lib/visit-tracker";
 import { AddToCart } from "@/components/ui/AddToCart";
 import { ProductGallery } from "@/components/ui/ProductGallery";
 import { ProductTabs } from "@/components/ui/ProductTabs";
@@ -154,6 +155,12 @@ export function ProductLive({
   initial: Product;
 }) {
   const [product, setProduct] = useState<Product>(initial);
+
+  /* Task 133: аналитика — просмотр карточки подарка (slug + название) */
+  useEffect(() => {
+    trackGiftView(slug, product.name || initial.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   useEffect(() => {
     let cancelled = false;
