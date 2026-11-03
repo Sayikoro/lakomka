@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const STORAGE_KEY = "lakomka-cookie-consent";
 
@@ -10,6 +11,9 @@ type Consent = "all" | "essential";
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
   const [animate, setAnimate] = useState(false);
+  /* Task 137: в админке баннер не показываем — согласие касается корзины
+   * витрины, а нижняя таб-панель телефона перекрывается баннером. */
+  const pathname = usePathname();
 
   useEffect(() => {
     try {
@@ -22,8 +26,12 @@ export function CookieBanner() {
         return () => clearTimeout(t);
       }
     } catch {
-      setVisible(true);
-      setTimeout(() => setAnimate(true), 20);
+      /* приватный режим: показываем сразу (в микротаске — без
+       * синхронного setState внутри эффекта) */
+      Promise.resolve().then(() => {
+        setVisible(true);
+        setTimeout(() => setAnimate(true), 20);
+      });
     }
   }, []);
 
@@ -35,7 +43,7 @@ export function CookieBanner() {
     setTimeout(() => setVisible(false), 250);
   }
 
-  if (!visible) return null;
+  if (!visible || pathname.startsWith("/admin")) return null;
 
   return (
     <div

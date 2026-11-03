@@ -82,15 +82,17 @@ export default function AdminProductsPage() {
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[24px] font-medium text-[var(--color-heading)]">
-          Товары{" "}
-          <span className="text-sm font-normal text-[var(--color-muted)]">
-            ({products?.length ?? "…"})
-          </span>
-        </h1>
+        <div>
+          <h1 className="text-[24px] font-semibold leading-tight text-[var(--color-heading)]">
+            Товары
+          </h1>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            В списке: {products?.length ?? "…"}
+          </p>
+        </div>
         <Link
           href="/admin/products/new"
-          className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-5 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)]"
+          className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[var(--color-primary-hover)]"
         >
           + Добавить товар
         </Link>

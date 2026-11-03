@@ -114,6 +114,10 @@ rm -f "$PKG/backend/storage/deploy-archive-meta.json"
 rm -f "$PKG/backend/UPDATE_ROOT"
 # корзина песочницы (.trash) в деплой-пакет не едет
 rm -rf "$PKG/uploads/.trash"
+# легаси process-bg.png (1,9 МБ, Task 135 пережал в /brand/process-bg.webp):
+# тесты корзины (task130) восстанавливают файл в public/uploads — в пакеты
+# он ехать не должен, на сервере своя копия (обновления файлы не удаляют)
+rm -f "$PKG/uploads/process-bg.png"
 cp "$ROOT/scripts/deploy/.htaccess" "$PKG/.htaccess"
 cp "$ROOT/scripts/deploy/README-DEPLOY.md" "$PKG/README-DEPLOY.md"
 # страница обновления: дубль входа и на развёрнутом сайте (там есть и /admin)

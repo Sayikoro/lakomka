@@ -148,15 +148,16 @@ function waitAttr(page, value, timeoutMs) {
     if (p1.phrase && p1.phrase.length > 5) ok(`мобильный сплэш виден на Slow 4G, фраза «${p1.phrase.slice(0, 30)}…»`);
     else bad("мобильный сплэш: фраза пуста");
 
-    /* Ротация: ждём смену фразы до 6 с (под CPU×4 парсинг чанков может
-     * блокировать main-thread и setInterval догоняет позже). */
+    /* Ротация: ждём смену фразы до 12 с (под CPU×4 парсинг чанков может
+     * блокировать main-thread и setInterval догоняет позже; на медленной
+     * песочнице 6 с не хватало — окно поднято в Task 137). */
     const rot = await page
       .waitForFunction(
         (prev) =>
           document.documentElement.getAttribute("data-boot") === "done" ||
           (document.getElementById("boot-phrase") && document.getElementById("boot-phrase").textContent !== prev),
         p1.phrase,
-        { timeout: 6000, polling: 300 }
+        { timeout: 12000, polling: 300 }
       )
       .then(() => true)
       .catch(() => false);
@@ -169,7 +170,7 @@ function waitAttr(page, value, timeoutMs) {
     } else if (p2.phrase && p2.phrase !== p1.phrase) {
       ok(`фразы ротируются: «${p1.phrase.slice(0, 20)}…» → «${p2.phrase.slice(0, 20)}…»`);
     } else {
-      bad(`фраза не сменилась за 6 с: ${JSON.stringify([p1.phrase, p2.phrase])}`);
+      bad(`фраза не сменилась за 12 с: ${JSON.stringify([p1.phrase, p2.phrase])}`);
     }
 
     await waitAttr(page, "done", 15000).catch(() => {});

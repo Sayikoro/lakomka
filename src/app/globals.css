@@ -52,14 +52,14 @@
    ============================================================ */
 html[data-admin-theme="dark"] {
   color-scheme: dark;
-  --color-bg:        #1E2530;   /* карточки */
-  --color-bg-page:   #141922;   /* фон страницы */
-  --color-bg-soft:   #252D3B;   /* мягкие секции, плитки */
-  --color-card:      #1E2530;   /* поверхности админки */
-  --color-heading:   #E7EAF0;
-  --color-body:      #C2C8D4;
-  --color-muted:     #8B94A6;
-  --color-border:    #354052;
+  --color-bg:        #161E2B;   /* карточки */
+  --color-bg-page:   #0E141D;   /* фон страницы */
+  --color-bg-soft:   #1E2735;   /* мягкие секции, плитки */
+  --color-card:      #161E2B;   /* поверхности админки */
+  --color-heading:   #E9EDF5;
+  --color-body:      #C0C8D6;
+  --color-muted:     #8791A5;
+  --color-border:    #2A3448;
 }
 
 @theme inline {
@@ -340,4 +340,98 @@ h1, h2, h3, h4, h5, h6 {
 }
 @media (prefers-reduced-motion: reduce) {
   .nf-flake, .nf-gift { animation: none; }
+}
+
+/* ============================================================
+   Админка 2.0 (Task 137): дизайн-слой панели управления.
+   Действует ТОЛЬКО внутри .admin-scope (обёртка shell в
+   src/app/admin/layout.tsx) — витрина не затрагивается.
+   ============================================================ */
+
+/* Плотнее витринной типографики: админка — рабочий инструмент */
+.admin-scope {
+  line-height: 1.6;
+}
+
+/* Карточка-поверхность: единая для дашборда и новых блоков */
+.admin-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+
+/* ── Формы: одинаковые поля во всех разделах ──
+   Затрагиваются только «текстовые» контролы; чекбоксы, радио,
+   range, color и file сохраняют нативный вид. */
+.admin-scope input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+.admin-scope textarea,
+.admin-scope select {
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-heading);
+  padding: 7px 12px;
+  font-size: 14px;
+  min-height: 40px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.admin-scope textarea {
+  min-height: 84px;
+}
+.admin-scope input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):focus,
+.admin-scope textarea:focus,
+.admin-scope select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(2 116 190 / 0.16);
+}
+.admin-scope ::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+/* Клавиатурная навигация: видимое кольцо фокуса на ссылках и кнопках */
+.admin-scope a:focus-visible,
+.admin-scope button:focus-visible,
+.admin-scope [tabindex]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.admin-scope input[type="checkbox"],
+.admin-scope input[type="radio"] {
+  accent-color: var(--color-primary);
+}
+
+/* ── Тонкие скроллбары панели (сайдбар, списки, контент) ── */
+.admin-scope * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+.admin-scope ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.admin-scope ::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 8px;
+}
+.admin-scope ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Нижняя таб-панель телефона: отступ под «челку»/жест-бар ── */
+.admin-tabbar {
+  padding-bottom: max(env(safe-area-inset-bottom), 4px);
+}
+
+/* ── Тонкая анимация появления плиток дашборда ── */
+@keyframes adm-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.adm-rise {
+  animation: adm-rise 0.35s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adm-rise { animation: none; }
 }

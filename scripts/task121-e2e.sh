@@ -76,7 +76,7 @@ DARK=$(E "document.documentElement.hasAttribute('data-admin-theme')?'YES':'NO'")
 [ "$DARK" = "YES" ] && ok "клик тумблера → data-admin-theme=dark" || bad "атрибута нет"
 BGD=$(E "getComputedStyle(document.body).backgroundColor")
 case "$BGD" in
-  *20,*25,*34*) ok "фон админки стал тёмным [$BGD]";;
+  *14,*20,*29*) ok "фон админки стал тёмным [$BGD]";;
   *) bad "фон не тёмный: $BGD";;
 esac
 LS=$(E "localStorage.getItem('admin_theme')||''")
