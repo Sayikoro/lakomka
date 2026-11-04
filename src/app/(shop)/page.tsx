@@ -4,7 +4,7 @@ import { ProcessSteps } from "@/components/home/ProcessSteps";
 import { BrandLogos } from "@/components/home/BrandLogos";
 import { Hero } from "@/components/home/Hero";
 import { NewYearCounter } from "@/components/home/NewYearCounter";
-import { daysUntilNewYear } from "@/lib/newyear";
+import { timeUntilNewYearParts } from "@/lib/newyear";
 import { getPublicSettings, DEFAULT_FRONT_SETTINGS } from "@/lib/settings";
 import { getCategories, getProducts } from "@/lib/products";
 import type { Metadata } from "next";
@@ -62,10 +62,10 @@ export default async function HomePage() {
         >
           <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
-        {/* Task 141: счётчик «До Нового года» — сразу под hero */}
+        {/* Task 141/142: счётчик «До Нового года» — хрониометр сразу под hero */}
         <NewYearCounter
           enabled={cfg.newyear_counter_enabled}
-          initialDays={daysUntilNewYear()}
+          initialParts={timeUntilNewYearParts()}
         />
 
         {/* Info cards — СКИДКА / ДОСТАВКА / ОПЛАТА */}

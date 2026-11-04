@@ -435,3 +435,157 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .adm-rise { animation: none; }
 }
+
+/* ── Task 142: счётчик «До Нового года» — хрониометр под hero ── */
+
+/* Гирлянда: провод по верхнему краю + огоньки, классические цвета, мерцание вразнобой */
+.ny-garland {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 38px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+.ny-bulb {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  margin-top: 13px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 12px 3px currentColor;
+  opacity: 0.95;
+  animation: ny-twinkle 2.3s ease-in-out infinite;
+}
+.ny-bulb::before {
+  content: "";
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  width: 2px;
+  height: 13px;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.22);
+}
+@keyframes ny-twinkle {
+  0%,
+  100% {
+    opacity: 0.95;
+    box-shadow: 0 0 12px 3px currentColor;
+  }
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 4px 1px currentColor;
+  }
+}
+@media (max-width: 640px) {
+  .ny-garland {
+    gap: 26px;
+  }
+  .ny-bulb:nth-child(n + 8) {
+    display: none;
+  }
+}
+
+/* Снежинки: медленное падение с лёгким вращением */
+.ny-flake {
+  position: absolute;
+  top: -34px;
+  color: rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  user-select: none;
+  animation: ny-fall linear infinite;
+}
+@keyframes ny-fall {
+  0% {
+    transform: translateY(-10px) rotate(-8deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  85% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(300px) rotate(330deg);
+    opacity: 0;
+  }
+}
+
+/* Карточка хронометра: стекло на ночном небе */
+.ny-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 4px 12px;
+  border-radius: 18px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.045)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 14px 34px -18px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(3px);
+}
+.ny-num {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #ffffff 25%, #b9dcff 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgba(125, 180, 255, 0.35));
+}
+@media (min-width: 640px) {
+  .ny-num {
+    font-size: 52px;
+  }
+}
+.ny-cap {
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+@media (min-width: 640px) {
+  .ny-cap {
+    font-size: 12px;
+  }
+}
+
+/* Секунды мягко «дышат» — видно, что отсчёт живой */
+.ny-card-sec .ny-num {
+  animation: ny-tick 1s ease-in-out infinite;
+}
+@keyframes ny-tick {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 14px rgba(125, 180, 255, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 4px rgba(125, 180, 255, 0.12));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ny-bulb,
+  .ny-flake,
+  .ny-card-sec .ny-num {
+    animation: none;
+  }
+  .ny-flake {
+    display: none;
+  }
+}

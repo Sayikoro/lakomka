@@ -24,9 +24,9 @@ grep -q "navigator.share" "$SB" && grep -q "t.me/share/url" "$SB" && grep -q "wa
   || bad "ShareButton не соответствует ожиданиям"
 
 NY="$ROOT/src/components/home/NewYearCounter.tsx"
-grep -q "daysUntilNewYear" "$NY" && grep -q "pluralDays" "$NY" && \
+grep -q "timeUntilNewYearParts" "$NY" && grep -q "pluralDays" "$NY" && \
   grep -q "newyear_counter_enabled" "$NY" && grep -q "home_newyear_label" "$NY" \
-  && ok "NewYearCounter: дни, плюрализация, живая галочка, текст из реестра" \
+  && ok "NewYearCounter: отсчёт, плюрализация, живая галочка, текст из реестра" \
   || bad "NewYearCounter не соответствует ожиданиям"
 cat > /tmp/t141-ny.js <<'EOF'
 const fs = require("fs");
