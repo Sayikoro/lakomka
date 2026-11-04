@@ -86,6 +86,8 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "home_step3_text", label: "Шаг 3 — текст", area: true, def: "Доставим в согласованное время по Хабаровску или отправим ТК." },
       { key: "home_process_heading", label: "Блок процесса — заголовок", def: "Процесс оформления и обработки заказа" },
       { key: "home_brands_heading", label: "Блок фабрик — заголовок", def: "В наших подарках конфеты от фабрик" },
+      { key: "home_newyear_label", label: "Счётчик «До Нового года» — надпись ({days} — число, {days_word} — «день/дня/дней»)", def: "До Нового года осталось {days} {days_word}" },
+      { key: "home_newyear_hint", label: "Счётчик «До Нового года» — подпись под счётчиком", def: "Успейте заказать — доставим к празднику" },
     ],
   },
   {
@@ -105,6 +107,7 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "catalog_sort_label", label: "Надпись «Сортировка:»", def: "Сортировка:" },
       { key: "catalog_empty_result", label: "Пустой результат фильтров", def: "Ничего не нашлось. Попробуйте изменить фильтры." },
       { key: "catalog_recent_title", label: "Блок «Недавно смотрели» — заголовок", def: "Недавно смотрели" },
+      { key: "catalog_quick_view", label: "Кнопка быстрого просмотра товара", def: "Быстрый просмотр" },
     ],
   },
   {
@@ -167,6 +170,9 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "product_tab_details", label: "Вкладка «Детали»", def: "Детали" },
       { key: "product_tabs_composition", label: "Вкладка «Состав подарка»", def: "Состав подарка" },
       { key: "product_similar_title", label: "Блок «Похожие подарки» — заголовок", def: "Похожие подарки" },
+      { key: "product_share", label: "Кнопка «Поделиться»", def: "Поделиться" },
+      { key: "product_share_copied", label: "Подпись после копирования ссылки", def: "Ссылка скопирована" },
+      { key: "product_open_full", label: "Ссылка на полную карточку из быстрого просмотра", def: "Открыть карточку товара" },
     ],
   },
   {

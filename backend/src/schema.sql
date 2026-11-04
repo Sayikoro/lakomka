@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    -- Task 141: SEO категории (заполняется в админке; пусто — автогенерация)
+    meta_title TEXT NOT NULL DEFAULT '',
+    meta_description TEXT NOT NULL DEFAULT '',
+    seo_text TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS products (

@@ -581,6 +581,16 @@ $stmt->execute([$m[1]]);
         AdminSettingsController::testTelegram($pdo);
     }
 
+    /* ========== ADMIN: CATEGORIES SEO (Task 141) ========== */
+    if ($path === '/api/admin/categories' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminCategoriesController.php';
+        AdminCategoriesController::list($pdo);
+    }
+    if (preg_match('#^/api/admin/categories/(\d+)$#', $path, $m) && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminCategoriesController.php';
+        AdminCategoriesController::update($pdo, (int)$m[1]);
+    }
+
     /* ========== ADMIN: PRODUCTS ========== */
         if ($path === '/api/admin/products/import-zip' && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminProductsImportExportController.php';

@@ -29,8 +29,10 @@
  */
 class VisitGuard
 {
-    /** Типы событий, принимаемые от витрины (белый список). */
-    private const EVENT_TYPES = ['pageview', 'click', 'scroll', 'gift_view', 'cart_add', 'leave'];
+    /** Типы событий, принимаемые от витрины (белый список).
+     *  Task 141: gift_share — нажатие «Поделиться» в карточке товара
+     *  (meta.channel = native | telegram | whatsapp | vk | copy). */
+    private const EVENT_TYPES = ['pageview', 'click', 'scroll', 'gift_view', 'cart_add', 'leave', 'gift_share'];
 
     /** Классические сигнатуры ботов в User-Agent. */
     private const BOT_UA_RE =

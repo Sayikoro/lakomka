@@ -48,6 +48,10 @@ export interface AdminSettings {
   snow_size: string;
   snow_color: string;
   snow_flake: string;
+  /* Task 141: счётчик «До Нового года» на главной ("1"/"0") */
+  newyear_counter_enabled: string;
+  /* Task 141: быстрый просмотр товара из каталога ("1"/"0") */
+  quick_view_enabled: string;
 }
 
 const DEFAULTS: AdminSettings = {
@@ -87,6 +91,9 @@ const DEFAULTS: AdminSettings = {
   snow_size: "31",
   snow_color: "#f5f5f5",
   snow_flake: "",
+  /* Task 141: обе фичи по умолчанию включены (ключа нет в БД — витрина уже показывает) */
+  newyear_counter_enabled: "1",
+  quick_view_enabled: "1",
 };
 
 export default function AdminSettingsPage() {

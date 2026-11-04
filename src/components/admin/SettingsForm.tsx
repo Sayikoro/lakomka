@@ -273,6 +273,9 @@ export function SettingsForm({ initial }: Props) {
           product_card_template: form.product_card_template || "new",
           card_video_enabled: form.card_video_enabled === "1" ? "1" : "0",
           snow_enabled: form.snow_enabled === "1" ? "1" : "0",
+          /* Task 141: счётчик «До Нового года» и быстрый просмотр */
+          newyear_counter_enabled: form.newyear_counter_enabled === "1" ? "1" : "0",
+          quick_view_enabled: form.quick_view_enabled === "1" ? "1" : "0",
           snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
           snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),
           snow_speed: String(Math.max(0.1, Math.min(20, parseFloat(form.snow_speed || "0.5") || 0.5))),
@@ -772,6 +775,46 @@ export function SettingsForm({ initial }: Props) {
             </label>
             <p className="mt-1 text-xs text-[var(--color-muted)]">
               Когда товаров с видео много, каталог грузится медленно. Выключите — в карточках останутся только фото, видео по-прежнему будет на странице товара.
+            </p>
+          </div>
+
+          {/* Task 141: счётчик «До Нового года» */}
+          <div className="mt-4 rounded-lg border border-[var(--color-border)] p-4" data-testid="toggle-newyear">
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.newyear_counter_enabled === "1"}
+                onChange={(e) =>
+                  setField("newyear_counter_enabled", e.target.checked ? "1" : "0")
+                }
+                className="h-4 w-4 accent-[var(--color-primary)]"
+              />
+              <span className="text-sm font-medium text-[var(--color-heading)]">
+                Счётчик «До Нового года» на главной
+              </span>
+            </label>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Полоска под главным экраном: «До Нового года осталось N дней» и подпись. Текст правится в разделе «Текст на страницах» → «Главная». Сезонная фича — после праздников просто снимите галочку.
+            </p>
+          </div>
+
+          {/* Task 141: быстрый просмотр из каталога */}
+          <div className="mt-4 rounded-lg border border-[var(--color-border)] p-4" data-testid="toggle-quickview">
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={form.quick_view_enabled === "1"}
+                onChange={(e) =>
+                  setField("quick_view_enabled", e.target.checked ? "1" : "0")
+                }
+                className="h-4 w-4 accent-[var(--color-primary)]"
+              />
+              <span className="text-sm font-medium text-[var(--color-heading)]">
+                Быстрый просмотр товара в каталоге
+              </span>
+            </label>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Кнопка-глаз на карточке открывает компактную модалку: фото, цена, «В корзину» — без перехода в карточку товара. Полная карточка остаётся по кнопке «Перейти».
             </p>
           </div>
         </div>

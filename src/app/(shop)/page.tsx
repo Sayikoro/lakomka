@@ -3,6 +3,8 @@ import { CategoryGrid } from "@/components/home/CategoryGrid";
 import { ProcessSteps } from "@/components/home/ProcessSteps";
 import { BrandLogos } from "@/components/home/BrandLogos";
 import { Hero } from "@/components/home/Hero";
+import { NewYearCounter } from "@/components/home/NewYearCounter";
+import { daysUntilNewYear } from "@/lib/newyear";
 import { getPublicSettings, DEFAULT_FRONT_SETTINGS } from "@/lib/settings";
 import { getCategories, getProducts } from "@/lib/products";
 import type { Metadata } from "next";
@@ -41,9 +43,10 @@ export default async function HomePage() {
         snow={cfg.snow}
       />
 
-      {/* Контент, заезжающий на hero: выше слой, тень. Вырез «наружу»:
-          вогнутые сопряжения уходят к краям экрана вверх, картинка
-          по бокам не торчит, а плавно срезается вырезом */}
+      {/* Task 141: счётчик «До Нового года» — полоска сразу под hero
+          (первый блок заезжающего контента, поверх сопряжений).
+          Выключается галочкой в Настройках (запечённое значение + живая
+          сверка после монтирования, как у hero/снегопада). */}
       <div className="relative z-10 bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
         <svg
           aria-hidden
@@ -59,6 +62,12 @@ export default async function HomePage() {
         >
           <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
+        {/* Task 141: счётчик «До Нового года» — сразу под hero */}
+        <NewYearCounter
+          enabled={cfg.newyear_counter_enabled}
+          initialDays={daysUntilNewYear()}
+        />
+
         {/* Info cards — СКИДКА / ДОСТАВКА / ОПЛАТА */}
         <section className="mx-auto max-w-[1200px] px-4 pt-10">
           <InfoCards />

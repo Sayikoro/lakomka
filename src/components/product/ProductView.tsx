@@ -18,6 +18,7 @@ import { trackGiftView } from "@/lib/visit-tracker";
 import { recordRecentlyViewed } from "@/lib/recently-viewed";
 import { useT } from "@/components/texts/TextsProvider";
 import { AddToCart } from "@/components/ui/AddToCart";
+import { ShareButton } from "@/components/ui/ShareButton";
 import { ProductGallery } from "@/components/ui/ProductGallery";
 import { ProductTabs } from "@/components/ui/ProductTabs";
 import { ProductCard } from "@/components/ui/ProductCard";
@@ -104,6 +105,12 @@ export function ProductView({
           </div>
 
           <AddToCart product={product} />
+
+          {/* Task 141: кнопка «Поделиться» — системный шаринг на телефоне,
+              Telegram/WhatsApp/VK/копирование на десктопе */}
+          <div>
+            <ShareButton slug={product.slug} name={product.name} />
+          </div>
 
           {(formatWeightLine(product.weight_g) || formatDimsLine(product.length_cm, product.width_cm, product.height_cm)) && (
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-[var(--color-body)]">
