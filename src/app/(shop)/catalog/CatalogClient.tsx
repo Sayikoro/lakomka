@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductCardNew } from "@/components/ui/ProductCardNew";
 import { SmartImg } from "@/components/ui/SmartImg";
@@ -8,6 +9,8 @@ import { DualSlider, SORT_OPTIONS, priceLabel, weightLabel } from "@/components/
 import type { SortKey } from "@/components/ui/DualSlider";
 import { useT } from "@/components/texts/TextsProvider";
 import { fetchLiveProducts, productsDiffer } from "@/lib/product-api";
+import { getRecentlyViewed } from "@/lib/recently-viewed";
+import { formatPrice } from "@/lib/utils";
 import type { Category } from "@/lib/products";
 import { mockCategories } from "@/lib/mock-data";
 import type { Product } from "@/lib/types";
@@ -55,6 +58,38 @@ function buildPageList(current: number, total: number): (number | "dots")[] {
     prev = n;
   }
   return out;
+}
+
+/** Task 139: компактная карточка «Недавно смотрели» (фото + название + цена) */
+function RecentCard({ product }: { product: Product }) {
+  const cover = product.images[0]?.url;
+  return (
+    <Link
+      href={`/product/${product.slug}`}
+      className="group flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-white p-2 transition-colors hover:border-[var(--color-primary)]"
+    >
+      {cover ? (
+        <SmartImg
+          src={cover}
+          alt={product.name}
+          loading="lazy"
+          wrapperClassName="h-14 w-14 shrink-0 rounded-lg"
+          skeletonClassName="rounded-lg"
+          className="h-14 w-14 rounded-lg object-cover"
+        />
+      ) : (
+        <span aria-hidden className="img-skeleton block h-14 w-14 shrink-0 rounded-lg" />
+      )}
+      <span className="min-w-0">
+        <span className="line-clamp-2 block text-xs font-medium leading-snug text-[var(--color-heading)] group-hover:text-[var(--color-primary)]">
+          {product.name}
+        </span>
+        <span className="mt-0.5 block text-sm font-semibold text-[var(--color-heading)]">
+          {formatPrice(product.price_kopecks)}
+        </span>
+      </span>
+    </Link>
+  );
 }
 
 export function CatalogClient({
@@ -207,6 +242,26 @@ export function CatalogClient({
     liveProducts.forEach((p) => p.category_id && present.add(p.category_id));
     return categories.filter((c) => present.has(c.id));
   }, [liveProducts, categories]);
+
+  /* ── Task 139: «Недавно смотрели» ──
+     История хранится в localStorage (пишется на карточке товара),
+     после монтирования читаем slug'и и сопоставляем с живым каталогом.
+     До монтирования список пуст — рассинхрона гидратации нет.
+     Показ: в сайдбаре под фильтрами (xl+), на телефоне/планшете —
+     внизу страницы, под сеткой товаров. */
+  const [recentSlugs, setRecentSlugs] = useState<string[]>([]);
+  useEffect(() => {
+    // setState — в микротаске (react-hooks v6 запрещает синхронный setState в эффекте)
+    void Promise.resolve().then(() => setRecentSlugs(getRecentlyViewed()));
+  }, []);
+  const recentProducts = useMemo(() => {
+    if (recentSlugs.length === 0) return [];
+    const bySlug = new Map(liveProducts.map((p) => [p.slug, p] as const));
+    return recentSlugs
+      .map((s) => bySlug.get(s))
+      .filter((p): p is Product => !!p)
+      .slice(0, 3);
+  }, [recentSlugs, liveProducts]);
 
   /* Миниатюры-кнопки фильтров: пул первых картинок товаров категории,
      как на главной. Рандом выбирается только на клиенте после монтирования
@@ -461,6 +516,24 @@ export function CatalogClient({
             {t("catalog_reset")}
           </button>
         )}
+
+        {/* Task 139: «Недавно смотрели» — под фильтрами в сайдбаре (только xl+,
+            на телефоне/планшете тот же блок внизу страницы) */}
+        {recentProducts.length > 0 && (
+          <div
+            data-testid="recently-viewed-aside"
+            className="hidden border-t border-[var(--color-border)] pt-4 xl:block"
+          >
+            <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">
+              {t("catalog_recent_title")}
+            </div>
+            <div className="space-y-2">
+              {recentProducts.map((p) => (
+                <RecentCard key={p.id} product={p} />
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
 
       <section>
@@ -587,6 +660,25 @@ export function CatalogClient({
           </nav>
         )}
       </section>
+
+      {/* Task 139: «Недавно смотрели» — на телефоне/планшете в самом низу
+          (на xl+ этот блок в сайдбаре под фильтрами, здесь он скрыт) */}
+      {recentProducts.length > 0 && (
+        <section
+          data-testid="recently-viewed-bottom"
+          className="xl:hidden"
+          aria-label={t("catalog_recent_title")}
+        >
+          <h2 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
+            {t("catalog_recent_title")}
+          </h2>
+          <div className="space-y-2 sm:space-y-3">
+            {recentProducts.map((p) => (
+              <RecentCard key={p.id} product={p} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

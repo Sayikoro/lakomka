@@ -18,6 +18,12 @@ set_error_handler(function ($errno, $errstr, $errfile, $errline) {
 
 header('Content-Type: application/json; charset=utf-8');
 
+/* Task 139 (аудит безопасности): API отвечает только JSON — запретим
+   браузеру сниффить MIME (X-Content-Type-Options) и запрещаем iframe
+   с ответами API (clickjacking через вложение JSON не имеет смысла). */
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+
 // CORS: отдаём разрешённые origin из конфига (или same-origin — заголовки не нужны).
 // При same-origin проксировании (прод, превью) браузер сам не требует CORS.
 $_corsConfig = require __DIR__ . '/../config.php';
@@ -224,6 +230,48 @@ $stmt->execute([$m[1]]);
         }
 
         jsonResponse(['data' => $product]);
+    }
+
+    /* Task 139: похожие подарки для карточки товара — та же категория
+       (приоритет), затем ближайшие по цене; сам товар исключается.
+       Компактная выдача (4 товара с медиа) для блока «Похожие подарки». */
+    if (preg_match('#^/api/products/([a-z0-9-]+)/similar$#', $path, $m) && $method === 'GET') {
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'product', [[60, 120], [3600, 3000]]);
+
+        $stmt = $pdo->prepare(
+            "SELECT id, category_id, price_kopecks FROM products
+             WHERE slug = ? AND is_published = 1
+               AND type IN ('simple', 'bundle') AND deleted_at IS NULL"
+        );
+        $stmt->execute([$m[1]]);
+        $self = $stmt->fetch();
+        if (!$self) jsonResponse(['error' => 'Not found'], 404);
+
+        $sim = $pdo->prepare(
+            "SELECT p.* FROM products p
+             WHERE p.is_published = 1
+               AND p.show_in_catalog = 1
+               AND p.type IN ('simple', 'bundle')
+               AND p.deleted_at IS NULL
+               AND p.id != ?
+             ORDER BY (p.category_id IS NOT NULL AND p.category_id = ?) DESC,
+                      ABS(p.price_kopecks - ?) ASC,
+                      p.id DESC
+             LIMIT 4"
+        );
+        $sim->execute([
+            (int)$self['id'],
+            $self['category_id'] !== null ? (int)$self['category_id'] : -1,
+            (int)$self['price_kopecks'],
+        ]);
+        $similar = $sim->fetchAll() ?: [];
+        foreach ($similar as &$s) {
+            hydrateImages($pdo, $s);
+        }
+        unset($s);
+
+        jsonResponse(['data' => $similar]);
     }
 
     if ($path === '/api/categories' && $method === 'GET') {

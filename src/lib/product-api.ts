@@ -190,6 +190,23 @@ export async function fetchLiveProductBySlug(
   }
 }
 
+/** Task 139: похожие подарки (та же категория / ближайшая цена). */
+export async function fetchLiveSimilarProducts(
+  slug: string,
+): Promise<Product[] | null> {
+  try {
+    const res = await fetch(
+      `/api/products/${encodeURIComponent(slug)}/similar`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: ApiProduct[] };
+    return (json.data ?? []).map(normalizeProduct);
+  } catch {
+    return null;
+  }
+}
+
 /** Изменились ли данные (быстрое сравнение по JSON — объёмы небольшие) */
 export function productsDiffer(a: Product[] | null, b: Product[] | null): boolean {
   if (a === b) return false;

@@ -41,6 +41,8 @@ interface GiftRow {
   name: string;
   views: number;
   cart_adds: number;
+  /* Task 139: конверсия просмотр → «в корзину», % */
+  conv: number | null;
   sessions: number;
   price_kopecks: number | null;
   cover: string | null;
@@ -268,7 +270,9 @@ export default function AdminAnalyticsPage() {
   }, [apiUrl, days, sessionFilter]);
 
   useEffect(() => {
-    void load();
+    /* Микротаск: setLoading(true) внутри load() синхронно дёргает setState —
+       react-hooks v6 требует отложить вызов из эффекта (как в orders-page). */
+    void Promise.resolve().then(() => load());
   }, [load]);
 
   /* Роль — для кнопки очистки */
@@ -488,6 +492,7 @@ export default function AdminAnalyticsPage() {
                       <th className="px-4 py-2 text-right font-medium">Просмотры</th>
                       <th className="px-4 py-2 text-right font-medium">Посетители</th>
                       <th className="px-4 py-2 text-right font-medium">В корзину</th>
+                      <th className="px-4 py-2 text-right font-medium">Конверсия</th>
                       <th className="px-4 py-2 text-right font-medium">Цена</th>
                     </tr>
                   </thead>
@@ -519,6 +524,22 @@ export default function AdminAnalyticsPage() {
                           {g.cart_adds > 0 ? (
                             <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
                               {fmtNum(g.cart_adds)}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--color-muted)]">—</span>
+                          )}
+                        </td>
+                        {/* Task 139: конверсия просмотр → «в корзину» */}
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {g.conv != null && g.views > 0 ? (
+                            <span
+                              className={
+                                g.conv >= 10
+                                  ? "font-medium text-green-700"
+                                  : "text-[var(--color-body)]"
+                              }
+                            >
+                              {g.conv}%
                             </span>
                           ) : (
                             <span className="text-[var(--color-muted)]">—</span>

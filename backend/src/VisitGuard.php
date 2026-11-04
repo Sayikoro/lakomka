@@ -225,6 +225,20 @@ class VisitGuard
             }
         }
 
+        // 6) Task 139: клики есть, а движений мыши/касаний/клавиатуры нет —
+        //    программа жмёт element.click() из DOM (ИИ-агенты и скрипты):
+        //    человек перед кликом хотя бы шевелит мышью или печатает.
+        //    Тач-пользователи исключены (ts > 0), клавиатурные — kd > 0.
+        //    Одиночный признак мягкий (+25): сам по себе даёт только
+        //    «Подозрение», бот — в сочетании с другими флагами.
+        if ($envSent && $clicks >= 3
+            && (int)($env['mm'] ?? 0) === 0
+            && (int)($env['ts'] ?? 0) === 0
+            && (int)($env['kd'] ?? 0) === 0) {
+            $score += 25;
+            $flags[] = 'click-no-move';
+        }
+
         return ['score' => min($score, 100), 'flags' => $flags, 'no_input' => $noInput];
     }
 
@@ -528,6 +542,7 @@ class VisitGuard
         /* Поведенческий бот-детект: ≥ 25 pageview за 2 минуты у сессии,
            которая не бот по UA. Проверяется ПОСЛЕ отпечатка и перекрывает
            его причину — флуд страниц сильнее «мягких» признаков. */
+        $behaviorMarked = false;
         if (!$isBot && $views > 0) {
             $recent = $pdo->prepare(
                 "SELECT COUNT(*) FROM visit_events
@@ -538,7 +553,18 @@ class VisitGuard
                 $pdo->prepare(
                     "UPDATE visit_sessions SET is_bot = 1, bot_reason = 'behavior' WHERE id = ?"
                 )->execute([$sessionId]);
+                $behaviorMarked = true;
             }
+        }
+
+        /* Task 139: всплеск страниц в одном батче — человек за окно флэша
+           (6 с) открывает 1–3 страницы, скрипт прогоняет десятки переходов
+           из очереди. ≥ 8 pageview в одном батче — бот. Причина флуда
+           (behavior) сильнее — не перетираем её всплеском. */
+        if (!$isBot && !$behaviorMarked && $views >= 8) {
+            $pdo->prepare(
+                "UPDATE visit_sessions SET is_bot = 1, bot_reason = 'behavior-burst' WHERE id = ?"
+            )->execute([$sessionId]);
         }
 
         /* Периодическая чистка: события 90 дней, сессии и боты — 180. */

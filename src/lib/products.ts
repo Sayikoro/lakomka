@@ -50,6 +50,22 @@ export async function lookupLegacySlug(legacySlug: string): Promise<string | nul
   } catch { return null; }
 }
 
+/* Task 139: похожие подарки — запекаются при сборке (мгновенный рендер
+   и SEO), после монтирования ProductLive обновляет их с живого API. */
+export async function getSimilarProducts(slug: string): Promise<Product[]> {
+  try {
+    const res = await fetch(
+      `${API_URL}/products/${encodeURIComponent(slug)}/similar`,
+      { cache: FETCH_CACHE }
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data: ApiProduct[] };
+    return (json.data ?? []).map(normalizeProduct);
+  } catch {
+    return [];
+  }
+}
+
 export async function getCategories(): Promise<Category[]> {
   try {
     const res = await fetch(`${API_URL}/categories`, { cache: FETCH_CACHE });

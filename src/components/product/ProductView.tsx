@@ -13,11 +13,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { fetchLiveProductBySlug, productsDiffer } from "@/lib/product-api";
+import { fetchLiveProductBySlug, fetchLiveSimilarProducts, productsDiffer } from "@/lib/product-api";
 import { trackGiftView } from "@/lib/visit-tracker";
+import { recordRecentlyViewed } from "@/lib/recently-viewed";
+import { useT } from "@/components/texts/TextsProvider";
 import { AddToCart } from "@/components/ui/AddToCart";
 import { ProductGallery } from "@/components/ui/ProductGallery";
 import { ProductTabs } from "@/components/ui/ProductTabs";
+import { ProductCard } from "@/components/ui/ProductCard";
 import { formatPrice } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
@@ -44,7 +47,15 @@ function formatDimsLine(
   return `${fmt(l)} × ${fmt(w)} × ${fmt(h)} см`;
 }
 
-export function ProductView({ product }: { product: Product }) {
+export function ProductView({
+  product,
+  similar = [],
+}: {
+  product: Product;
+  /** Task 139: похожие подарки (по умолчанию пусто — блок не рисуется) */
+  similar?: Product[];
+}) {
+  const t = useT();
   const hasDiscount =
     product.old_price_kopecks && product.old_price_kopecks > product.price_kopecks;
 
@@ -143,6 +154,24 @@ export function ProductView({ product }: { product: Product }) {
       <div className="mt-6 sm:mt-10">
         <ProductTabs product={product} />
       </div>
+
+      {/* Task 139: похожие подарки — та же категория, затем ближайшие по цене.
+          Карточки без видео (политика витрины «смотрим только картинки»). */}
+      {similar.length > 0 && (
+        <section className="mt-8 sm:mt-12" aria-label={t("product_similar_title")}>
+          <h2 className="mb-4 text-xl font-semibold text-[var(--color-heading)] sm:text-2xl">
+            {t("product_similar_title")}
+          </h2>
+          <div
+            data-testid="product-similar"
+            className="grid grid-cols-2 gap-4 md:grid-cols-4"
+          >
+            {similar.slice(0, 4).map((p) => (
+              <ProductCard key={p.id} product={p} showVideos={false} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -150,15 +179,21 @@ export function ProductView({ product }: { product: Product }) {
 export function ProductLive({
   slug,
   initial,
+  initialSimilar = [],
 }: {
   slug: string;
   initial: Product;
+  /** Task 139: запечённые похожие подарки (мгновенный рендер) */
+  initialSimilar?: Product[];
 }) {
   const [product, setProduct] = useState<Product>(initial);
+  const [similar, setSimilar] = useState<Product[]>(initialSimilar);
 
-  /* Task 133: аналитика — просмотр карточки подарка (slug + название) */
+  /* Task 133: аналитика — просмотр карточки подарка (slug + название).
+     Task 139: локальная история «Недавно смотрели» (localStorage). */
   useEffect(() => {
     trackGiftView(slug, product.name || initial.name);
+    recordRecentlyViewed(slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -177,5 +212,21 @@ export function ProductLive({
     };
   }, [slug]);
 
-  return <ProductView product={product} />;
+  /* Task 139: живые похожие подарки — на развёрнутом сайте блок
+     обновляется без пересборки (новые товары, смены категорий/цен).
+     API недоступен — остаются запечённые при сборке. */
+  useEffect(() => {
+    let cancelled = false;
+    fetchLiveSimilarProducts(slug)
+      .then((fresh) => {
+        if (cancelled || !fresh || fresh.length === 0) return;
+        setSimilar((cur) => (productsDiffer(cur, fresh) ? fresh : cur));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  return <ProductView product={product} similar={similar} />;
 }

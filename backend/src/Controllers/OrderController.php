@@ -26,6 +26,27 @@ class OrderController
         $comment = trim((string)($payload['comment'] ?? ''));
         $items   = $payload['items'] ?? [];
 
+        /* Task 139: honeypot «company_site» — скрытое поле формы заказа,
+           человек его не видит и не заполняет, а скрипты автозаполнения
+           и боты заполняют всё подряд. Попадание — запись в bot_hits
+           (раздел «Боты» аналитики) и отказ без создания заказа. */
+        $honeypot = trim((string)($payload['company_site'] ?? ''));
+        if ($honeypot !== '') {
+            try {
+                require_once __DIR__ . '/../VisitGuard.php';
+                VisitGuard::recordBotHit(
+                    $pdo,
+                    VisitGuard::ipHash(),
+                    VisitGuard::ipMask(),
+                    VisitGuard::userAgent(),
+                    'POST /api/orders (honeypot)'
+                );
+            } catch (Throwable $ignored) {
+                // учёт ботов не должен ломать ответ заказа
+            }
+            self::fail('Не удалось оформить заказ. Попробуйте ещё раз.', 422);
+        }
+
         if ($name === '')  self::fail('Укажите имя', 422);
         if ($phone === '') self::fail('Укажите телефон', 422);
         if (mb_strlen($name) > 100)    $name = mb_substr($name, 0, 100);

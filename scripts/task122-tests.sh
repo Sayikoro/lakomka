@@ -63,8 +63,9 @@ echo "── 3. Юнит: videoHealth и пре-чек ──"
 T=/tmp/t122-unit; rm -rf "$T"; mkdir -p "$T"
 # файл-дыра: правильный размер, сплошные нули (точно как на проде)
 head -c 2097152 /dev/zero > "$T/zero.mov"
-# мусорный заголовок (не ISO-BMFF)
-head -c 65536 /dev/urandom > "$T/garbage.mov"
+# мусорный заголовок (не ISO-BMFF): первые байты фиксируем — boxSize=0 →
+# детерминированный broken (чистый urandom проходил проверку ~30% прогонов)
+{ printf '\x00\x00\x00\x00garb'; head -c 65528 /dev/urandom; } > "$T/garbage.mov"
 # коротыш: 2 НЕнулевых байта — меньше минимального бокса → broken
 printf '\x12\x34' > "$T/short.mov"
 # нулевой файл (0 байт)

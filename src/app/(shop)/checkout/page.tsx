@@ -25,6 +25,10 @@ const schema = z
     delivery_method: z.enum(["pickup", "city", "region", "tk"]),
     address: z.string().optional(),
     comment: z.string().optional(),
+    /* Task 139: honeypot — скрытое поле-ловушка. Человек его не видит
+       и не заполняет; боты и автозаполнение заполняют всё подряд.
+       Непустое значение — сервер отклоняет заказ и пишет бота в bot_hits. */
+    company_site: z.string().optional(),
   })
   .refine(
     (d) => d.delivery_method === "pickup" || (d.address && d.address.length > 5),
@@ -76,6 +80,7 @@ export default function CheckoutPage() {
       customer_email: "",
       address: "",
       comment: "",
+      company_site: "",
     },
   });
 
@@ -162,6 +167,20 @@ export default function CheckoutPage() {
         onSubmit={handleSubmit(onSubmit)}
         className="grid gap-8 lg:grid-cols-[1fr_360px]"
       >
+        {/* Task 139: honeypot-ловушка для ботов. display:none + tabIndex -1 +
+            autoComplete off: человек поле не видит и не заполняет. */}
+        <div aria-hidden="true" className="hidden">
+          <label>
+            Сайт компании (не заполнять)
+            <input
+              {...register("company_site")}
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+            />
+          </label>
+        </div>
+
         <div className="space-y-5 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white p-6">
           <div>
             <label className={labelClass}>{t("checkout_name_label")}</label>

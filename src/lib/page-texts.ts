@@ -104,6 +104,7 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "catalog_pages", label: "Счётчик страниц ({page} и {pages} — числа)", def: "Страница {page} из {pages}" },
       { key: "catalog_sort_label", label: "Надпись «Сортировка:»", def: "Сортировка:" },
       { key: "catalog_empty_result", label: "Пустой результат фильтров", def: "Ничего не нашлось. Попробуйте изменить фильтры." },
+      { key: "catalog_recent_title", label: "Блок «Недавно смотрели» — заголовок", def: "Недавно смотрели" },
     ],
   },
   {
@@ -165,6 +166,7 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "product_tab_description", label: "Вкладка «Описание»", def: "Описание" },
       { key: "product_tab_details", label: "Вкладка «Детали»", def: "Детали" },
       { key: "product_tabs_composition", label: "Вкладка «Состав подарка»", def: "Состав подарка" },
+      { key: "product_similar_title", label: "Блок «Похожие подарки» — заголовок", def: "Похожие подарки" },
     ],
   },
   {

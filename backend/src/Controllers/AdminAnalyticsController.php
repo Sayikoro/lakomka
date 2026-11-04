@@ -159,11 +159,15 @@ class AdminAnalyticsController
         foreach ($views as $r) {
             $slug = (string)$r['slug'];
             $p = $prodBySlug[$slug] ?? null;
+            $viewsN = (int)$r['views'];
+            $cartN = (int)$r['cart_adds'];
             $out[] = [
                 'slug' => $slug,
                 'name' => $p['name'] ?? (string)$r['name'] ?: $slug,
-                'views' => (int)$r['views'],
-                'cart_adds' => (int)$r['cart_adds'],
+                'views' => $viewsN,
+                'cart_adds' => $cartN,
+                /* Task 139: конверсия просмотр → «в корзину», % (0 просмотров → null) */
+                'conv' => $viewsN > 0 ? (int)round($cartN * 100 / $viewsN) : null,
                 'sessions' => (int)$r['sessions'],
                 'price_kopecks' => $p !== null ? (int)$p['price_kopecks'] : null,
                 'cover' => $p !== null ? ($coverByPid[(int)$p['id']] ?? null) : null,

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 
-import { getProductBySlug, getProducts, lookupLegacySlug } from "@/lib/products";
+import { getProductBySlug, getProducts, getSimilarProducts, lookupLegacySlug } from "@/lib/products";
 import { ProductLive } from "@/components/product/ProductView";
 import { ProductJsonLd } from "@/components/seo/ProductJsonLd";
 
@@ -88,11 +88,14 @@ export default async function ProductPage({ params }: PageProps) {
      (SEO/мгновенный рендер), затем подтягивает свежий товар с API —
      цены/фото/видео на развёрнутом сайте обновляются без пересборки.
      Новые товары (созданные после сборки) открывает «спасение» на 404
-     (NotFoundView → ProductView). JSON-LD остаётся запечённым. */
+     (NotFoundView → ProductView). JSON-LD остаётся запечённым.
+     Task 139: похожие подарки — запекаются при сборке (мгновенный рендер),
+     после монтирования ProductLive обновляет их с живого API. */
+  const similar = await getSimilarProducts(product.slug).catch(() => []);
   return (
     <>
       <ProductJsonLd product={product} />
-      <ProductLive slug={product.slug} initial={product} />
+      <ProductLive slug={product.slug} initial={product} initialSimilar={similar} />
     </>
   );
 }
