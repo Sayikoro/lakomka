@@ -48,7 +48,11 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   hero_slider_enabled: false,
   hero_slides: [],
   product_card_template: "new",
-  card_video_enabled: true,
+  /* Task 138: видео в карточках по умолчанию ВЫКЛЮЧЕНО — у 165 из 271 товаров
+     есть видео-медиа, каждая карточка с видео монтирует <video> и браузер
+     начинает качать файлы сразу при открытии каталога (Safari — особенно
+     агрессивно). Владелец держит галочку выключенной на проде. */
+  card_video_enabled: false,
   ym_id: "",
   metrika_code: "",
   snow: DEFAULT_SNOW_SETTINGS,
@@ -96,9 +100,10 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
         ? d.hero_slides.filter((s) => s && typeof s.url === "string" && s.url)
         : [],
       product_card_template: template,
-      /* По умолчанию видео показываем (историческое поведение); false —
-         только когда владелец явно выключил галочку в админке */
-      card_video_enabled: d.card_video_enabled !== false,
+      /* Task 138: видео в карточках включается ТОЛЬКО явной галочкой в админке
+         (true в API). Отсутствие ключа/битое значение = выключено — витрина
+         не должна качать видео, пока владелец сам их не включит. */
+      card_video_enabled: d.card_video_enabled === true,
       /* Счётчик Метрики: бэкенд отдаёт только валидные цифры или пусто */
       ym_id: typeof d.ym_id === "string" ? d.ym_id : "",
       /* Встраиваемый блок Метрики (Task 114) — бэкенд отдаёт как есть */

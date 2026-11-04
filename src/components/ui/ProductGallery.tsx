@@ -87,7 +87,10 @@ export function ProductGallery({ media, productName }: Props) {
         <div className="flex flex-wrap gap-2">
           {sorted.map((item, i) => (
             <button
-              key={item.id}
+              /* Task 138: ключ по URL — медиа-id из БД меняются при перезаливках,
+                 из-за чего миниатюры (и их картинки) перемонтировались при
+                 обновлении живых данных; URL стабилен */
+              key={`${item.type}-${item.url}`}
               type="button"
               onClick={() => setActive(i)}
               aria-label={`Медиа ${i + 1}`}

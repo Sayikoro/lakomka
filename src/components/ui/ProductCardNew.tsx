@@ -33,13 +33,20 @@ function isLocalVideo(url: string): boolean {
   return url.startsWith("/uploads/") || /\.(mp4|webm)(\?|$)/i.test(url);
 }
 
-/** Локальное видео-слайд с прелоадером: спиннер, пока кадры не готовы к показу */
+/** Локальное видео-слайд с прелоадером: спиннер, пока кадры не готовы к показу.
+ *  Task 138: preload="none" + poster — браузер НЕ качает видео, пока слайд
+ *  не стал активным (play() запускает загрузку). Раньше кадры префетчились
+ *  метаданными и Safari/Chrome качали каждый видео-слайд всех карточек сразу
+ *  при открытии каталога — мегабайты впустую. Пока видео не играет,
+ *  показывается постер (фото товара) вместо чёрного квадрата. */
 function SlideVideo({
   url,
+  poster,
   registerRef,
   className,
 }: {
   url: string;
+  poster: string | null;
   registerRef: (el: HTMLVideoElement | null) => void;
   className: string;
 }) {
@@ -65,10 +72,11 @@ function SlideVideo({
       <video
         ref={attachVideo}
         src={url}
+        poster={poster ?? undefined}
         muted
         loop
         playsInline
-        preload="metadata"
+        preload="none"
         onLoadedData={() => setReady(true)}
         onCanPlay={() => setReady(true)}
         onError={() => setReady(true)}
@@ -223,7 +231,12 @@ export function ProductCardNew({
 
             {media.map((m, i) => (
               <div
-                key={m.id}
+                /* Task 138: ключ — по URL, не по id из БД. Идентификаторы медиа
+                   в dev-БД сборки и на проде расходятся (перезаливки файлов),
+                   и при подмене запечённых данных живыми с /api/products все
+                   слайды перемонтировались: картинки гасли в скелетон и
+                   проявлялись заново — «все картинки моргают» после загрузки. */
+                key={`${m.type}-${m.url}`}
                 aria-hidden={i !== active}
                 className="absolute inset-0 transition-opacity duration-300 ease-out"
                 style={{
@@ -243,6 +256,7 @@ export function ProductCardNew({
                 ) : isLocalVideo(m.url) ? (
                   <SlideVideo
                     url={m.url}
+                    poster={posterUrl}
                     registerRef={(el) => {
                       if (el) videoRefs.current.set(i, el);
                       else videoRefs.current.delete(i);
