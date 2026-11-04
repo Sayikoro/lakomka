@@ -24,6 +24,15 @@ export function ProductCard({ product, showVideos = true }: Props) {
   const add = useCart((s) => s.add);
   const [hover, setHover] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  /* Task 140: зелёная галочка после добавления — как в карточке каталога
+     (ProductCardNew): нажал — корзина приняла, ответ на месте. */
+  const [added, setAdded] = useState(false);
+
+  const quickAdd = () => {
+    add(product, 1);
+    setAdded(true);
+    window.setTimeout(() => setAdded(false), 1400);
+  };
 
   const hasDiscount =
     product.old_price_kopecks && product.old_price_kopecks > product.price_kopecks;
@@ -109,7 +118,11 @@ export function ProductCard({ product, showVideos = true }: Props) {
           {product.name}
         </Link>
 
-        <div className="mt-auto flex items-end justify-between gap-2">
+        {/* Task 140: кнопка «в корзину» — круглая, с иконкой корзины, как в
+            карточках каталога (ProductCardNew): цена слева, справа круглая
+            кнопка; после добавления — зелёная галочка. Иконка «проезжает»
+            при наведении — тот же приём, что у стрелки «Перейти». */}
+        <div className="mt-auto flex items-center justify-between gap-2">
           <div className="flex flex-col">
             <span className="text-lg font-semibold text-[var(--color-heading)]">
               {formatPrice(product.price_kopecks)}
@@ -123,11 +136,64 @@ export function ProductCard({ product, showVideos = true }: Props) {
 
           <button
             type="button"
-            onClick={() => add(product, 1)}
-            className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-primary-hover)] active:scale-95"
+            onClick={quickAdd}
             aria-label={`Добавить «${product.name}» в корзину`}
+            title="Добавить в корзину"
+            className={`group/cart relative grid h-9 w-9 shrink-0 place-items-end overflow-hidden rounded-full text-white outline-none transition-all duration-150 ease-out active:scale-90 sm:h-11 sm:w-11 ${
+              added
+                ? "bg-[#2e9e5b]"
+                : "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]"
+            }`}
           >
-            В корзину
+            {added ? (
+              <svg
+                viewBox="0 0 24 24"
+                className="h-5 w-5 place-self-center"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M4.5 12.5l5 5L20 7" />
+              </svg>
+            ) : (
+              /* Корзинка «проезжает» через кнопку при наведении — как у
+                 круглых кнопок в каталоге: лента 200% ширины, на hover
+                 уезжает вправо (place-items-end на самой кнопке). */
+              <span className="grid h-full w-[200%] grid-cols-2 place-items-center transition-transform duration-150 ease-out group-hover/cart:translate-x-1/2">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-[19px] w-[19px]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
+                </svg>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-[19px] w-[19px]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <circle cx="9" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <circle cx="17.5" cy="20" r="1.4" fill="currentColor" stroke="none" />
+                  <path d="M2.5 3.5h2.2l2.5 12h11.2l2.1-8.6H6.1" />
+                </svg>
+              </span>
+            )}
+            <span className="sr-only">Добавить в корзину</span>
           </button>
         </div>
       </div>
