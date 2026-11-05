@@ -62,11 +62,16 @@ const bad = (s) => { FAIL++; console.log("  FAIL " + s); };
     if (!el) return null;
     const text = (el.textContent || "").replace(/\s+/g, " ").trim();
     const rect = el.getBoundingClientRect();
-    const hero = document.querySelector("section[aria-label]");
+    /* Task 143: блок между плитками СКИДКА/ДОСТАВКА/ОПЛАТА и категориями */
+    const info = document.querySelector('[data-testid="home-info"]');
+    const cats = document.querySelector('[data-testid="home-cats"]');
     return {
       text,
       visible: rect.height > 20,
-      afterHero: hero ? rect.top >= hero.getBoundingClientRect().bottom - 60 : null,
+      between: info && cats
+        ? rect.top >= info.getBoundingClientRect().bottom - 60 &&
+          rect.bottom <= cats.getBoundingClientRect().top + 60
+        : null,
     };
   });
   if (!ny) bad("счётчик не найден на главной");
@@ -78,6 +83,9 @@ const bad = (s) => { FAIL++; console.log("  FAIL " + s); };
       ? ok("в счётчике одно число с правильной плюрализацией")
       : bad(`число задвоено или не найдено: «${ny.text.slice(0, 80)}»`);
     ny.visible ? ok("полоска счётчика отрисована") : bad("полоска счётчика схлопнулась");
+    ny.between
+      ? ok("позиция: под плитками, выше категорий (Task 143)")
+      : bad(`позиция счётчика неверная (between=${ny.between})`);
   }
 
   /* ── B. «Поделиться» на товаре ── */

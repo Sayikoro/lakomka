@@ -26,8 +26,12 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
   });
   const page = await ctx.newPage();
   const consoleErrors = [];
+  const notFound = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("response", (res) => {
+    if (res.status() === 404) notFound.push(res.url());
   });
 
   const api = async (path, opts = {}) =>
@@ -55,7 +59,8 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
       (c) => (c.textContent || "").trim()
     );
     const rect = el.getBoundingClientRect();
-    const hero = document.querySelector('section[aria-label="Новогодняя коллекция 2027"]');
+    const info = document.querySelector('[data-testid="home-info"]');
+    const cats = document.querySelector('[data-testid="home-cats"]');
     return {
       text,
       nums,
@@ -64,7 +69,10 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
       bulbs: el.querySelectorAll(".ny-bulb").length,
       flakes: el.querySelectorAll(".ny-flake").length,
       visible: rect.height > 60,
-      afterHero: hero ? rect.top >= hero.getBoundingClientRect().bottom - 60 : null,
+      between: info && cats
+        ? rect.top >= info.getBoundingClientRect().bottom - 60 &&
+          rect.bottom <= cats.getBoundingClientRect().top + 60
+        : null,
       sr: el.querySelector(".sr-only")?.textContent || "",
     };
   });
@@ -81,7 +89,9 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     a.bulbs >= 7 ? ok(`гирлянда: ${a.bulbs} огоньков`) : bad(`огоньков ${a.bulbs}`);
     a.flakes >= 4 ? ok(`снежинки: ${a.flakes} шт.`) : bad(`снежинок ${a.flakes}`);
     a.visible ? ok("блок отрисован с нормальной высотой") : bad("блок схлопнулся");
-    a.afterHero ? ok("блок сразу под hero") : bad(`блок не под hero (afterHero=${a.afterHero})`);
+    a.between
+      ? ok("блок между плитками СКИДКА/ДОСТАВКА/ОПЛАТА и категориями")
+      : bad(`позиция блока неверная (between=${a.between})`);
 
     /* Значения совпадают с часами посетителя (±2 c на дрейф между тиками) */
     const live = await page.evaluate(() => {
@@ -122,23 +132,43 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     s1 !== s2 || (s1 === 0 && s2 <= 2)
       ? ok(`секунды тикают: ${s1} → ${s2}`)
       : bad(`секунды не тикают: ${s1} → ${s2}`);
+
+    /* Плавное появление при скролле: ny-in вешается, всё проявляется */
+    await page.evaluate(() =>
+      document.querySelector('[data-testid="newyear-counter"]')?.scrollIntoView({ block: "center" })
+    );
+    await page.waitForTimeout(1900); // суммарная длительность входных анимаций ~1,2 с
+    const anim = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="newyear-counter"]');
+      const card = el?.querySelector(".ny-card");
+      const head = el?.querySelector(".ny-head");
+      return {
+        played: !!el?.classList.contains("ny-in"),
+        cardOpacity: card ? getComputedStyle(card).opacity : "",
+        headOpacity: head ? getComputedStyle(head).opacity : "",
+      };
+    });
+    anim.played && anim.cardOpacity === "1" && anim.headOpacity === "1"
+      ? ok("появление при скролле: анимация сыграла, карточки и надпись полностью видны")
+      : bad(`появление не сработало: ${JSON.stringify(anim)}`);
   }
 
   /* ── B. Галочка в настройках ── */
   console.log("── B. Выключение/включение галочкой в админке ──");
-  const login = await api("/api/admin/login", {
+  /* Авторизация cookie-сессией (как в админке): same-origin fetch шлёт куки сам */
+  const login = await api("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ADMIN),
   });
-  const token = login.json?.data?.token || "";
-  if (login.status !== 200 || !token) {
+  if (login.status !== 200) {
     bad(`админ-логин не прошёл (${login.status})`);
   } else {
+    ok("логин админа (cookie-сессия)");
     const set = async (v) =>
       api("/api/admin/settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ newyear_counter_enabled: v ? "1" : "0" }),
       });
     await set(false);
@@ -181,7 +211,7 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
       h: el ? Math.round(el.getBoundingClientRect().height) : 0,
     };
   });
-  c.overflow <= 1 ? ok(`горизонтального скролла нет (+${c.overflow}px)`) : bad(`горизонтальный скролл +${c.overflow}px`);
+  c.overflow <= 1 ? ok(`горизонтального скролла нет (${c.overflow}px)`) : bad(`горизонтальный скролл +${c.overflow}px`);
   c.cardW >= 70 && c.cardW <= 100 ? ok(`карточка ${c.cardW}px — цифры и подписи помещаются`) : bad(`карточка ${c.cardW}px подозрительная`);
   c.numFont ? ok(`размер цифр на телефоне: ${c.numFont}`) : bad("цифры не найдены на телефоне");
   c.bulbVisible === 7 ? ok(`на телефоне видно 7 огоньков гирлянды (из 12)`) : bad(`огоньков на телефоне ${c.bulbVisible}, ожидалось 7`);
@@ -190,10 +220,18 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
 
   /* ── D. Консоль ── */
   console.log("── D. Консоль браузера ──");
-  const real = consoleErrors.filter((e) => !/401|Failed to load resource.*401/.test(e));
+  const real = consoleErrors.filter(
+    (e) => !/401|Failed to load resource.*401/.test(e)
+  );
+  const real404 = notFound.filter(
+    (u) => !/\/api\//.test(u) && !/auth|admin/.test(u)
+  );
   real.length === 0
     ? ok("консоль чиста (штатный 401-зонд AdminToolbar отфильтрован)")
     : bad(`ошибки консоли: ${real.slice(0, 3).join(" | ")}`);
+  real404.length === 0
+    ? ok("нет 404-ресурсов (кроме штатных API-зондов)")
+    : bad(`404-ресурсы: ${[...new Set(real404)].slice(0, 5).join(", ")}`);
 
   await browser.close();
   console.log(`\nИТОГО: PASS=${pass} FAIL=${fail}`);

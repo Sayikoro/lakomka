@@ -99,6 +99,39 @@ grep -q '"home_newyear_label"' "$ROOT/src/lib/mock-data.ts" 2>/dev/null \
   && bad "в mock-data остался старый дефолт с {days}" \
   || ok "mock-data не конфликтует с новым дефолтом"
 
+echo "── 5. Task 143: позиция, синий фон, плавное появление ──"
+PAGE="$ROOT/src/app/(shop)/page.tsx"
+NY="$ROOT/src/components/home/NewYearCounter.tsx"
+CSS="$ROOT/src/app/globals.css"
+LI=$(grep -n 'data-testid="home-info"' "$PAGE" | head -1 | cut -d: -f1)
+LN=$(grep -n "<NewYearCounter" "$PAGE" | head -1 | cut -d: -f1)
+LC=$(grep -n 'data-testid="home-cats"' "$PAGE" | head -1 | cut -d: -f1)
+[ -n "$LI" ] && [ -n "$LN" ] && [ -n "$LC" ] && [ "$LI" -lt "$LN" ] && [ "$LN" -lt "$LC" ] \
+  && ok "порядок на главной: плитки → счётчик → категории" \
+  || bad "порядок блоков неверный (info=$LI, counter=$LN, cats=$LC)"
+grep -q "ny-section" "$NY" && grep -q "var(--color-primary)" "$CSS" \
+  && ok "фон блока — фирменный синий с градиентом" \
+  || bad "нет синего фона ny-section"
+grep -q "IntersectionObserver" "$NY" && grep -q 'ny-anim' "$NY" && grep -q 'ny-in' "$NY" \
+  && ok "появление при скролле: IntersectionObserver + классы ny-anim/ny-in" \
+  || bad "нет механики появления при скролле"
+grep -q "prefers-reduced-motion" "$NY" \
+  && ok "reduced-motion уважается (блок виден без анимации)" \
+  || bad "в компоненте нет проверки reduced-motion"
+for K in "@keyframes ny-rise" "@keyframes ny-draw" "@keyframes ny-pop" ".ny-anim .ny-card" ".ny-in .ny-bulb"; do
+  grep -q "$K" "$CSS" || bad "в globals.css нет $K"
+done
+grep -q "@keyframes ny-rise" "$CSS" && grep -q "@keyframes ny-draw" "$CSS" && grep -q "@keyframes ny-pop" "$CSS" \
+  && grep -q ".ny-anim .ny-card" "$CSS" && grep -q ".ny-in .ny-bulb" "$CSS" \
+  && ok "анимации появления: карточки поднимаются, провод растёт, огоньки загораются" \
+  || bad "не хватает keyframes появления"
+grep -q ".ny-card:hover" "$CSS" \
+  && ok "плавный hover-подъём стеклянных карточек" \
+  || bad "нет hover-перехода карточек"
+grep -q 'data-testid="home-info"' "$PAGE" && grep -q 'data-testid="home-cats"' "$PAGE" \
+  && ok "секции плиток и категорий помечены testid для e2e" \
+  || bad "нет testid у соседних секций"
+
 echo ""
 echo "ИТОГО: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

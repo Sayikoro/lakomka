@@ -43,10 +43,7 @@ export default async function HomePage() {
         snow={cfg.snow}
       />
 
-      {/* Task 141: счётчик «До Нового года» — полоска сразу под hero
-          (первый блок заезжающего контента, поверх сопряжений).
-          Выключается галочкой в Настройках (запечённое значение + живая
-          сверка после монтирования, как у hero/снегопада). */}
+      {/* Task 141: заезжающий контент поверх hero (скруглённые угла сверху). */}
       <div className="relative z-10 bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
         <svg
           aria-hidden
@@ -62,19 +59,21 @@ export default async function HomePage() {
         >
           <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
-        {/* Task 141/142: счётчик «До Нового года» — хрониометр сразу под hero */}
+        {/* Task 141/143: плитки СКИДКА / ДОСТАВКА / ОПЛАТА — сразу под hero */}
+        <section data-testid="home-info" className="mx-auto max-w-[1200px] px-4 pt-10">
+          <InfoCards />
+        </section>
+
+        {/* Task 143: счётчик «До Нового года» — под плитками, выше категорий.
+            Выключается галочкой в Настройках (запечённое значение + живая
+            сверка после монтирования, как у hero/снегопада). */}
         <NewYearCounter
           enabled={cfg.newyear_counter_enabled}
           initialParts={timeUntilNewYearParts()}
         />
 
-        {/* Info cards — СКИДКА / ДОСТАВКА / ОПЛАТА */}
-        <section className="mx-auto max-w-[1200px] px-4 pt-10">
-          <InfoCards />
-        </section>
-
         {/* Categories — картинки рандомятся из товаров категории на каждый запрос */}
-        <section className="mx-auto max-w-[1200px] px-4 py-12">
+        <section data-testid="home-cats" className="mx-auto max-w-[1200px] px-4 py-12">
           <CategoryGrid categories={categories} products={products} />
         </section>
 

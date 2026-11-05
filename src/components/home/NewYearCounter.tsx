@@ -1,29 +1,25 @@
 "use client";
 
 /* ============================================================
-   Task 142: счётчик «До Нового года» — праздничный хрониометр
-   сразу под Hero-блоком на главной. Четыре стеклянные карточки
-   (дни / часы / минуты / секунды) с живым тиканьем каждую
-   секунду на фоне зимней ночи: градиент неба, гирлянда огоньков
-   по верхнему краю, падающие снежинки, мягкое свечение.
+   Task 142/143: счётчик «До Нового года» — праздничный хрониометр
+   на главной: четыре стеклянные карточки (дни / часы / минуты /
+   секунды) с живым тиканьем каждую секунду, гирлянда огоньков
+   по верхнему краю, падающие снежинки.
+
+   Task 143: блок переехал под плитки СКИДКА/ДОСТАВКА/ОПЛАТА
+   (выше категорий), фон — фирменный синий var(--color-primary)
+   с плавным градиентом, и появление при скролле: гирлянда
+   «прорастает» проводом, огоньки загораются по очереди, карточки
+   плавно поднимаются (IntersectionObserver, один раз; при
+   prefers-reduced-motion и без JS блок просто виден).
 
    База Task 141 сохранена: включается/выключается галочкой в
-   админке (Настройки → Витрина, «Счётчик до Нового года»). Как и
-   Hero: стартуем с запечённых при сборке значений, после
-   монтирования сверяемся с живым /api/settings/public —
-   выключение в админке убирает блок по F5 без пересборки сайта.
-
-   Числа: сервер рендерит значения на момент сборки (статика!),
-   после монтирования пересчитываем от часов посетителя раз в
-   секунду — расхождения гидратации нет (первый клиентский рендер
-   совпадает с HTML), дальше отсчёт живёт сам.
-
-   Для скрин-ридеров: видимая надпись декоративная (aria-hidden),
-   цельная фраза «Осталось N дней до Нового года» — sr-only,
-   карточки читаются следом обычным текстом.
+   админке (Настройки → Витрина). Сервер запекает значения при
+   сборке, после монтирования клиент считает сам — расхождения
+   гидратации нет.
    ============================================================ */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "@/components/texts/TextsProvider";
 import {
   pluralDays,
@@ -87,6 +83,7 @@ function SnowflakeIcon({ className = "" }: { className?: string }) {
 
 export function NewYearCounter({ enabled, initialParts }: Props) {
   const t = useT();
+  const sectionRef = useRef<HTMLElement>(null);
 
   /* Живая галочка: после монтирования сверяемся с API — владелец
      может выключить счётчик без пересборки статики. */
@@ -122,6 +119,27 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
     return () => window.clearInterval(timer);
   }, []);
 
+  /* Task 143: плавное появление при скролле — один раз, когда блок
+     показался на ~20%. Без JS/при reduced-motion блок просто виден:
+     классы ny-anim/ny-in добавляются только тут, в HTML их нет. */
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    el.classList.add("ny-anim");
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          el.classList.add("ny-in");
+          io.disconnect();
+        }
+      },
+      { threshold: 0.2 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   const shown = liveEnabled ?? enabled;
   if (!shown) return null;
 
@@ -132,13 +150,14 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
 
   return (
     <section
+      ref={sectionRef}
       data-testid="newyear-counter"
-      className="relative overflow-hidden bg-[linear-gradient(180deg,#071229_0%,#0d2450_52%,#0a1c3e_100%)] text-white"
+      className="ny-section relative mt-10 overflow-hidden text-white sm:mt-14"
     >
       {/* Мягкое свечение за карточками */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[min(760px,94%)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(96,165,250,0.20),transparent_65%)]"
+        className="ny-glow pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[min(760px,94%)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.16),transparent_65%)]"
       />
 
       {/* Гирлянда огоньков по верхнему краю */}
@@ -149,8 +168,8 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
             className="ny-bulb"
             style={{
               color: BULB_COLORS[i % BULB_COLORS.length],
-              animationDelay: `${(i % 5) * 0.42}s`,
-            }}
+              ["--b" as string]: i,
+            } as React.CSSProperties}
           />
         ))}
       </div>
@@ -183,7 +202,7 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
             смысл для скрин-ридеров несёт sr-only выше */}
         <p
           aria-hidden
-          className="flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.28em] text-white/85 sm:gap-3.5 sm:text-[15px]"
+          className="ny-head flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.28em] text-white/85 sm:gap-3.5 sm:text-[15px]"
         >
           <SnowflakeIcon className="shrink-0 text-white/50" />
           <span>{label}</span>
@@ -192,12 +211,13 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
 
         {/* Хрониометр: дни / часы / минуты / секунды */}
         <div className="mt-5 grid w-full max-w-[640px] grid-cols-4 gap-2 sm:mt-6 sm:gap-4">
-          {UNITS.map((u) => {
+          {UNITS.map((u, i) => {
             const v = parts[u.key];
             return (
               <div
                 key={u.key}
                 className={`ny-card${u.key === "s" ? " ny-card-sec" : ""}`}
+                style={{ ["--i" as string]: i } as React.CSSProperties}
               >
                 <span className="ny-num">
                   {u.key === "d" ? v : String(v).padStart(2, "0")}
@@ -209,7 +229,7 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
         </div>
 
         {/* Подпись из реестра текстов */}
-        <p className="mt-4 text-xs text-white/65 sm:mt-5 sm:text-sm">
+        <p className="ny-hint mt-4 text-xs text-white/70 sm:mt-5 sm:text-sm">
           {t("home_newyear_hint")}
         </p>
       </div>
