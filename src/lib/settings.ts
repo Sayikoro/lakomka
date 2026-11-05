@@ -39,6 +39,9 @@ export interface ShopFrontSettings {
   newyear_counter_enabled: boolean;
   /** Task 141: быстрый просмотр товара из каталога (модалка) */
   quick_view_enabled: boolean;
+  /** Task 146: шорткод галереи блока фабрик («[gallery слаг]» или голый слаг);
+   *  пусто = встроенный набор логотипов из mock-data */
+  brands_gallery: string;
   /** Тексты страниц («Текст на страницах»): ключ из реестра → значение;
       отсутствие ключа или пустая строка = дефолт из реестра page-texts.ts */
   texts: Record<string, string>;
@@ -63,6 +66,9 @@ export const DEFAULT_FRONT_SETTINGS: ShopFrontSettings = {
   /* Task 141: обе фичи по умолчанию включены — владелец отключает галочкой */
   newyear_counter_enabled: true,
   quick_view_enabled: true,
+  /* Task 146: пусто = витрина сама попробует дефолтную галерею fabriki
+     (посеяна в репозитории), а при неудаче вернётся к mock-логотипам */
+  brands_gallery: "",
   texts: {},
 };
 
@@ -77,6 +83,7 @@ interface ApiPublicSettings {
   snow?: Parameters<typeof parseSnowConfig>[0];
   newyear_counter_enabled?: boolean;
   quick_view_enabled?: boolean;
+  brands_gallery?: string;
   texts?: Record<string, unknown>;
 }
 
@@ -121,6 +128,7 @@ export const getPublicSettings = cache(async function (): Promise<ShopFrontSetti
       /* Task 141: по умолчанию включены (ключа нет в БД — фича работает) */
       newyear_counter_enabled: d.newyear_counter_enabled !== false,
       quick_view_enabled: d.quick_view_enabled !== false,
+      brands_gallery: typeof d.brands_gallery === "string" ? d.brands_gallery : "",
       texts: parseTexts(d.texts),
     };
   } catch {

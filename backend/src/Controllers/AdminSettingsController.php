@@ -57,6 +57,9 @@ class AdminSettingsController
         'newyear_counter_enabled',
         /* Task 141: быстрый просмотр товара из каталога (модалка) */
         'quick_view_enabled',
+        /* Task 146: блок «логотипы фабрик» — шорткод галереи [gallery слаг].
+           Пусто = встроенный набор логотипов. */
+        'brands_gallery',
     ];
 
     /** Ключи, доступные витрине без авторизации */
@@ -77,6 +80,8 @@ class AdminSettingsController
         /* Task 141: счётчик и быстрый просмотр — публичные */
         'newyear_counter_enabled',
         'quick_view_enabled',
+        /* Task 146: шорткод галереи блока фабрик — публичный (витрина) */
+        'brands_gallery',
     ];
 
     /** Снегопад: значения по умолчанию (как в оригинальном particle-fall: 110 / 0.5 / 31 / #f5f5f5).
@@ -171,7 +176,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','metrika_code','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake','newyear_counter_enabled','quick_view_enabled') OR key LIKE 'text_%'"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','metrika_code','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake','newyear_counter_enabled','quick_view_enabled','brands_gallery') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -225,6 +230,10 @@ class AdminSettingsController
         /* Task 141: быстрый просмотр — по умолчанию включён */
         $quickView = ($map['quick_view_enabled'] ?? '1') === '0' ? false : true;
 
+        /* Task 146: шорткод галереи блока фабрик — наружу как есть
+           (парсит витрина; пусто = встроенный набор логотипов) */
+        $brandsGallery = mb_substr(trim((string)($map['brands_gallery'] ?? '')), 0, 300);
+
         /* Тексты страниц: ключи text_* отдаются без префикса */
         $texts = [];
         foreach ($map as $k => $v) {
@@ -244,6 +253,7 @@ class AdminSettingsController
             'snow'                  => self::snowConfig($map),
             'newyear_counter_enabled' => $newyearCounter,
             'quick_view_enabled'    => $quickView,
+            'brands_gallery'        => $brandsGallery,
             'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
     }
@@ -315,6 +325,17 @@ class AdminSettingsController
         if (isset($data['quick_view_enabled'])
             && !in_array((string)$data['quick_view_enabled'], ['0', '1'], true)) {
             jsonResponse(['error' => 'quick_view_enabled: 0 | 1'], 422);
+        }
+        /* Task 146: шорткод галереи блока фабрик — мягкая проверка: длина
+           и разумные символы (шорткод [gallery слаг] или пусто). Ошибку
+           в этом поле не хочу делать фатальной — лишний текст просто
+           не распарсится и блок покажет встроенный набор. */
+        if (isset($data['brands_gallery'])) {
+            $bg = trim((string)$data['brands_gallery']);
+            if (mb_strlen($bg) > 300) {
+                jsonResponse(['error' => 'brands_gallery: слишком длинно — вставьте шорткод вида [gallery слаг]'], 422);
+            }
+            $data['brands_gallery'] = $bg;
         }
         /* Интервал авто-бэкапа: целые сутки 0–30 (0 = выключено) */
         if (isset($data['backup_interval_days'])) {

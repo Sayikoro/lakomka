@@ -276,6 +276,8 @@ export function SettingsForm({ initial }: Props) {
           /* Task 141: счётчик «До Нового года» и быстрый просмотр */
           newyear_counter_enabled: form.newyear_counter_enabled === "1" ? "1" : "0",
           quick_view_enabled: form.quick_view_enabled === "1" ? "1" : "0",
+          /* Task 146: шорткод галереи блока фабрик (пусто = дефолтная fabriki) */
+          brands_gallery: (form.brands_gallery ?? "").trim(),
           snow_count: String(Math.max(0, Math.min(500, parseInt(form.snow_count || "110", 10) || 0))),
           snow_count_mobile: String(Math.max(0, Math.min(500, parseInt(form.snow_count_mobile || "60", 10) || 0))),
           snow_speed: String(Math.max(0.1, Math.min(20, parseFloat(form.snow_speed || "0.5") || 0.5))),
@@ -815,6 +817,23 @@ export function SettingsForm({ initial }: Props) {
             </label>
             <p className="mt-1 text-xs text-[var(--color-muted)]">
               Кнопка-глаз на карточке открывает компактную модалку: фото, цена, «В корзину» — без перехода в карточку товара. Полная карточка остаётся по кнопке «Перейти».
+            </p>
+          </div>
+
+          {/* Task 146: блок фабрик из галереи (шорткод) */}
+          <div className="mt-4 rounded-lg border border-[var(--color-border)] p-4" data-testid="settings-brands-gallery">
+            <label className="mb-2 block text-sm font-medium text-[var(--color-heading)]">
+              Блок «Конфеты от фабрик» — галерея логотипов
+            </label>
+            <input
+              type="text"
+              value={form.brands_gallery ?? ""}
+              onChange={(e) => setField("brands_gallery", e.target.value)}
+              placeholder="[gallery fabriki]"
+              className={input}
+            />
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Вставьте шорткод галереи из раздела «Файлы → Галерея» (скопировать можно там же, на вкладке). Пусто — работает галерея по умолчанию «fabriki», а если её нет — встроенный набор логотипов. Логотипы правятся в «Файлы → Галерея», пересборка сайта не нужна.
             </p>
           </div>
         </div>

@@ -42,7 +42,11 @@ foreach ($redirects as $re => $to) {
 }
 
 // 4) статика: файл → как есть; папка → index.html; иначе .html; 404 → /404.html
-$file = $root . $uri;
+/* Task 146: rawurldecode — как у Apache: браузер присылает
+ * percent-encoded путь (/uploads/galleries/fabriki/%D0%9A…), на диске
+ * файл лежит с настоящими кириллическими именами. Без декодирования
+ * кириллические файлы uploads на стенде ловили 404. */
+$file = $root . rawurldecode($uri);
 if ($uri !== '/' && is_file($file)) {
     return false; // встроенный сервер отдаст сам
 }

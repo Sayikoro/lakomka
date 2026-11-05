@@ -145,6 +145,13 @@ try {
         VisitGuard::guard($pdo, 'public-read', [[60, 120], [3600, 3000]]);
     }
 
+    /* Task 146: публичная отдача галерей витрине — /api/galleries/{слаг}.
+       Тот же щит, что у остальных публичных чтений. */
+    if (preg_match('#^/api/galleries/[a-z0-9-]+$#i', $path) && $method === 'GET') {
+        require_once __DIR__ . '/../src/VisitGuard.php';
+        VisitGuard::guard($pdo, 'public-read', [[60, 120], [3600, 3000]]);
+    }
+
         if ($path === '/api/products' && $method === 'GET') {
         // Каталог: только simple и bundle, recipe всегда скрыт;
         // удалённые (в корзине админки, deleted_at) не показываются (Task 100)
@@ -283,6 +290,13 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/settings/public' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminSettingsController.php';
         AdminSettingsController::publicShow($pdo);
+    }
+
+    /* Task 146: галереи витрины — /api/galleries/{слаг} (публично,
+     * содержимое под BySafe-слаг из [a-z0-9-]; иначе 404) */
+    if (preg_match('#^/api/galleries/([a-z0-9-]+)$#i', $path, $m) && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::publicShow($pdo, $m[1]);
     }
 
     if ($path === '/api/orders' && $method === 'POST') {
@@ -611,6 +625,35 @@ $stmt->execute([$m[1]]);
     if ($path === '/api/admin/files' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AdminFilesController.php';
         AdminFilesController::list($pdo);
+    }
+    /* Task 146: галереи (вкладка «Галерея» в разделе «Файлы») */
+    if ($path === '/api/admin/galleries' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::list($pdo);
+    }
+    if ($path === '/api/admin/galleries' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::create($pdo);
+    }
+    if ($path === '/api/admin/galleries/items' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::items($pdo);
+    }
+    if ($path === '/api/admin/galleries/title' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::setTitle($pdo);
+    }
+    if ($path === '/api/admin/galleries/move' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::move($pdo);
+    }
+    if ($path === '/api/admin/galleries/item-delete' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::removeItem($pdo);
+    }
+    if ($path === '/api/admin/galleries/delete' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AdminGalleriesController.php';
+        AdminGalleriesController::delete($pdo);
     }
     /* Рекурсивный поиск всех видео под /uploads (медиа-галерея, «Видео») */
     if ($path === '/api/admin/files/videos' && $method === 'GET') {

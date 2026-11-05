@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { getCategories, getProducts } from "@/lib/products";
 import { getPublicSettings } from "@/lib/settings";
+import { CategorySeoLive } from "@/components/texts/CategorySeoLive";
 import { CatalogClient } from "../CatalogClient";
 
 /* ============================================================
@@ -92,14 +93,15 @@ export default async function CategoryPage({ params }: PageProps) {
         {category.name}
       </h1>
 
-      {seoText && (
-        <div
-          data-testid="category-seo-text"
-          className="mb-8 max-w-[900px] whitespace-pre-line text-sm leading-relaxed text-[var(--color-body)]"
-        >
-          {seoText}
-        </div>
-      )}
+      {/* Task 146: seo_text понимает шорткод [gallery слаг] (RichText) и
+          обновляется с живого API — поправили текст (или вставили шорткод)
+          в админке → F5 → на странице уже новый, пересборка не нужна.
+          Рендерим всегда: текст живой, при пустом блок сам исчезает. */}
+      <CategorySeoLive
+        slug={category.slug}
+        initialText={seoText}
+        className="mb-8 max-w-[900px] text-sm leading-relaxed text-[var(--color-body)]"
+      />
 
       <CatalogClient
         products={products}

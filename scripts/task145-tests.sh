@@ -103,9 +103,11 @@ EOF
 # В запечённой главной нет wp-content и есть локальные бренды
 H="$ROOT/.deploy-package/index.html"
 if grep -q "wp-content" "$H"; then bad "в запечённой главной остались ссылки wp-content"; else ok "запечённая главная без wp-content"; fi
-grep -q "/uploads/brands/krasny-oktyabr.png" "$H" && grep -q "/uploads/brands/konti.png" "$H" \
-  && ok "в запечённой главной локальные логотипы брендов" \
-  || bad "в запечённой главной нет бренд-логотипов"
+# Task 146: блок фабрик теперь берёт логотипы из галереи
+# public/uploads/galleries/fabriki (посеяна из тех же брендов)
+grep -q "/uploads/galleries/fabriki/" "$H" \
+  && ok "в запечённой главной логотипы брендов из галереи fabriki" \
+  || bad "в запечённой главной нет брендов из галереи"
 grep -q "/uploads/icons/discount.svg" "$H" \
   && ok "в запечённой главной локальные иконки условий" \
   || bad "иконок условий нет в статике"

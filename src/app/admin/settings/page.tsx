@@ -52,6 +52,9 @@ export interface AdminSettings {
   newyear_counter_enabled: string;
   /* Task 141: быстрый просмотр товара из каталога ("1"/"0") */
   quick_view_enabled: string;
+  /* Task 146: шорткод галереи блока фабрик («[gallery слаг]» или голый слаг),
+     пусто = встроенный набор логотипов */
+  brands_gallery: string;
 }
 
 const DEFAULTS: AdminSettings = {
@@ -94,6 +97,8 @@ const DEFAULTS: AdminSettings = {
   /* Task 141: обе фичи по умолчанию включены (ключа нет в БД — витрина уже показывает) */
   newyear_counter_enabled: "1",
   quick_view_enabled: "1",
+  /* Task 146: пусто = витрина берёт дефолтную галерею fabriki */
+  brands_gallery: "",
 };
 
 export default function AdminSettingsPage() {

@@ -7,6 +7,8 @@ import { NewYearCounter } from "@/components/home/NewYearCounter";
 import { timeUntilNewYearParts } from "@/lib/newyear";
 import { getPublicSettings, DEFAULT_FRONT_SETTINGS } from "@/lib/settings";
 import { getCategories, getProducts } from "@/lib/products";
+import { parseGalleryShortcode, DEFAULT_BRANDS_GALLERY } from "@/lib/shortcode";
+import { getGallery } from "@/lib/galleries";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -31,6 +33,14 @@ export default async function HomePage() {
     getCategories(),
   ]);
   const heroImage = cfg.hero_image || DEFAULT_FRONT_SETTINGS.hero_image;
+
+  /* Task 146: блок фабрик из галереи. Слаг — из настройки brands_gallery
+     (шорткод [gallery слаг]); настройка пуста — дефолтная галерея fabriki.
+     Снимок галереи запекается при сборке; BrandLogos после монтирования
+     обновит его с живого API. Галереи нет — mock-логотипы внутри блока. */
+  const brandsSlug =
+    parseGalleryShortcode(cfg.brands_gallery) ?? DEFAULT_BRANDS_GALLERY;
+  const brandsGallery = await getGallery(brandsSlug);
 
   return (
     <>
@@ -80,8 +90,12 @@ export default async function HomePage() {
         {/* Process — full-bleed: фон-картинка от края до края, таймлайн внутри */}
         <ProcessSteps />
 
-        {/* Brands — full-bleed */}
-        <BrandLogos />
+        {/* Brands — full-bleed. Task 146: логотипы из галереи (Файлы →
+            Галерея, шорткод в Настройках), фолбэк — встроенный набор */}
+        <BrandLogos
+          gallerySlug={brandsSlug}
+          initialItems={brandsGallery?.items ?? []}
+        />
       </div>
     </>
   );
