@@ -10,7 +10,7 @@ const BASE = process.argv[2] || "http://127.0.0.1:8097";
   await page.evaluate(() =>
     document.querySelector('[data-testid="newyear-counter"]')?.scrollIntoView({ block: "center" })
   );
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(2200); // дождаться входных анимаций (~1,2 с)
   await page.screenshot({ path: "/tmp/t142-desktop.png" });
 
   const mob = await browser.newPage({ viewport: { width: 390, height: 744 } });
@@ -19,7 +19,7 @@ const BASE = process.argv[2] || "http://127.0.0.1:8097";
   await mob.evaluate(() =>
     document.querySelector('[data-testid="newyear-counter"]')?.scrollIntoView({ block: "center" })
   );
-  await mob.waitForTimeout(500);
+  await mob.waitForTimeout(2200);
   await mob.screenshot({ path: "/tmp/t142-mobile.png" });
 
   await browser.close();

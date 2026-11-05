@@ -118,11 +118,11 @@ grep -q "IntersectionObserver" "$NY" && grep -q 'ny-anim' "$NY" && grep -q 'ny-i
 grep -q "prefers-reduced-motion" "$NY" \
   && ok "reduced-motion уважается (блок виден без анимации)" \
   || bad "в компоненте нет проверки reduced-motion"
-for K in "@keyframes ny-rise" "@keyframes ny-draw" "@keyframes ny-pop" ".ny-anim .ny-card" ".ny-in .ny-bulb"; do
+for K in "@keyframes ny-rise" "@keyframes ny-draw" "@keyframes ny-pop" ".ny-anim:not(.ny-in) .ny-card" ".ny-in .ny-bulb"; do
   grep -q "$K" "$CSS" || bad "в globals.css нет $K"
 done
 grep -q "@keyframes ny-rise" "$CSS" && grep -q "@keyframes ny-draw" "$CSS" && grep -q "@keyframes ny-pop" "$CSS" \
-  && grep -q ".ny-anim .ny-card" "$CSS" && grep -q ".ny-in .ny-bulb" "$CSS" \
+  && grep -q ".ny-anim:not(.ny-in) .ny-card" "$CSS" && grep -q ".ny-in .ny-bulb" "$CSS" \
   && ok "анимации появления: карточки поднимаются, провод растёт, огоньки загораются" \
   || bad "не хватает keyframes появления"
 grep -q ".ny-card:hover" "$CSS" \
