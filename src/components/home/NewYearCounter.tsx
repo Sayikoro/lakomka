@@ -1,17 +1,21 @@
 "use client";
 
 /* ============================================================
-   Task 142/143: счётчик «До Нового года» — праздничный хрониометр
-   на главной: четыре стеклянные карточки (дни / часы / минуты /
-   секунды) с живым тиканьем каждую секунду, гирлянда огоньков
-   по верхнему краю, падающие снежинки.
+   Task 142/143/144: счётчик «До Нового года» — праздничный хрониометр
+   на главной: четыре карточки (дни / часы / минуты / секунды) с живым
+   тиканьем каждую секунду, гирлянда огоньков над карточками, падающие
+   снежинки.
 
-   Task 143: блок переехал под плитки СКИДКА/ДОСТАВКА/ОПЛАТА
-   (выше категорий), фон — фирменный синий var(--color-primary)
-   с плавным градиентом, и появление при скролле: гирлянда
-   «прорастает» проводом, огоньки загораются по очереди, карточки
-   плавно поднимаются (IntersectionObserver, один раз; при
-   prefers-reduced-motion и без JS блок просто виден).
+   Task 143: блок стоит под плитками СКИДКА/ДОСТАВКА/ОПЛАТА (выше
+   категорий); появление при скролле — гирлянда «прорастает» проводом,
+   огоньки загораются по очереди, карточки плавно поднимаются
+   (IntersectionObserver, один раз; при prefers-reduced-motion и без
+   JS блок просто виден).
+
+   Task 144: блок в цвете окружающих секций — прозрачный фон (виден
+   фон страницы), карточки белые в дизайне плиток условий (InfoCards:
+   bg-white, radius-card, мягкий hover), цифры — фирменный синий,
+   гирлянда висит над карточками во всю их ширину.
 
    База Task 141 сохранена: включается/выключается галочкой в
    админке (Настройки → Витрина). Сервер запекает значения при
@@ -152,27 +156,13 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
     <section
       ref={sectionRef}
       data-testid="newyear-counter"
-      className="ny-section relative mt-10 overflow-hidden text-white sm:mt-14"
+      className="ny-section relative mt-8 overflow-hidden text-[var(--color-body)] sm:mt-10"
     >
-      {/* Мягкое свечение за карточками */}
+      {/* Мягкое синее свечение за карточками */}
       <div
         aria-hidden
-        className="ny-glow pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[min(760px,94%)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.16),transparent_65%)]"
+        className="ny-glow pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[min(760px,94%)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(2,116,190,0.10),transparent_65%)]"
       />
-
-      {/* Гирлянда огоньков по верхнему краю */}
-      <div aria-hidden className="ny-garland">
-        {Array.from({ length: BULBS }, (_, i) => (
-          <span
-            key={i}
-            className="ny-bulb"
-            style={{
-              color: BULB_COLORS[i % BULB_COLORS.length],
-              ["--b" as string]: i,
-            } as React.CSSProperties}
-          />
-        ))}
-      </div>
 
       {/* Падающие снежинки (на телефоне — половина, чтобы не шумело) */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -192,7 +182,7 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
         ))}
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[1200px] flex-col items-center px-4 pb-7 pt-9 text-center sm:pb-9 sm:pt-11">
+      <div className="relative mx-auto flex w-full max-w-[1200px] flex-col items-center px-4 pb-7 pt-7 text-center sm:pb-9 sm:pt-8">
         {/* Цельная фраза для скрин-ридеров (карточки ниже раздроблены) */}
         <span className="sr-only">
           Осталось {days} {pluralDays(days)} до Нового года.
@@ -202,15 +192,29 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
             смысл для скрин-ридеров несёт sr-only выше */}
         <p
           aria-hidden
-          className="ny-head flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.28em] text-white/85 sm:gap-3.5 sm:text-[15px]"
+          className="ny-head flex items-center gap-2.5 text-[12px] font-semibold uppercase tracking-[0.28em] text-[var(--color-heading)] sm:gap-3.5 sm:text-[15px]"
         >
-          <SnowflakeIcon className="shrink-0 text-white/50" />
+          <SnowflakeIcon className="shrink-0 text-[var(--color-primary)] opacity-60" />
           <span>{label}</span>
-          <SnowflakeIcon className="shrink-0 scale-x-[-1] text-white/50" />
+          <SnowflakeIcon className="shrink-0 scale-x-[-1] text-[var(--color-primary)] opacity-60" />
         </p>
 
+        {/* Гирлянда висит над карточками во всю их ширину */}
+        <div aria-hidden className="ny-garland mt-5 w-full max-w-[640px] sm:mt-6">
+          {Array.from({ length: BULBS }, (_, i) => (
+            <span
+              key={i}
+              className="ny-bulb"
+              style={{
+                color: BULB_COLORS[i % BULB_COLORS.length],
+                ["--b" as string]: i,
+              } as React.CSSProperties}
+            />
+          ))}
+        </div>
+
         {/* Хрониометр: дни / часы / минуты / секунды */}
-        <div className="mt-5 grid w-full max-w-[640px] grid-cols-4 gap-2 sm:mt-6 sm:gap-4">
+        <div className="mt-2 grid w-full max-w-[640px] grid-cols-4 gap-2 sm:gap-4">
           {UNITS.map((u, i) => {
             const v = parts[u.key];
             return (
@@ -229,7 +233,7 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
         </div>
 
         {/* Подпись из реестра текстов */}
-        <p className="ny-hint mt-4 text-xs text-white/70 sm:mt-5 sm:text-sm">
+        <p className="ny-hint mt-4 text-xs text-[var(--color-muted)] sm:mt-5 sm:text-sm">
           {t("home_newyear_hint")}
         </p>
       </div>

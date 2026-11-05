@@ -99,7 +99,7 @@ grep -q '"home_newyear_label"' "$ROOT/src/lib/mock-data.ts" 2>/dev/null \
   && bad "в mock-data остался старый дефолт с {days}" \
   || ok "mock-data не конфликтует с новым дефолтом"
 
-echo "── 5. Task 143: позиция, синий фон, плавное появление ──"
+echo "── 5. Task 143/144: позиция, светлый дизайн как у плиток условий, плавное появление ──"
 PAGE="$ROOT/src/app/(shop)/page.tsx"
 NY="$ROOT/src/components/home/NewYearCounter.tsx"
 CSS="$ROOT/src/app/globals.css"
@@ -109,9 +109,22 @@ LC=$(grep -n 'data-testid="home-cats"' "$PAGE" | head -1 | cut -d: -f1)
 [ -n "$LI" ] && [ -n "$LN" ] && [ -n "$LC" ] && [ "$LI" -lt "$LN" ] && [ "$LN" -lt "$LC" ] \
   && ok "порядок на главной: плитки → счётчик → категории" \
   || bad "порядок блоков неверный (info=$LI, counter=$LN, cats=$LC)"
-grep -q "ny-section" "$NY" && grep -q "var(--color-primary)" "$CSS" \
-  && ok "фон блока — фирменный синий с градиентом" \
-  || bad "нет синего фона ny-section"
+sed -n '/^\.ny-section {/,/^}/p' "$CSS" | grep -q "transparent" \
+  && ok "фон блока прозрачный — цвет окружающих секций (фон страницы)" \
+  || bad ".ny-section не прозрачный"
+sed -n '/^\.ny-card {/,/^}/p' "$CSS" | grep -q "var(--color-bg)" \
+  && sed -n '/^\.ny-card {/,/^}/p' "$CSS" | grep -q "var(--radius-card)" \
+  && ok "карточки белые со скруглением плиток условий (bg + radius-card)" \
+  || bad "карточки не в дизайне плиток условий"
+sed -n '/^\.ny-num {/,/^}/p' "$CSS" | grep -q "var(--color-primary)" \
+  && ok "цифры хронометра — фирменный синий" \
+  || bad "цифры не фирменного синего"
+sed -n '/^\.ny-cap {/,/^}/p' "$CSS" | grep -q "var(--color-muted)" \
+  && ok "подписи карточек — цвет подписей сайта" \
+  || bad "подписи не в цвете сайта"
+grep -q 'ny-garland mt-5 w-full max-w-\[640px\]' "$NY" \
+  && ok "гирлянда висит над карточками во всю их ширину" \
+  || bad "гирлянда не над карточками"
 grep -q "IntersectionObserver" "$NY" && grep -q 'ny-anim' "$NY" && grep -q 'ny-in' "$NY" \
   && ok "появление при скролле: IntersectionObserver + классы ny-anim/ny-in" \
   || bad "нет механики появления при скролле"
@@ -126,7 +139,7 @@ grep -q "@keyframes ny-rise" "$CSS" && grep -q "@keyframes ny-draw" "$CSS" && gr
   && ok "анимации появления: карточки поднимаются, провод растёт, огоньки загораются" \
   || bad "не хватает keyframes появления"
 grep -q ".ny-card:hover" "$CSS" \
-  && ok "плавный hover-подъём стеклянных карточек" \
+  && ok "плавный hover-подъём карточек (как у плиток условий)" \
   || bad "нет hover-перехода карточек"
 grep -q 'data-testid="home-info"' "$PAGE" && grep -q 'data-testid="home-cats"' "$PAGE" \
   && ok "секции плиток и категорий помечены testid для e2e" \

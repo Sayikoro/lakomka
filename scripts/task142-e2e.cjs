@@ -1,7 +1,9 @@
-/* Task 142 E2E: редизайн счётчика «До Нового года» — хрониометр
- * (дни/часы/минуты/секунды) под hero с гирляндой и снегом.
+/* Task 142/144 E2E: хрониометр «До Нового года» — карточки в дизайне
+ * плиток условий (белые, radius-card) на фоне страницы, гирлянда над
+ * карточками, живое тиканье секунд.
  * A) Блок на главной: 4 карточки, живое тиканье секунд, значения
- *    совпадают с часами посетителя; надпись «До Нового года».
+ *    совпадают с часами посетителя; фон блока прозрачный (цвет
+ *    окружающих секций), карточки белые, гирлянда над карточками.
  * B) Галочка в настройках: выключение через админ-API убирает блок
  *    по F5 (живые настройки), включение возвращает.
  * C) Мобильный 390: карточки помещаются, горизонтального скролла нет.
@@ -61,6 +63,11 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     const rect = el.getBoundingClientRect();
     const info = document.querySelector('[data-testid="home-info"]');
     const cats = document.querySelector('[data-testid="home-cats"]');
+    const st = getComputedStyle(el);
+    const cardSt = getComputedStyle(el.querySelector(".ny-card"));
+    const headSt = getComputedStyle(el.querySelector(".ny-head"));
+    const garland = el.querySelector(".ny-garland");
+    const grid = el.querySelector(".ny-card").parentElement;
     return {
       text,
       nums,
@@ -74,6 +81,17 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
           rect.bottom <= cats.getBoundingClientRect().top + 60
         : null,
       sr: el.querySelector(".sr-only")?.textContent || "",
+      /* Task 144: цвет окружения и дизайн плиток условий */
+      sectionBg: st.backgroundColor,
+      cardBg: cardSt.backgroundColor,
+      cardRadius: cardSt.borderRadius,
+      headColor: headSt.color,
+      garlandOverCards:
+        garland &&
+        Math.abs(garland.getBoundingClientRect().width -
+          grid.getBoundingClientRect().width) < 2 &&
+        garland.getBoundingClientRect().bottom <=
+          grid.getBoundingClientRect().top + 2,
     };
   });
   if (!a) bad("счётчик не найден на главной");
@@ -92,6 +110,21 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     a.between
       ? ok("блок между плитками СКИДКА/ДОСТАВКА/ОПЛАТА и категориями")
       : bad(`позиция блока неверная (between=${a.between})`);
+    a.sectionBg === "rgba(0, 0, 0, 0)"
+      ? ok("фон блока прозрачный — цвет окружающих секций")
+      : bad(`фон блока не прозрачный: ${a.sectionBg}`);
+    a.cardBg === "rgb(255, 255, 255)"
+      ? ok("карточки белые — дизайн плиток условий (InfoCards)")
+      : bad(`карточки не белые: ${a.cardBg}`);
+    a.cardRadius === "20px"
+      ? ok(`скругление карточек как у плиток условий (${a.cardRadius})`)
+      : bad(`скругление карточек ${a.cardRadius}, ожидалось 20px (--radius-card)`);
+    a.headColor === "rgb(58, 58, 58)"
+      ? ok("надпись — цвет заголовков сайта (--color-heading)")
+      : bad(`цвет надписи ${a.headColor}, ожидался rgb(58, 58, 58)`);
+    a.garlandOverCards
+      ? ok("гирлянда висит над карточками во всю их ширину")
+      : bad("гирлянда не над карточками (ширина/позиция не совпали)");
 
     /* Значения совпадают с часами посетителя (±2 c на дрейф между тиками) */
     const live = await page.evaluate(() => {

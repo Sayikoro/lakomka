@@ -438,23 +438,19 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ── Task 142/143: счётчик «До Нового года» — хрониометр на главной ── */
 
-/* Фирменный синий с плавным вертикальным переходом оттенков (Task 143) */
+/* Task 144: блок в цвете окружающих секций — прозрачный фон, сквозь
+   него виден фон страницы (--color-bg-page), как у плиток СКИДКА/
+   ДОСТАВКА/ОПЛАТА и категорий. Праздничность несут карточки,
+   гирлянда и снежинки, а не цветная подложка. */
 .ny-section {
-  background: linear-gradient(
-    180deg,
-    #1e86cf 0%,
-    var(--color-primary) 42%,
-    #01609e 100%
-  );
+  background: transparent;
 }
 
-/* Гирлянда: провод — отдельная линия (анимируется «прорастание» из центра),
-   огоньки — классические цвета, мерцание вразнобой (фаза — от --b) */
+/* Гирлянда: висит НАД карточками хронометра (внутри контейнера, во всю
+   их ширину); провод — отдельная линия (анимируется «прорастание» из
+   центра), огоньки — классические цвета, мерцание вразнобой (фаза — от --b) */
 .ny-garland {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   display: flex;
   justify-content: center;
   gap: 38px;
@@ -467,7 +463,7 @@ h1, h2, h3, h4, h5, h6 {
   left: 0;
   right: 0;
   height: 1px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(58, 58, 58, 0.22);
   transform-origin: 50% 50%;
 }
 .ny-bulb {
@@ -490,7 +486,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 2px;
   height: 13px;
   transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(58, 58, 58, 0.16);
 }
 @keyframes ny-twinkle {
   0%,
@@ -512,11 +508,12 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* Снежинки: медленное падение с лёгким вращением */
+/* Снежинки: медленное падение с лёгким вращением; на светлом фоне —
+   фирменный голубой, чтобы оставались видны */
 .ny-flake {
   position: absolute;
   top: -34px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(2, 116, 190, 0.38);
   pointer-events: none;
   user-select: none;
   animation: ny-fall linear infinite;
@@ -538,47 +535,43 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* Карточка хронометра: стекло на синем; плавный подъём при наведении */
+/* Карточка хронометра — дизайн плиток условий (InfoCards): белая,
+   скругление --radius-card, без рамки; плавный подъём с мягкой тенью
+   при наведении */
 .ny-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 14px 4px 12px;
-  border-radius: 18px;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.1),
-    rgba(255, 255, 255, 0.045)
-  );
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow:
-    0 14px 34px -18px rgba(0, 21, 51, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(3px);
+  border-radius: var(--radius-card);
+  background: var(--color-bg);
   transition:
     transform 0.35s ease,
-    box-shadow 0.35s ease,
-    border-color 0.35s ease;
+    box-shadow 0.35s ease;
 }
 @media (hover: hover) {
   .ny-card:hover {
     transform: translateY(-3px);
-    border-color: rgba(255, 255, 255, 0.32);
-    box-shadow:
-      0 20px 40px -18px rgba(0, 21, 51, 0.65),
-      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    box-shadow: 0 12px 26px -12px rgba(0, 0, 0, 0.18);
   }
 }
+/* Цифры — фирменный синий (оттенки прежней синей подложки теперь живут
+   в самих цифрах) с мягким голубым свечением */
 .ny-num {
   font-family: var(--font-display);
   font-size: 34px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, #ffffff 25%, #b9dcff 95%);
+  background: linear-gradient(
+    180deg,
+    #2e8fd0 0%,
+    var(--color-primary) 55%,
+    #01609e 100%
+  );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 14px rgba(125, 180, 255, 0.35));
+  filter: drop-shadow(0 0 12px rgba(2, 116, 190, 0.22));
 }
 @media (min-width: 640px) {
   .ny-num {
@@ -591,7 +584,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--color-muted);
 }
 @media (min-width: 640px) {
   .ny-cap {
@@ -606,10 +599,10 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes ny-tick {
   0%,
   100% {
-    filter: drop-shadow(0 0 14px rgba(125, 180, 255, 0.35));
+    filter: drop-shadow(0 0 12px rgba(2, 116, 190, 0.22));
   }
   50% {
-    filter: drop-shadow(0 0 4px rgba(125, 180, 255, 0.12));
+    filter: drop-shadow(0 0 4px rgba(2, 116, 190, 0.08));
   }
 }
 
