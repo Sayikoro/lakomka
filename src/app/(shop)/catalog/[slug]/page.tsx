@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 
 import { getCategories, getProducts } from "@/lib/products";
 import { getPublicSettings } from "@/lib/settings";
+import { categorySeo } from "@/lib/seo";
+import { BreadcrumbJsonLd } from "@/components/seo/BreadcrumbJsonLd";
 import { CategorySeoLive } from "@/components/texts/CategorySeoLive";
 import { CatalogClient } from "../CatalogClient";
 
@@ -41,20 +43,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     };
   }
 
-  const title = cat.meta_title?.trim() || `${cat.name} — каталог подарков`;
-  const description =
-    cat.meta_description?.trim() ||
-    `Подарки категории «${cat.name}» с доставкой по Хабаровску. Собственное производство, новогодние наборы и конфеты от ведущих фабрик.`;
+  /* Task 147: автогенерация через карту CATEGORY_SEO — продуктовые
+     фразы с гео («Подарочные наборы конфет — купить в Хабаровске»);
+     заполненные в админке поля по-прежнему приоритетны. */
+  const seo = categorySeo(cat);
 
   return {
-    title,
-    description,
+    title: seo.title,
+    description: seo.description,
     alternates: {
       canonical: `/catalog/${cat.slug}`,
     },
     openGraph: {
-      title,
-      description,
+      title: seo.title,
+      description: seo.description,
       url: `/catalog/${cat.slug}`,
     },
   };
@@ -70,6 +72,10 @@ export default async function CategoryPage({ params }: PageProps) {
 
   const category = categories.find((c) => c.slug === slug);
   if (!category) notFound();
+
+  /* H1: продуктовая фраза из карты (или название категории); поля
+     админки (meta_title) влияют на <title>, H1 — кодовый MAP. */
+  const seo = categorySeo(category);
 
   /* SEO-текст: заполнен в админке — рисуем над сеткой товаров */
   const seoText = category.seo_text?.trim() || "";
@@ -89,8 +95,16 @@ export default async function CategoryPage({ params }: PageProps) {
         <span className="text-[var(--color-heading)]">{category.name}</span>
       </nav>
 
+      <BreadcrumbJsonLd
+        crumbs={[
+          { name: "Главная", path: "/" },
+          { name: "Каталог", path: "/catalog" },
+          { name: seo.h1, path: `/catalog/${category.slug}` },
+        ]}
+      />
+
       <h1 className="mb-6 text-[40px] font-medium text-[var(--color-heading)]">
-        {category.name}
+        {seo.h1}
       </h1>
 
       {/* Task 146: seo_text понимает шорткод [gallery слаг] (RichText) и

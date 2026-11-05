@@ -5,6 +5,20 @@ import { getCategories, getProducts } from "@/lib/products";
 export const dynamic = "force-static"; // для output: export; данные фиксируются на этапе сборки
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  /* Task 147: SEO-лендинги семантического ядра + служебные страницы */
+  const landingRoutes: MetadataRoute.Sitemap = [
+    "/detskie",
+    "/corporate",
+    "/wholesale",
+    "/delivery",
+    "/catalogs",
+  ].map((path) => ({
+    url: `${SITE.url}${path}`,
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.8,
+  }));
+
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: `${SITE.url}/`,
@@ -18,6 +32,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "daily",
       priority: 0.9,
     },
+    ...landingRoutes,
   ];
 
   /* Task 141: SEO-лендинги категорий /catalog/<slug> */

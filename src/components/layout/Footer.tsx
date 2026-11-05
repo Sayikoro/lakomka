@@ -96,7 +96,8 @@ export function Footer() {
           </div>
         </div>
 
-        {/* Правая колонка — каталоги и подпись (на телефоне — по центру, с разделителем) */}
+        {/* Правая колонка — каталоги, ссылки покупателям и подпись
+            (на телефоне — по центру, с разделителем) */}
         <div className="flex flex-col items-center gap-1.5 border-t border-[var(--color-border)] pt-5 text-center text-[13px] text-[var(--color-muted)] md:items-end md:border-0 md:pt-0">
           <p>
             {/* Попап с двумя печатными каталогами в PDF-вьювере с перелистыванием */}
@@ -109,6 +110,38 @@ export function Footer() {
               {t("global_footer_download_catalogs")}
             </Link>
           </p>
+
+          {/* Task 147: внутренняя перелинковка на SEO-лендинги —
+              ссылки видны на каждой странице витрины */}
+          <nav
+            aria-label="Покупателям"
+            className="mt-4 space-y-1 text-left sm:text-right"
+          >
+            <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-heading)]">
+              Покупателям
+            </p>
+            <p>
+              <Link href="/detskie" className={linkCls}>
+                Детские подарки
+              </Link>
+            </p>
+            <p>
+              <Link href="/corporate" className={linkCls}>
+                Корпоративным клиентам
+              </Link>
+            </p>
+            <p>
+              <Link href="/wholesale" className={linkCls}>
+                Оптовые закупки
+              </Link>
+            </p>
+            <p>
+              <Link href="/delivery" className={linkCls}>
+                Доставка и оплата
+              </Link>
+            </p>
+          </nav>
+
           <p className="mt-auto pt-5 text-[13px] text-[var(--color-muted)]">
             {t("global_footer_credits_prefix")}{" "}
             <span className="font-semibold text-[var(--color-heading)]">{t("global_footer_credits_name")}</span>

@@ -166,9 +166,24 @@ const bad = (s) => { FAIL++; console.log("  FAIL " + s); };
     const resp = await page.goto(`${BASE}/catalog/${cat.slug}/`, { waitUntil: "load", timeout: 30000 });
     await page.waitForTimeout(1200);
     const h1 = ((await page.locator("h1").first().textContent()) || "").trim();
-    h1 === cat.name
-      ? ok(`H1 лендинга = названию категории («${h1}»)`)
-      : bad(`H1 лендинга «${h1}» ≠ категории «${cat.name}»`);
+    /* Task 147: H1 лендинга — продуктовая фраза из CATEGORY_SEO
+       (src/lib/seo.ts), а не сыроё имя категории. Карта продублирована
+       здесь (в .cjs нельзя require .ts); незнакомые слаги получают имя
+       категории, как и в коде. */
+    const SEO_PHRASES = {
+      nabory: "Подарочные наборы конфет",
+      vip: "VIP-подарки",
+      zhest: "Подарки в жестяных банках",
+      igrushki: "Новогодние подарки с игрушками",
+      karton: "Подарки в картонных коробках",
+      meshochki: "Подарки в мешочках",
+      tekstil: "Подарки в текстильной упаковке",
+      tuby: "Подарки в тубах",
+    };
+    const expectedH1 = SEO_PHRASES[cat.slug] ?? cat.name;
+    h1 === expectedH1
+      ? ok(`H1 лендинга = SEO-фразе («${h1}»)`)
+      : bad(`H1 лендинга «${h1}» ≠ SEO-фразы «${expectedH1}»`);
     const canonical = await page.evaluate(() =>
       (document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "")
     );
