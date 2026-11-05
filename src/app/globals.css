@@ -618,19 +618,19 @@ h1, h2, h3, h4, h5, h6 {
    JS после монтирования; в статике/без JS их нет — блок просто виден.
    Порядок: надпись → карточки поднимаются по очереди → провод
    «прорастает» из центра → огоньки загораются слева направо. */
-.ny-anim .ny-head,
-.ny-anim .ny-hint,
-.ny-anim .ny-glow {
+.ny-anim:not(.ny-in) .ny-head,
+.ny-anim:not(.ny-in) .ny-hint,
+.ny-anim:not(.ny-in) .ny-glow {
   opacity: 0;
 }
-.ny-anim .ny-card {
+.ny-anim:not(.ny-in) .ny-card {
   opacity: 0;
   transform: translateY(26px) scale(0.94);
 }
-.ny-anim .ny-garland::before {
+.ny-anim:not(.ny-in) .ny-garland::before {
   transform: scaleX(0);
 }
-.ny-anim .ny-bulb {
+.ny-anim:not(.ny-in) .ny-bulb {
   transform: scale(0);
 }
 .ny-in .ny-head {
@@ -701,20 +701,21 @@ h1, h2, h3, h4, h5, h6 {
   .ny-flake {
     display: none;
   }
-  /* Страховка: даже если JS успел вооружить анимацию — всё видно сразу */
-  .ny-anim .ny-head,
-  .ny-anim .ny-hint,
-  .ny-anim .ny-glow {
+  /* Страховка: даже если JS успел вооружить анимацию — всё видно сразу.
+     Селекторы те же, что у скрытия — выигрывают порядком в файле. */
+  .ny-anim:not(.ny-in) .ny-head,
+  .ny-anim:not(.ny-in) .ny-hint,
+  .ny-anim:not(.ny-in) .ny-glow {
     opacity: 1;
   }
-  .ny-anim .ny-card {
+  .ny-anim:not(.ny-in) .ny-card {
     opacity: 1;
     transform: none;
   }
-  .ny-anim .ny-garland::before {
+  .ny-anim:not(.ny-in) .ny-garland::before {
     transform: scaleX(1);
   }
-  .ny-anim .ny-bulb {
+  .ny-anim:not(.ny-in) .ny-bulb {
     transform: none;
   }
 }
