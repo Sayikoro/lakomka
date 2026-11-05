@@ -1,7 +1,6 @@
 #!/bin/bash
-# Task 147 E2E-обёртка: стенд .deploy-package :8098 + Playwright.
-# SEO-лендинги ядра: главная (title/H1/SEO-блок/футер), /corporate,
-# /wholesale, /delivery, /detskie, категория из MAP, мобильный 390.
+# Task 148 E2E-обёртка: стенд .deploy-package :8098 + Playwright.
+# Лендинги сняты: 404 на старых URL, SEO-ядро (главная/MAP/sitemap) цело.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -19,20 +18,14 @@ PORT=8098; BASE="http://127.0.0.1:$PORT"
 export PHP_CLI_SERVER_WORKERS=8
 "$PHP" -r '$pdo=new PDO("sqlite:".$argv[1]."/backend/storage/database.sqlite"); $pdo->exec("DELETE FROM rate_limits");' "$ROOT/.deploy-package" 2>/dev/null
 pkill -f "127.0.0.1:$PORT" 2>/dev/null; sleep 1
-( cd "$ROOT/.deploy-package" && setsid "$PHP" -S 127.0.0.1:$PORT "$ROOT/scripts/deploy/dev-router.php" >/tmp/t147-stand.log 2>&1 & )
+( cd "$ROOT/.deploy-package" && setsid "$PHP" -S 127.0.0.1:$PORT "$ROOT/scripts/deploy/dev-router.php" >/tmp/t148-stand.log 2>&1 & )
 for i in $(seq 1 30); do curl -s "$BASE/api/health" 2>/dev/null | grep -q ok && break; sleep 0.3; done
-curl -s "$BASE/api/health" | grep -q ok && ok "стенд :$PORT поднялся" || { bad "стенд не поднялся (см. /tmp/t147-stand.log)"; exit 1; }
+curl -s "$BASE/api/health" | grep -q ok && ok "стенд :$PORT поднялся" || { bad "стенд не поднялся (см. /tmp/t148-stand.log)"; exit 1; }
 
 echo "── 2. Playwright-сценарии ──"
-node scripts/task147-e2e.cjs "$BASE" "$ROOT/.deploy-package"
+node scripts/task148-e2e.cjs "$BASE" </dev/null
 E2E=$?
-[ "$E2E" = "0" ] && ok "task147-e2e.cjs зелёный" || bad "task147-e2e.cjs провален"
-
-echo "── 3. Скриншоты ──"
-node scripts/task147-shots.cjs "$BASE" >/dev/null 2>&1 \
-  && [ -s /tmp/t147-corporate.png ] && [ -s /tmp/t147-detskie.png ] && [ -s /tmp/t147-mobile.png ] \
-  && ok "скриншоты сняты (/tmp/t147-*.png)" \
-  || bad "скриншоты не снялись"
+[ "$E2E" = "0" ] && ok "task148-e2e.cjs зелёный" || bad "task148-e2e.cjs провален"
 
 pkill -f "127.0.0.1:$PORT" 2>/dev/null
 
