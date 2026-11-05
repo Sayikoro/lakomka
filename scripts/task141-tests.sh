@@ -32,7 +32,13 @@ cat > /tmp/t141-ny.js <<'EOF'
 const fs = require("fs");
 let src = fs.readFileSync("src/lib/newyear.ts", "utf8")
   .replace(/export /g, "")
+  .replace(/interface \w+\s*\{[^}]*\}/g, "") // Task 142+: NyParts и др. — TS-типы в рантайме не существуют
+  .replace(/\)\s*:\s*[A-Za-z]\w*(\[\])?\s*\{/g, ") {") // возвращаемые типы (Date/NyParts/…)
+  .replace(/\(now: Date = new Date\(\)\)/g, "(now = new Date())")
   .replace(/: Date = new Date\(\)/g, " = new Date()")
+  .replace(/\bnow: Date\b/g, "now")
+  .replace(/\bn: number\b/g, "n")
+  .replace(/\bforms: \[string, string, string\]/g, "forms")
   .replace(/: Date/g, "")
   .replace(/: number/g, "")
   .replace(/: string/g, "");
@@ -41,6 +47,9 @@ const now = new Date(2026, 10, 4); // 4 ноября 2026
 const d = daysUntilNewYear(now);
 const expected = Math.ceil((new Date(2027, 0, 1) - now) / 86400000);
 if (d !== expected) { console.error("days:", d, "expected:", expected); process.exit(1); }
+const parts = timeUntilNewYearParts(now);
+const dFloor = Math.floor(Math.max(0, new Date(2027, 0, 1) - now) / 86400000);
+if (parts.d !== dFloor) { console.error("parts.d:", parts.d, "floor:", dFloor); process.exit(3); }
 const pl = [[1,"день"],[2,"дня"],[5,"дней"],[11,"дней"],[21,"день"],[22,"дня"],[25,"дней"]];
 for (const [n, w] of pl) if (pluralDays(n) !== w) { console.error("plural", n, pluralDays(n)); process.exit(2); }
 console.log("NY-OK");

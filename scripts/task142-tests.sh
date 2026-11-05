@@ -145,6 +145,29 @@ grep -q 'data-testid="home-info"' "$PAGE" && grep -q 'data-testid="home-cats"' "
   && ok "секции плиток и категорий помечены testid для e2e" \
   || bad "нет testid у соседних секций"
 
+echo "── 6. Task 149: гирлянда и снежинки блока БЕЛЫЕ (без радуги) ──"
+grep -q 'BULB_COLOR = "#ffffff"' "$NY" \
+  && ! grep -q "BULB_COLORS" "$NY" \
+  && ok "огоньки гирлянды — один белый цвет (пятёрка радужных удалена)" \
+  || bad "в NewYearCounter остались радужные BULB_COLORS или нет белого BULB_COLOR"
+! grep -rEq "ff5964|ffd166|06d6a0|4cc9f0|f77fbe" "$ROOT/src" \
+  && ok "радужные цвета гирлянды не встречаются нигде в src/" \
+  || bad "в src/ остались радужные hex-цвета гирлянды"
+sed -n '/^\.ny-bulb {/,/^}/p' "$CSS" | grep -q "background: #ffffff" \
+  && ! sed -n '/^\.ny-bulb {/,/^}/p' "$CSS" | grep -q "currentColor" \
+  && ok ".ny-bulb: белый огонёк, видимость на светлом фоне (обводка/тень, не currentColor)" \
+  || bad ".ny-bulb не белый или снова на currentColor"
+sed -n '/^\.ny-flake {/,/^}/p' "$CSS" | grep -q "color: #ffffff" \
+  && sed -n '/^\.ny-flake {/,/^}/p' "$CSS" | grep -q "text-shadow" \
+  && ok ".ny-flake: белые снежинки блока (видимость — мягкой тенью)" \
+  || bad ".ny-flake не белый или без тени"
+! sed -n '/^\.ny-flake {/,/^}/p' "$CSS" | grep -q "2, 116, 190" \
+  && ok "снежинки блока больше не голубые (откат перекраски Task 144)" \
+  || bad ".ny-flake всё ещё голубой"
+sed -n '/@keyframes ny-twinkle/,/^}/p' "$CSS" | grep -q "rgba(255, 255, 255" \
+  && ok "белое свечение огоньков в keyframes ny-twinkle" \
+  || bad "в ny-twinkle нет белого свечения"
+
 echo ""
 echo "ИТОГО: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = "0" ]

@@ -68,6 +68,8 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     const headSt = getComputedStyle(el.querySelector(".ny-head"));
     const garland = el.querySelector(".ny-garland");
     const grid = el.querySelector(".ny-card").parentElement;
+    const firstBulb = garland?.querySelector(".ny-bulb");
+    const firstFlake = el.querySelector(".ny-flake");
     return {
       text,
       nums,
@@ -92,6 +94,9 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
           grid.getBoundingClientRect().width) < 2 &&
         garland.getBoundingClientRect().bottom <=
           grid.getBoundingClientRect().top + 2,
+      /* Task 149: гирлянда и снежинки блока — белые */
+      bulbBg: firstBulb ? getComputedStyle(firstBulb).backgroundColor : "",
+      flakeColor: firstFlake ? getComputedStyle(firstFlake).color : "",
     };
   });
   if (!a) bad("счётчик не найден на главной");
@@ -125,6 +130,12 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     a.garlandOverCards
       ? ok("гирлянда висит над карточками во всю их ширину")
       : bad("гирлянда не над карточками (ширина/позиция не совпали)");
+    a.bulbBg === "rgb(255, 255, 255)"
+      ? ok("огоньки гирлянды белые (Task 149 — без радуги)")
+      : bad(`огонёк не белый: ${a.bulbBg}`);
+    a.flakeColor === "rgb(255, 255, 255)"
+      ? ok("снежинки блока белые (Task 149)")
+      : bad(`снежинка не белая: ${a.flakeColor}`);
 
     /* Значения совпадают с часами посетителя (±2 c на дрейф между тиками) */
     const live = await page.evaluate(() => {
