@@ -1098,10 +1098,8 @@ class AdminProductsController
             (int)(($W - $dw) / 2), (int)(($H - $dh) / 2),
             0, 0, $dw, $dh, $sw, $sh
         );
-        imagedestroy($src);
 
         $ok = imagejpeg($page, $outFile, 90);
-        imagedestroy($page);
         return (bool)$ok;
     }
 
@@ -1196,7 +1194,6 @@ class AdminProductsController
                     $ix + (int)(($iw - $dw) / 2), $iy + (int)(($ih - $dh) / 2),
                     0, 0, $dw, $dh, $sw, $sh
                 );
-                imagedestroy($src);
             } else {
                 imagefilledrectangle($page, $ix, $iy, $ix + $iw, $iy + $ih, $imgBg);
                 $t = 'нет фото';
@@ -1220,7 +1217,6 @@ class AdminProductsController
         }
 
         imagejpeg($page, $outFile, 90);
-        imagedestroy($page);
     }
 
     /** Перенос по словам, максимум $maxLines, хвост с «…» */
