@@ -63,6 +63,9 @@ const FLASH_WATCH = `
       // статики (A) и его спасение несуществующего (B) + штатный 401-зонд
       const intentional404 = /test-posle-sborki|net-takogo|\/(detskie|corporate|wholesale|delivery)(\/|\?|$)/.test(u);
       if (intentional404 && msg.text().includes("404")) return;
+      // медиа в песочнице нет (uploads не входит в пакет; прод-синк Task 152
+      // ссылается на файлы медиа прода) — 404 картинок шумом не считаем
+      if (/\/uploads\//.test(u)) return;
       if (msg.text().includes("401") || msg.text().includes("/api/auth/me")) return;
       consoleErrors.push(msg.text() + " @ " + u);
     }

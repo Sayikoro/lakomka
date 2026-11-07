@@ -10,6 +10,14 @@ backend/storage/database.sqlite — урезанная dev-фикстура (т�
 фабрик) через публичный API и вливает их в dev-БД. Заказы, пользователи,
 SMTP и прочее приватное не трогаются.
 
+Состав наборов (Task 152): каталог-выдача /api/products не содержит
+bundle_items — детали каждого набора добираются отдельно, из них
+восстанавливаются bundle_items и строки-компоненты (type=recipe, из
+каталога всё равно скрыты фильтром типа). Без этого /api/products/<slug>
+отдаёт пустой состав: вкладка «Состав подарка» не рендерится, а запечённые
+страницы остаются без состава до живого fetch. Пауза между запросами —
+под VisitGuard прода (120/мин).
+
 Перед запуском: PHP-сервер :8000 остановить (он открывает sqlite на каждый
 запрос — подмена файла под живым процессом в прошлый раз дала «франкенштейна»).
 После: проверить /api/products (:8000) и запустить MODE=both сборку.
@@ -19,6 +27,8 @@ import os
 import shutil
 import sqlite3
 import sys
+import time
+import urllib.error
 import urllib.request
 
 PROD = "https://lakomkakhv.ru"
@@ -37,10 +47,17 @@ CATEGORY_COLS = ["id", "slug", "name", "sort_order", "meta_title",
                  "meta_description", "seo_text"]
 
 
-def fetch(path):
-    req = urllib.request.Request(PROD + path, headers={"User-Agent": "lakomka-sync/1.0"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.load(r)
+def fetch(path, retries=3):
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(PROD + path, headers={"User-Agent": "lakomka-sync/1.0"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries:
+                time.sleep(6)  # VisitGuard прода — подождать и повторить
+                continue
+            raise
 
 
 def j(v):
@@ -85,6 +102,47 @@ def main():
                 "VALUES (?,?,?,?,?,?)",
                 (m.get("id"), p["id"], m["url"], m.get("alt") or "",
                  m.get("type") or "image", m.get("sort_order") or 0))
+
+    # --- состав наборов: bundle_items + строки-компоненты (Task 152) ---
+    # Каталог-выдача состава не содержит; детали каждого набора — отдельно.
+    bundles = [p for p in products if p.get("type") == "bundle"]
+    print(f"  состав: наборов {len(bundles)} — тяну детали каждого (VisitGuard прода: пауза 0.6 с)…")
+    c.execute("DELETE FROM bundle_items")
+    comp_seen = {}
+    comp_img_done = set()
+    for idx, p in enumerate(bundles):
+        if idx % 50 == 0 and idx:
+            print(f"  состав: {idx}/{len(bundles)}…")
+        d = fetch(f"/api/products/{p['slug']}").get("data") or {}
+        for b in (d.get("bundle_items") or []):
+            cid = b.get("component_id")
+            if not cid:
+                continue
+            c.execute(
+                "INSERT INTO bundle_items (product_id, component_id, quantity) VALUES (?,?,?)",
+                (p["id"], cid, b.get("quantity") or 1))
+            if cid not in comp_seen:
+                comp_seen[cid] = b
+            url = b.get("component_image")
+            if url and cid not in comp_img_done:
+                comp_img_done.add(cid)
+                c.execute(
+                    "INSERT INTO product_images (product_id, url, alt, media_type, sort_order) "
+                    "VALUES (?,?,?,?,?)",
+                    (cid, url, b.get("component_name") or "", "image", 0))
+        time.sleep(0.6)
+    # Компоненты как товары type=recipe: в каталог не попадают (фильтр типа
+    # в /api/products), но нужны джойну /api/products/<slug> и медиа-поиску.
+    for cid, b in comp_seen.items():
+        c.execute(
+            "INSERT OR REPLACE INTO products "
+            "(id, sku, slug, name, description, manufacturer, type, price_kopecks, "
+            "show_in_catalog, is_published) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (cid, b.get("sku"), b.get("component_slug"), b.get("component_name"),
+             b.get("component_description"), b.get("component_manufacturer"),
+             "recipe", 0, 0, 1))
+    print(f"  состав: {len(comp_seen)} компонентов, "
+          f"{c.execute('SELECT COUNT(*) FROM bundle_items').fetchone()[0]} связей")
 
     # --- категории (полная замена: у фикстуры те же id 1–8, но чужие тексты) ---
     c.execute("DELETE FROM categories")
@@ -142,17 +200,24 @@ def main():
 
     # --- верификация ---
     n_prod = c.execute("SELECT count(*) FROM products").fetchone()[0]
+    n_comp = c.execute("SELECT count(*) FROM products WHERE type='recipe'").fetchone()[0]
     n_img = c.execute("SELECT count(*) FROM product_images").fetchone()[0]
     n_cat = c.execute("SELECT count(*) FROM categories").fetchone()[0]
     n_txt = c.execute("SELECT count(*) FROM settings WHERE key LIKE 'text\\_%' ESCAPE '\\'").fetchone()[0]
+    n_bi = c.execute("SELECT count(*) FROM bundle_items").fetchone()[0]
+    n_bi_join = c.execute(
+        "SELECT COUNT(*) FROM bundle_items bi JOIN products cp ON cp.id = bi.component_id"
+    ).fetchone()[0]
     sample = c.execute(
         "SELECT slug, name, price_kopecks FROM products WHERE slug='lakomka-5305'"
     ).fetchone()
-    print(f"— в dev-БД: товаров {n_prod}, медиа {n_img}, категорий {n_cat}, "
-          f"текстов {n_txt}")
+    print(f"— в dev-БД: товаров {n_prod} (из них компонентов {n_comp}), медиа {n_img}, "
+          f"категорий {n_cat}, текстов {n_txt}, связей состава {n_bi}")
     print(f"— контроль (lakomka-5305): {sample}")
-    if n_prod != len(products) or not sample:
-        sys.exit("СИНК НЕ СОШЁЛСЯ — проверить API")
+    if n_prod != len(products) + n_comp or not sample:
+        sys.exit("СИНК НЕ СОШЁЛСЯ (товары/компоненты) — проверить API")
+    if n_bi == 0 or n_bi != n_bi_join:
+        sys.exit("СИНК НЕ СОШЁЛСЯ (состав: связи без компонентов) — проверить API")
     print("OK: синк завершён")
     db.close()
 

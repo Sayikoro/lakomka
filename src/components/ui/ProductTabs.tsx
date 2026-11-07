@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { Modal } from "@/components/ui/Modal";
 import { PACKAGING_LABELS } from "@/lib/constants";
@@ -19,6 +19,29 @@ const TAB_TEXT_KEYS: Record<TabKey, string> = {
   details: "product_tab_details",
   composition: "product_tabs_composition",
 };
+
+/* Свёртывание «Состава подарка»: видно 2 ряда, остальное скрыто за
+   «показать больше». Число колонок берём из тех же брейкпоинтов, что и
+   у сетки карточек ниже (sm: 4, lg: 6; телефонный список — 1 позиция
+   в ряду) → 2 ряда = 12 карточек на ПК, 8 на планшете, 2 на телефоне. */
+const COMPOSITION_COLLAPSED_ROWS = 2;
+
+function subscribeCompositionCols(onChange: () => void): () => void {
+  const mqSm = window.matchMedia("(min-width: 640px)");
+  const mqLg = window.matchMedia("(min-width: 1024px)");
+  mqSm.addEventListener("change", onChange);
+  mqLg.addEventListener("change", onChange);
+  return () => {
+    mqSm.removeEventListener("change", onChange);
+    mqLg.removeEventListener("change", onChange);
+  };
+}
+
+function getCompositionCols(): 1 | 4 | 6 {
+  if (window.matchMedia("(min-width: 1024px)").matches) return 6;
+  if (window.matchMedia("(min-width: 640px)").matches) return 4;
+  return 1;
+}
 
 function formatWeight(g: number | null | undefined): string | null {
   if (g === null || g === undefined || g <= 0) return null;
@@ -50,6 +73,17 @@ export function ProductTabs({ product }: Props) {
   const initial: TabKey = product.description ? "description" : "details";
   const [active, setActive] = useState<TabKey>(initial);
   const [selected, setSelected] = useState<BundleItem | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  /* Число колонок сетки (реактивно к ресайзу; до гидратации — десктоп:
+     состав всё равно рендерится только после клика по вкладке) */
+  const cols = useSyncExternalStore(subscribeCompositionCols, getCompositionCols, () => 6);
+
+  const bundleItems = product.bundle_items ?? []; // у не-наборов undefined — не упасть на .length
+  const capacity = cols * COMPOSITION_COLLAPSED_ROWS;
+  const hasHiddenItems = bundleItems.length > capacity;
+  const visibleItems =
+    !expanded && hasHiddenItems ? bundleItems.slice(0, capacity) : bundleItems;
 
   const weight = formatWeight(product.weight_g);
   const dims = formatDimensions(product.length_cm, product.width_cm, product.height_cm);
@@ -135,16 +169,29 @@ export function ProductTabs({ product }: Props) {
             <>
               {/* Телефон: список — фото, название, под ним производитель, кнопка «Подробнее» */}
               <ul className="m-0 list-none space-y-2 p-0 sm:hidden">
-                {product.bundle_items!.map((item) => (
+                {visibleItems.map((item) => (
                   <CompositionRow key={item.id} item={item} onDetails={() => setSelected(item)} />
                 ))}
               </ul>
               {/* ПК/планшет: карточная система */}
               <div className="hidden grid-cols-3 gap-2 sm:grid sm:grid-cols-4 lg:grid-cols-6">
-                {product.bundle_items!.map((item) => (
+                {visibleItems.map((item) => (
                   <CompositionCard key={item.id} item={item} onDetails={() => setSelected(item)} />
                 ))}
               </div>
+              {/* Свёрнуто: обычный текст «показать больше» по центру — раскрывает весь состав */}
+              {!expanded && hasHiddenItems && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(true)}
+                    data-testid="composition-show-more"
+                    className="inline-flex items-center py-1 text-sm text-[var(--color-muted)] underline-offset-4 transition hover:text-[var(--color-heading)] hover:underline"
+                  >
+                    показать больше
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
