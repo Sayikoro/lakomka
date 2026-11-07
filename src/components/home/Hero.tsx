@@ -43,10 +43,16 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
      включение снега в админке работало без пересборки сайта. */
   const [snowLive, setSnowLive] = useState<SnowSettings>(snow ?? DEFAULT_SNOW_SETTINGS);
   useEffect(() => {
-    setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
-    setHeroLive(null);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    /* Task 151: сброс в микротаске — react-hooks v6 запрещает синхронный
+       setState в теле эффекта (каскадные рендеры). Поведение прежнее:
+       проп изменился (навигация) → вернуть запечённые значения до ответа API. */
     let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
+      setHeroLive(null);
+    });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
     fetch(`${apiUrl}/settings/public`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {

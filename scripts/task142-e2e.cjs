@@ -30,7 +30,15 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
   const consoleErrors = [];
   const notFound = [];
   page.on("console", (msg) => {
-    if (msg.type() === "error") consoleErrors.push(msg.text());
+    if (msg.type() === "error") {
+      const u = (msg.location() && msg.location().url) || "";
+      /* Task 151: медиа в песочнице нет (uploads вне пакета) и сторонняя
+         аналитика (метрика из продовых настроек) — шум среды, не ошибки
+         приложения */
+      if (/\/uploads\//.test(u) || /mc\.yandex|yastatic|metrika/i.test(u)) return;
+      if (/ERR_CERT_AUTHORITY_INVALID/.test(msg.text())) return;
+      consoleErrors.push(msg.text());
+    }
   });
   page.on("response", (res) => {
     if (res.status() === 404) notFound.push(res.url());
@@ -94,7 +102,7 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
           grid.getBoundingClientRect().width) < 2 &&
         garland.getBoundingClientRect().bottom <=
           grid.getBoundingClientRect().top + 2,
-      /* Task 149: гирлянда и снежинки блока — белые */
+      /* Task 151: гирлянда — классические цвета, снежинки — голубые */
       bulbBg: firstBulb ? getComputedStyle(firstBulb).backgroundColor : "",
       flakeColor: firstFlake ? getComputedStyle(firstFlake).color : "",
     };
@@ -130,12 +138,12 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     a.garlandOverCards
       ? ok("гирлянда висит над карточками во всю их ширину")
       : bad("гирлянда не над карточками (ширина/позиция не совпали)");
-    a.bulbBg === "rgb(255, 255, 255)"
-      ? ok("огоньки гирлянды белые (Task 149 — без радуги)")
-      : bad(`огонёк не белый: ${a.bulbBg}`);
-    a.flakeColor === "rgb(255, 255, 255)"
-      ? ok("снежинки блока белые (Task 149)")
-      : bad(`снежинка не белая: ${a.flakeColor}`);
+    a.bulbBg === "rgb(255, 89, 100)"
+      ? ok("огоньки гирлянды классических цветов (первый — красный #ff5964)")
+      : bad(`огонёк не красный: ${a.bulbBg}`);
+    a.flakeColor.startsWith("rgba(2, 116, 190")
+      ? ok("снежинки блока — фирменный голубой (откат Task 149)")
+      : bad(`снежинка не голубая: ${a.flakeColor}`);
 
     /* Значения совпадают с часами посетителя (±2 c на дрейф между тиками) */
     const live = await page.evaluate(() => {
@@ -268,13 +276,13 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
     (e) => !/401|Failed to load resource.*401/.test(e)
   );
   const real404 = notFound.filter(
-    (u) => !/\/api\//.test(u) && !/auth|admin/.test(u)
+    (u) => !/\/api\//.test(u) && !/auth|admin/.test(u) && !/\/uploads\//.test(u)
   );
   real.length === 0
     ? ok("консоль чиста (штатный 401-зонд AdminToolbar отфильтрован)")
     : bad(`ошибки консоли: ${real.slice(0, 3).join(" | ")}`);
   real404.length === 0
-    ? ok("нет 404-ресурсов (кроме штатных API-зондов)")
+    ? ok("нет 404-ресурсов (кроме API-зондов и отсутствующих в песочнице медиа)")
     : bad(`404-ресурсы: ${[...new Set(real404)].slice(0, 5).join(", ")}`);
 
   await browser.close();

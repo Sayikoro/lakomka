@@ -33,6 +33,13 @@ const bad = (s) => { FAIL++; console.log("  FAIL " + s); };
   page.on("console", (m) => {
     if (m.type() === "error") {
       const url = (m.location() && m.location().url) || "";
+      /* Task 151: медиа в песочнице нет (uploads вне пакета), штатный 401
+         анонимной проверки auth и сторонняя аналитика из продовых настроек
+         (режется по сертификату) — шум среды, не ошибки приложения */
+      if (/\/uploads\//.test(url)) return;
+      if (/\/api\/auth\//.test(url) && /401|Unauthorized/.test(m.text())) return;
+      if (/mc\.yandex|yastatic|metrika/i.test(url)) return;
+      if (/ERR_CERT_AUTHORITY_INVALID/.test(m.text())) return;
       consoleErrors.push(m.text() + " @ " + url);
     }
   });

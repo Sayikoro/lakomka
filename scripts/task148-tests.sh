@@ -47,8 +47,8 @@ grep -q 'BreadcrumbJsonLd' "src/app/(shop)/catalog/[slug]/page.tsx" \
 [ -s src/components/seo/BreadcrumbJsonLd.tsx ] && ok "компонент BreadcrumbJsonLd на месте" || bad "BreadcrumbJsonLd удалён"
 grep -q 'title: "Новогодние подарки в Хабаровске — купить сладкие подарки"' "src/app/(shop)/page.tsx" \
   && ok "главная: title кластера 1 сохранён" || bad "главная: title кластера 1 пропал"
-grep -q 'data-testid="home-seo"' "src/app/(shop)/page.tsx" \
-  && ok "главная: SEO-блок внизу сохранён" || bad "главная: SEO-блок пропал"
+! grep -q 'data-testid="home-seo"' "src/app/(shop)/page.tsx" \
+  && ok "главная: SEO-блок снят (Task 151 — по прямой просьбе владельца)" || bad "главная: SEO-блок всё ещё в page.tsx"
 grep -q '<h1 className="font-hero' src/components/home/Hero.tsx \
   && ok "главная: H1 — строка 1 Hero" || bad "главная: H1 в Hero пропал"
 for r in cart checkout; do
@@ -76,7 +76,7 @@ grep -q "catalog/nabory</loc>" "$D/sitemap.xml" && ok "sitemap.xml: катего
 
 grep -q "<title>Новогодние подарки в Хабаровске — купить сладкие подарки — Лакомка</title>" "$D/index.html" \
   && ok "главная: <title> кластера 1" || bad "главная: <title>: $(grep -o '<title>[^<]*' "$D/index.html" | head -1)"
-grep -q 'data-testid="home-seo"' "$D/index.html" && ok "главная: SEO-блок запечён" || bad "главная: нет SEO-блока"
+! grep -q 'data-testid="home-seo"' "$D/index.html" && ok "главная: SEO-блок снят и в статике" || bad "в статике остался SEO-блок"
 grep -q '<h1 class="font-hero' "$D/index.html" && ok "главная: H1 в Hero запечён" || bad "главная: H1 не запечён"
 ! grep -q 'Покупателям' "$D/index.html" && ok "главная: футер без «Покупателям»" || bad "главная: футер всё ещё содержит «Покупателям»"
 

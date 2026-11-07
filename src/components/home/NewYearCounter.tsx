@@ -50,11 +50,11 @@ const UNITS: Array<{ key: keyof NyParts; forms: [string, string, string] }> = [
   { key: "s", forms: ["секунда", "секунды", "секунд"] },
 ];
 
-/* Task 149: огоньки гирлянды — БЕЛЫЕ (просьба владельца: блок должен быть
-   в цвете сайта, без радуги; ранее — «пятёрка цветов» из Task 142).
-   Видимость на светлом фоне обеспечивает .ny-bulb в globals.css
-   (обводка + мягкая тень, не currentColor). */
-const BULB_COLOR = "#ffffff";
+/* Task 151: огоньки гирлянды — классическая новогодняя пятёрка цветов
+   (возврат Task 142 по прямой просьбе владельца: «гирлянду верни обратно» —
+   белой в Task 149 делали не её, а заголовок «новогодняя коллекция 2027»,
+   который был серым из-за каскада CSS — см. @layer base в globals.css). */
+const BULB_COLORS = ["#ff5964", "#ffd166", "#06d6a0", "#4cc9f0", "#f77fbe"];
 const BULBS = 12;
 
 /* Снежинки: позиция / размер / длительность / задержка падения */
@@ -209,7 +209,7 @@ export function NewYearCounter({ enabled, initialParts }: Props) {
               key={i}
               className="ny-bulb"
               style={{
-                color: BULB_COLOR,
+                color: BULB_COLORS[i % BULB_COLORS.length],
                 ["--b" as string]: i,
               } as React.CSSProperties}
             />

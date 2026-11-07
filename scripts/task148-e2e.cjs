@@ -30,6 +30,13 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
       // раздел B намеренно открывает снятые лендинги (404) — их ресурсы не считаем
       const u = (msg.location() && msg.location().url) || "";
       if (/\/(detskie|corporate|wholesale|delivery)(\/|\?|$)/.test(u)) return;
+      // Task 151: в песочнице нет медиа (uploads вне пакета), штатный 401
+      // анонимной проверки auth и сторонняя аналитика (метрика из продовых
+      // настроек; в песочнице режется по сертификату) — шум среды
+      if (/\/uploads\//.test(u)) return;
+      if (/\/api\/auth\//.test(u) && /401|Unauthorized/.test(msg.text())) return;
+      if (/mc\.yandex|yastatic|metrika/i.test(u)) return;
+      if (/ERR_CERT_AUTHORITY_INVALID/.test(msg.text())) return;
       consoleErrors.push(msg.text());
     }
   });
@@ -52,7 +59,7 @@ const bad = (m) => { fail++; console.log("  FAIL " + m); };
   const h1Count = await page.locator("h1").count();
   if (h1Count === 1) ok("H1 ровно один (Hero)"); else bad("H1 на странице: " + h1Count);
   const seoBlock = page.locator('[data-testid="home-seo"]');
-  if (await seoBlock.count()) ok("SEO-блок внизу главной"); else bad("нет SEO-блока home-seo");
+  if (await seoBlock.count()) bad("SEO-блок home-seo всё на главной (Task 151 снимал)"); else ok("SEO-блок снят с главной (Task 151)");
   const footNav = page.locator('footer nav[aria-label="Покупателям"]');
   if (!(await footNav.count())) ok("футер: блока «Покупателям» нет"); else bad("футер: «Покупателям» остался");
   const deadLinks = await page.locator('a[href="/detskie"], a[href="/detskie/"], a[href="/corporate"], a[href="/corporate/"], a[href="/wholesale"], a[href="/wholesale/"], a[href="/delivery"], a[href="/delivery/"]').count();
