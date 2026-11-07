@@ -24,6 +24,10 @@ import { FUNNY_PHRASES } from "@/lib/funny-phrases";
  *     прочитать; страховочный потолок — 4 с;
  *   - на /admin* сплэш не показывается (админку перезагружают часто,
  *     заставка там только мешает);
+ *   - Task 150: на 404.html по адресу /product/<slug>/ (страница
+ *     «спасения» товара, добавленного после сборки) заставка держится
+ *     до сигнала __bootRelease от NotFoundView — без вспышки 404 между
+ *     прелоадером и карточкой товара;
  *   - при возврате по bfcache (pageshow.persisted) прячет остатки.
  *
  * Почему НЕ React-состояние: до гидратации React не работает, а на
@@ -74,6 +78,23 @@ setTimeout(function(){h.setAttribute("data-boot","done");},350);
 }
 var t0=Date.now();
 function ready(){
+/* Task 150: 404.html по адресу /product/<slug>/ — это «спасение» товара,
+ * добавленного после сборки (NotFoundView проверяет его в API и рисует
+ * карточку). Если погасить заставку по DOMContentLoaded, посетитель
+ * увидит вспышку страницы 404 между прелоадером и карточкой. Поэтому
+ * на таких адресах заставка держится до сигнала __bootRelease от
+ * NotFoundView (товар найден — под ним карточка, не найден — 404);
+ * страховочный потолок — общий 4-секундный таймер ниже. */
+var hold=false;
+try{hold=/^\\/product\\/[^/]+\\/?$/.test(p)&&document.querySelector("[data-boot-hold]")!==null;}catch(e){}
+if(hold){
+/* «Спасение» могло завершиться ещё до DOMContentLoaded (быстрая сеть:
+ * гидратация и API успевают раньше парсера) — тогда ранний сигнал уже
+ * выставлен и заставку гасим штатно, по брендовой паузе 900 мс. */
+if(window.__bootEarlyRelease){var left=900-(Date.now()-t0);setTimeout(hide,left>0?left:0);return;}
+if(!window.__bootRelease)window.__bootRelease=function(){setTimeout(hide,0);};
+return;
+}
 var left=900-(Date.now()-t0);
 setTimeout(hide,left>0?left:0);
 }
