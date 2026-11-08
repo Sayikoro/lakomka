@@ -7,10 +7,10 @@
  *   - кейсы-«ожидания» (expect-*) печатают SQL-эталон "key=value;..." ДО
  *     вызова контроллера;
  *   - кейсы-контроллеры печатают JSON/CSV контроллера как есть.
- * Bash-скрипт task152-tests.sh сравнивает их через python.
+ * Bash-скрипт task153-tests.sh сравнивает их через python.
  *
- * Все тестовые записи помечены префиксом T152 и удаляются кейсом cleanup.
- * Запуск: php scripts/task152-func.php <case>
+ * Все тестовые записи помечены префиксом T153 и удаляются кейсом cleanup.
+ * Запуск: php scripts/task153-func.php <case>
  */
 declare(strict_types=1);
 
@@ -49,7 +49,7 @@ function kv(array $pairs): void
 
 function ensureTestUser(PDO $pdo): int
 {
-    $email = 't152-e2e@lakomka.local';
+    $email = 't153-e2e@lakomka.local';
     $st = $pdo->prepare('SELECT id FROM users WHERE email = ?');
     $st->execute([$email]);
     $id = $st->fetchColumn();
@@ -57,7 +57,7 @@ function ensureTestUser(PDO $pdo): int
     $pdo->prepare(
         "INSERT INTO users (email, password_hash, role, token_version)
          VALUES (?, ?, 'super_admin', 0)"
-    )->execute([$email, password_hash('T152-Test!' . bin2hex(random_bytes(4)), PASSWORD_DEFAULT)]);
+    )->execute([$email, password_hash('T153-Test!' . bin2hex(random_bytes(4)), PASSWORD_DEFAULT)]);
     return (int)$pdo->lastInsertId();
 }
 
@@ -83,19 +83,19 @@ function authAs(PDO $pdo, ?int $forceTv = null): int
 
 function cleanOrders(PDO $pdo): void
 {
-    $ids = $pdo->query("SELECT id FROM orders WHERE order_number LIKE 'T152-%'")
+    $ids = $pdo->query("SELECT id FROM orders WHERE order_number LIKE 'T153-%'")
         ->fetchAll(PDO::FETCH_COLUMN);
     foreach ($ids as $id) {
         $pdo->prepare('DELETE FROM order_items WHERE order_id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM order_status_history WHERE order_id = ?')->execute([$id]);
     }
-    $pdo->prepare("DELETE FROM orders WHERE order_number LIKE 'T152-%'")->execute();
+    $pdo->prepare("DELETE FROM orders WHERE order_number LIKE 'T153-%'")->execute();
 }
 
-/* Эталон одного фильтра: SQL-счётчик по T152-заказам. Фильтр — $argv[2] (URL-строка). */
+/* Эталон одного фильтра: SQL-счётчик по T153-заказам. Фильтр — $argv[2] (URL-строка). */
 function expectedForFilter(PDO $pdo, string $qs): int
 {
-    $like = "order_number LIKE 'T152-%'";
+    $like = "order_number LIKE 'T153-%'";
     if ($qs === 'status=done') {
         return (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE $like AND status = 'done'")->fetchColumn();
     }
@@ -135,11 +135,11 @@ function seedOrders(PDO $pdo): void
     cleanOrders($pdo);
     $rows = [
         // [номер, статус, дата, сумма, email_sent, телефон, доставка]
-        ['T152-001', 'new',       date('Y-m-d') . 'T10:00:00', 150000, 0, '+7 914 111-11-11', 'city'],
-        ['T152-002', 'paid',      date('Y-m-d') . 'T11:30:00', 250000, 1, '+7 914 222-22-22', 'pickup'],
-        ['T152-003', 'done',      date('Y-m-d', time() - 3 * 86400) . 'T09:00:00', 100000, 1, '+7 914 333-33-33', 'tk'],
-        ['T152-004', 'cancelled', date('Y-m-d', time() - 40 * 86400) . 'T12:00:00', 50000, 0, '+7 914 111-11-11', 'city'],
-        ['T152-005', 'shipped',   date('Y-m-d', time() - 400 * 86400) . 'T12:00:00', 200000, 1, '+7 914 555-55-55', 'region'],
+        ['T153-001', 'new',       date('Y-m-d') . 'T10:00:00', 150000, 0, '+7 914 111-11-11', 'city'],
+        ['T153-002', 'paid',      date('Y-m-d') . 'T11:30:00', 250000, 1, '+7 914 222-22-22', 'pickup'],
+        ['T153-003', 'done',      date('Y-m-d', time() - 3 * 86400) . 'T09:00:00', 100000, 1, '+7 914 333-33-33', 'tk'],
+        ['T153-004', 'cancelled', date('Y-m-d', time() - 40 * 86400) . 'T12:00:00', 50000, 0, '+7 914 111-11-11', 'city'],
+        ['T153-005', 'shipped',   date('Y-m-d', time() - 400 * 86400) . 'T12:00:00', 200000, 1, '+7 914 555-55-55', 'region'],
     ];
     $ins = $pdo->prepare(
         "INSERT INTO orders (order_number, customer_name, customer_phone, customer_phone_hash,
@@ -153,7 +153,7 @@ function seedOrders(PDO $pdo): void
             Crypto::encrypt('Тестовый Клиент ' . substr($num, -3)),
             Crypto::encrypt($phone),
             Crypto::phoneHash($phone),
-            Crypto::encrypt('t152@example.org'),
+            Crypto::encrypt('t153@example.org'),
             $delivery,
             Crypto::encrypt('Хабаровск, тестовая 1'),
             Crypto::encrypt('комментарий ' . $num),
@@ -175,14 +175,14 @@ function seedOrders12(PDO $pdo): void
          VALUES (?, ?, ?, ?, ?, 'city', ?, 'new', ?, 1)"
     );
     for ($i = 1; $i <= 12; $i++) {
-        $num = sprintf('T152-P%02d', $i);
+        $num = sprintf('T153-P%02d', $i);
         $phone = sprintf('+7 914 900-%02d-%02d', $i, $i);
         $ins->execute([
             $num,
             Crypto::encrypt('Пагинация ' . $i),
             Crypto::encrypt($phone),
             Crypto::phoneHash($phone),
-            Crypto::encrypt('t152@example.org'),
+            Crypto::encrypt('t153@example.org'),
             $i * 1000,
             date('Y-m-d') . sprintf('T%02d:00:00', $i),
         ]);
@@ -191,17 +191,17 @@ function seedOrders12(PDO $pdo): void
 
 function seedLowStock(PDO $pdo): void
 {
-    $pdo->prepare("DELETE FROM products WHERE sku LIKE 'T152-STOCK-%'")->execute();
+    $pdo->prepare("DELETE FROM products WHERE sku LIKE 'T153-STOCK-%'")->execute();
     $ins = $pdo->prepare(
         "INSERT INTO products (sku, slug, name, type, price_kopecks, stock_qty,
              show_in_catalog, is_published, category_id)
          VALUES (?, ?, ?, 'simple', 100000, ?, 1, 1, NULL)"
     );
-    $ins->execute(['T152-STOCK-0', 't152-zero', 'T152 Кончился совсем', 0]);
-    $ins->execute(['T152-STOCK-3', 't152-three', 'T152 Кончается', 3]);
-    $ins->execute(['T152-STOCK-9', 't152-nine', 'T152 Достаточно', 9]);
-    $ins->execute(['T152-STOCK-2H', 't152-hidden', 'T152 Скрытый с нулём', 0]);
-    $pdo->prepare("UPDATE products SET is_published = 0 WHERE sku = 'T152-STOCK-2H'")->execute();
+    $ins->execute(['T153-STOCK-0', 't153-zero', 'T153 Кончился совсем', 0]);
+    $ins->execute(['T153-STOCK-3', 't153-three', 'T153 Кончается', 3]);
+    $ins->execute(['T153-STOCK-9', 't153-nine', 'T153 Достаточно', 9]);
+    $ins->execute(['T153-STOCK-2H', 't153-hidden', 'T153 Скрытый с нулём', 0]);
+    $pdo->prepare("UPDATE products SET is_published = 0 WHERE sku = 'T153-STOCK-2H'")->execute();
 }
 
 switch ($case) {
@@ -215,7 +215,7 @@ switch ($case) {
     case 'expect-basic': {
         seedOrders($pdo);
         $exp = $pdo->query(
-            "SELECT COUNT(*), COALESCE(SUM(total_kopecks),0) FROM orders WHERE order_number LIKE 'T152-%'"
+            "SELECT COUNT(*), COALESCE(SUM(total_kopecks),0) FROM orders WHERE order_number LIKE 'T153-%'"
         )->fetch(PDO::FETCH_NUM);
         kv(['total' => (int)$exp[0], 'sum' => (int)$exp[1]]);
     }
@@ -234,7 +234,7 @@ switch ($case) {
 
     case 'list-pagination': {
         authAs($pdo);
-        $_GET = ['per_page' => '10', 'page' => '2', 'number' => 'T152-P'];
+        $_GET = ['per_page' => '10', 'page' => '2', 'number' => 'T153-P'];
         AdminOrdersController::list($pdo);
     }
 
@@ -258,17 +258,17 @@ switch ($case) {
     case 'export': {
         authAs($pdo);
         seedOrders($pdo);
-        $_GET = ['number' => 'T152-', 'status' => 'paid'];
+        $_GET = ['number' => 'T153-', 'status' => 'paid'];
         AdminOrdersController::exportCsv($pdo); // печатает CSV и exit
     }
 
     /* Эталон daily: заказы за сегодня */
     case 'expect-daily': {
         $sum = (int)$pdo->query(
-            "SELECT COALESCE(SUM(total_kopecks),0) FROM orders WHERE order_number LIKE 'T152-%' AND date(created_at) = date('now')"
+            "SELECT COALESCE(SUM(total_kopecks),0) FROM orders WHERE order_number LIKE 'T153-%' AND date(created_at) = date('now')"
         )->fetchColumn();
         $cnt = (int)$pdo->query(
-            "SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T152-%' AND date(created_at) = date('now')"
+            "SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T153-%' AND date(created_at) = date('now')"
         )->fetchColumn();
         kv(['cnt' => $cnt, 'sum' => $sum]);
     }
@@ -279,10 +279,10 @@ switch ($case) {
         AdminDashboardController::daily($pdo);
     }
 
-    /* Эталон alerts: письма T152 (email_sent=0) */
+    /* Эталон alerts: письма T153 (email_sent=0) */
     case 'expect-alerts': {
         $emails = (int)$pdo->query(
-            "SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T152-%' AND email_sent = 0"
+            "SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T153-%' AND email_sent = 0"
         )->fetchColumn();
         kv(['emails' => $emails]);
     }
@@ -316,13 +316,13 @@ switch ($case) {
 
     case 'cleanup': {
         cleanOrders($pdo);
-        $pdo->prepare("DELETE FROM products WHERE sku LIKE 'T152-STOCK-%'")->execute();
-        $pdo->prepare("DELETE FROM users WHERE email = 't152-e2e@lakomka.local'")->execute();
-        $pdo->prepare("DELETE FROM admin_log WHERE actor = 't152-e2e@lakomka.local'")->execute();
-        $pdo->prepare("DELETE FROM admin_log WHERE details LIKE '%T152-%'")->execute();
-        $left = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T152-%'")->fetchColumn();
+        $pdo->prepare("DELETE FROM products WHERE sku LIKE 'T153-STOCK-%'")->execute();
+        $pdo->prepare("DELETE FROM users WHERE email = 't153-e2e@lakomka.local'")->execute();
+        $pdo->prepare("DELETE FROM admin_log WHERE actor = 't153-e2e@lakomka.local'")->execute();
+        $pdo->prepare("DELETE FROM admin_log WHERE details LIKE '%T153-%'")->execute();
+        $left = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE order_number LIKE 'T153-%'")->fetchColumn();
         kv(['left_orders' => $left, 'left_products' =>
-            (int)$pdo->query("SELECT COUNT(*) FROM products WHERE sku LIKE 'T152-%'")->fetchColumn()]);
+            (int)$pdo->query("SELECT COUNT(*) FROM products WHERE sku LIKE 'T153-%'")->fetchColumn()]);
     }
 
     default:

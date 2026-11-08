@@ -43,10 +43,16 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
      включение снега в админке работало без пересборки сайта. */
   const [snowLive, setSnowLive] = useState<SnowSettings>(snow ?? DEFAULT_SNOW_SETTINGS);
   useEffect(() => {
-    setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
-    setHeroLive(null);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    /* Task 151: сброс в микротаске — react-hooks v6 запрещает синхронный
+       setState в теле эффекта (каскадные рендеры). Поведение прежнее:
+       проп изменился (навигация) → вернуть запечённые значения до ответа API. */
     let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setSnowLive(snow ?? DEFAULT_SNOW_SETTINGS); // проп изменился (навигация) — сброс
+      setHeroLive(null);
+    });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
     fetch(`${apiUrl}/settings/public`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
@@ -149,11 +155,13 @@ export function Hero({ image, slides, slider, snow }: HeroProps) {
         aria-hidden
       />
 
-      {/* Текст сверху по центру (отступ 10vh — чтобы нижний край не залезал на овечку) */}
+      {/* Текст сверху по центру (отступ 10vh — чтобы нижний край не залезал на овечку).
+          Task 147: строка 1 — единственный H1 главной (SEO): стили те же,
+          что были у <p>, меняется только тег. */}
       <div className="relative mx-auto flex h-full w-full max-w-[1200px] flex-col items-center px-4 pt-[10vh] text-center supports-[height:1svh]:pt-[10svh]">
-        <p className="font-hero text-[min(8.6vw,42px)] uppercase leading-[1.05] tracking-[0.11em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
+        <h1 className="font-hero text-[min(8.6vw,42px)] uppercase leading-[1.05] tracking-[0.11em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
           {t("home_hero_line1")}
-        </p>
+        </h1>
         <p className="font-hero text-[min(8.6vw,42px)] uppercase leading-[1.05] tracking-[0.11em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)] sm:text-[64px] sm:tracking-[6px]">
           {t("home_hero_line2")}
         </p>

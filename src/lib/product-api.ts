@@ -22,6 +22,10 @@ export interface Category {
   slug: string;
   name: string;
   sort_order: number;
+  /* Task 141: SEO-поля категории (заполняются в админке; пусто — автогенерация) */
+  meta_title?: string;
+  meta_description?: string;
+  seo_text?: string;
 }
 
 interface ApiImage { url: string; alt: string | null; }

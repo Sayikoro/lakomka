@@ -3,21 +3,28 @@ import { CategoryGrid } from "@/components/home/CategoryGrid";
 import { ProcessSteps } from "@/components/home/ProcessSteps";
 import { BrandLogos } from "@/components/home/BrandLogos";
 import { Hero } from "@/components/home/Hero";
+import { NewYearCounter } from "@/components/home/NewYearCounter";
+import { timeUntilNewYearParts } from "@/lib/newyear";
 import { getPublicSettings, DEFAULT_FRONT_SETTINGS } from "@/lib/settings";
 import { getCategories, getProducts } from "@/lib/products";
+import { parseGalleryShortcode, DEFAULT_BRANDS_GALLERY } from "@/lib/shortcode";
+import { getGallery } from "@/lib/galleries";
 import type { Metadata } from "next";
 
+/* Task 147: главная оптимизирована под кластер 1 ядра —
+   «новогодние подарки Хабаровск» + «сладкие подарки Хабаровск купить».
+   Н1 главной — первая строка Hero (см. Hero.tsx). */
 export const metadata: Metadata = {
-  title: "Новогодние подарки и наборы конфет в Хабаровске",
+  title: "Новогодние подарки в Хабаровске — купить сладкие подарки",
   description:
-    "Подарочные наборы, ВИП-подарки, конфеты от ведущих фабрик. Собственное производство. Доставка по Хабаровску от 5 000 ₽ бесплатно.",
+    "Купить новогодние сладкие подарки в Хабаровске: детские наборы конфет, VIP-подарки, корпоративные и оптовые закупки. Собственное производство, доставка по городу — бесплатно от 5 000 ₽.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Лакомка — новогодние подарки 2027",
+    title: "Лакомка — новогодние подарки 2027 в Хабаровске",
     description:
-      "Подарочные наборы и конфеты с доставкой по Хабаровску. Скидки при крупных заказах.",
+      "Сладкие подарки и наборы конфет с доставкой по Хабаровску. Скидки при крупных заказах.",
     url: "/",
   },
 };
@@ -30,6 +37,14 @@ export default async function HomePage() {
   ]);
   const heroImage = cfg.hero_image || DEFAULT_FRONT_SETTINGS.hero_image;
 
+  /* Task 146: блок фабрик из галереи. Слаг — из настройки brands_gallery
+     (шорткод [gallery слаг]); настройка пуста — дефолтная галерея fabriki.
+     Снимок галереи запекается при сборке; BrandLogos после монтирования
+     обновит его с живого API. Галереи нет — mock-логотипы внутри блока. */
+  const brandsSlug =
+    parseGalleryShortcode(cfg.brands_gallery) ?? DEFAULT_BRANDS_GALLERY;
+  const brandsGallery = await getGallery(brandsSlug);
+
   return (
     <>
       {/* Hero — 90vh, прибит к верху; нижняя часть страницы «заезжает» поверх него.
@@ -41,9 +56,7 @@ export default async function HomePage() {
         snow={cfg.snow}
       />
 
-      {/* Контент, заезжающий на hero: выше слой, тень. Вырез «наружу»:
-          вогнутые сопряжения уходят к краям экрана вверх, картинка
-          по бокам не торчит, а плавно срезается вырезом */}
+      {/* Task 141: заезжающий контент поверх hero (скруглённые угла сверху). */}
       <div className="relative z-10 bg-[var(--color-bg-page)] shadow-[0_-18px_40px_-24px_rgba(0,0,0,0.5)]">
         <svg
           aria-hidden
@@ -59,21 +72,33 @@ export default async function HomePage() {
         >
           <path d="M80 0 A80 80 0 0 1 0 80 L80 80 Z" style={{ fill: "var(--color-bg-page)" }} />
         </svg>
-        {/* Info cards — СКИДКА / ДОСТАВКА / ОПЛАТА */}
-        <section className="mx-auto max-w-[1200px] px-4 pt-10">
+        {/* Task 141/143: плитки СКИДКА / ДОСТАВКА / ОПЛАТА — сразу под hero */}
+        <section data-testid="home-info" className="mx-auto max-w-[1200px] px-4 pt-10">
           <InfoCards />
         </section>
 
+        {/* Task 143: счётчик «До Нового года» — под плитками, выше категорий.
+            Выключается галочкой в Настройках (запечённое значение + живая
+            сверка после монтирования, как у hero/снегопада). */}
+        <NewYearCounter
+          enabled={cfg.newyear_counter_enabled}
+          initialParts={timeUntilNewYearParts()}
+        />
+
         {/* Categories — картинки рандомятся из товаров категории на каждый запрос */}
-        <section className="mx-auto max-w-[1200px] px-4 py-12">
+        <section data-testid="home-cats" className="mx-auto max-w-[1200px] px-4 py-12">
           <CategoryGrid categories={categories} products={products} />
         </section>
 
         {/* Process — full-bleed: фон-картинка от края до края, таймлайн внутри */}
         <ProcessSteps />
 
-        {/* Brands — full-bleed */}
-        <BrandLogos />
+        {/* Brands — full-bleed. Task 146: логотипы из галереи (Файлы →
+            Галерея, шорткод в Настройках), фолбэк — встроенный набор */}
+        <BrandLogos
+          gallerySlug={brandsSlug}
+          initialItems={brandsGallery?.items ?? []}
+        />
       </div>
     </>
   );

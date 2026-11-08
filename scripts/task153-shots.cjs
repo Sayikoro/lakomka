@@ -1,7 +1,7 @@
 /* Task 152: скриншоты для визуальной проверки. */
 const { chromium } = require("playwright");
-const BASE = process.argv[2] || "http://127.0.0.1:8096";
-const ADMIN = { email: "t152e-admin@lakomka.local", password: "T152e-Admin-2026!" };
+const BASE = process.argv[2] || "http://127.0.0.1:8099";
+const ADMIN = { email: "t153e-admin@lakomka.local", password: "T153e-Admin-2026!" };
 (async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });

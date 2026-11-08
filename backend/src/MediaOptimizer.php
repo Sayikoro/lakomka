@@ -116,14 +116,13 @@ class MediaOptimizer
             $newW = max(1, (int)round($w * $scale));
             $newH = max(1, (int)round($h * $scale));
             $resized = imagecreatetruecolor($newW, $newH);
-            if (!$resized) { imagedestroy($img); return $noop; }
+            if (!$resized) { return $noop; }
             // Сохраняем альфа-канал (прозрачность PNG)
             imagealphablending($resized, false);
             imagesavealpha($resized, true);
             $transparent = imagecolorallocatealpha($resized, 0, 0, 0, 127);
             imagefilledrectangle($resized, 0, 0, $newW, $newH, $transparent);
             imagecopyresampled($resized, $img, 0, 0, 0, 0, $newW, $newH, $w, $h);
-            imagedestroy($img);
             $img = $resized;
         } else {
             imagesavealpha($img, true);
@@ -137,7 +136,6 @@ class MediaOptimizer
             $ok = imagewebp($img, $ob, max(30, min(95, $quality)));
             fclose($ob);
         }
-        imagedestroy($img);
         if (!$ok || !is_file($tmp)) {
             @unlink($tmp);
             return $noop;

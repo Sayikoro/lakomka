@@ -53,6 +53,13 @@ class AdminSettingsController
         'snow_size',
         'snow_color',
         'snow_flake',
+        /* Task 141: счётчик «До Нового года» на главной (под hero) */
+        'newyear_counter_enabled',
+        /* Task 141: быстрый просмотр товара из каталога (модалка) */
+        'quick_view_enabled',
+        /* Task 146: блок «логотипы фабрик» — шорткод галереи [gallery слаг].
+           Пусто = встроенный набор логотипов. */
+        'brands_gallery',
     ];
 
     /** Ключи, доступные витрине без авторизации */
@@ -70,6 +77,11 @@ class AdminSettingsController
         'snow_size',
         'snow_color',
         'snow_flake',
+        /* Task 141: счётчик и быстрый просмотр — публичные */
+        'newyear_counter_enabled',
+        'quick_view_enabled',
+        /* Task 146: шорткод галереи блока фабрик — публичный (витрина) */
+        'brands_gallery',
     ];
 
     /** Снегопад: значения по умолчанию (как в оригинальном particle-fall: 110 / 0.5 / 31 / #f5f5f5).
@@ -146,6 +158,12 @@ class AdminSettingsController
             } elseif ($k === 'backup_interval_days' && ($map[$k] ?? '') === '') {
                 /* Task 121: авто-бэкап по умолчанию раз в 3 суток */
                 $out[$k] = '3';
+            } elseif ($k === 'newyear_counter_enabled' && ($map[$k] ?? '') === '') {
+                /* Task 141: счётчик «До Нового года» по умолчанию включён */
+                $out[$k] = '1';
+            } elseif ($k === 'quick_view_enabled' && ($map[$k] ?? '') === '') {
+                /* Task 141: быстрый просмотр по умолчанию включён */
+                $out[$k] = '1';
             } else {
                 $out[$k] = $map[$k] ?? '';
             }
@@ -158,7 +176,7 @@ class AdminSettingsController
     public static function publicShow(PDO $pdo): void
     {
         $rows = $pdo->query(
-            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','metrika_code','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake') OR key LIKE 'text_%'"
+            "SELECT key, value FROM settings WHERE key IN ('hero_image','hero_slider_enabled','hero_slides','product_card_template','card_video_enabled','ym_id','metrika_code','snow_enabled','snow_count','snow_count_mobile','snow_speed','snow_size','snow_color','snow_flake','newyear_counter_enabled','quick_view_enabled','brands_gallery') OR key LIKE 'text_%'"
         )->fetchAll();
         $map = [];
         foreach ($rows as $r) {
@@ -207,6 +225,15 @@ class AdminSettingsController
             $metrikaCode = '';
         }
 
+        /* Task 141: счётчик «До Нового года» — по умолчанию включён */
+        $newyearCounter = ($map['newyear_counter_enabled'] ?? '1') === '0' ? false : true;
+        /* Task 141: быстрый просмотр — по умолчанию включён */
+        $quickView = ($map['quick_view_enabled'] ?? '1') === '0' ? false : true;
+
+        /* Task 146: шорткод галереи блока фабрик — наружу как есть
+           (парсит витрина; пусто = встроенный набор логотипов) */
+        $brandsGallery = mb_substr(trim((string)($map['brands_gallery'] ?? '')), 0, 300);
+
         /* Тексты страниц: ключи text_* отдаются без префикса */
         $texts = [];
         foreach ($map as $k => $v) {
@@ -224,6 +251,9 @@ class AdminSettingsController
             'ym_id'                 => $ymId,
             'metrika_code'          => $metrikaCode,
             'snow'                  => self::snowConfig($map),
+            'newyear_counter_enabled' => $newyearCounter,
+            'quick_view_enabled'    => $quickView,
+            'brands_gallery'        => $brandsGallery,
             'texts'                 => $texts ?: new stdClass(), // пустой объект, не массив
         ]]);
     }
@@ -243,7 +273,7 @@ class AdminSettingsController
            true/false, "true"/"false", "on"/"off", "да"/"нет" — иначе старый
            кэш браузера или другой клиент ловит 422 «…: 0 | 1» и настройки
            не сохраняются вовсе. null = ключ не менять. */
-        foreach (['hero_slider_enabled', 'snow_enabled', 'card_video_enabled', 'notify_admin_email'] as $bk) {
+        foreach (['hero_slider_enabled', 'snow_enabled', 'card_video_enabled', 'notify_admin_email', 'newyear_counter_enabled', 'quick_view_enabled'] as $bk) {
             if (!array_key_exists($bk, $data)) continue;
             $v = $data[$bk];
             if (is_bool($v)) {
@@ -286,6 +316,26 @@ class AdminSettingsController
         if (isset($data['notify_admin_email'])
             && !in_array((string)$data['notify_admin_email'], ['0', '1'], true)) {
             jsonResponse(['error' => 'notify_admin_email: 0 | 1'], 422);
+        }
+        /* Task 141: счётчик «До Нового года» и быстрый просмотр */
+        if (isset($data['newyear_counter_enabled'])
+            && !in_array((string)$data['newyear_counter_enabled'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'newyear_counter_enabled: 0 | 1'], 422);
+        }
+        if (isset($data['quick_view_enabled'])
+            && !in_array((string)$data['quick_view_enabled'], ['0', '1'], true)) {
+            jsonResponse(['error' => 'quick_view_enabled: 0 | 1'], 422);
+        }
+        /* Task 146: шорткод галереи блока фабрик — мягкая проверка: длина
+           и разумные символы (шорткод [gallery слаг] или пусто). Ошибку
+           в этом поле не хочу делать фатальной — лишний текст просто
+           не распарсится и блок покажет встроенный набор. */
+        if (isset($data['brands_gallery'])) {
+            $bg = trim((string)$data['brands_gallery']);
+            if (mb_strlen($bg) > 300) {
+                jsonResponse(['error' => 'brands_gallery: слишком длинно — вставьте шорткод вида [gallery слаг]'], 422);
+            }
+            $data['brands_gallery'] = $bg;
         }
         /* Интервал авто-бэкапа: целые сутки 0–30 (0 = выключено) */
         if (isset($data['backup_interval_days'])) {

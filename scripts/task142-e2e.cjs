@@ -1,0 +1,294 @@
+/* Task 142/144 E2E: хрониометр «До Нового года» — карточки в дизайне
+ * плиток условий (белые, radius-card) на фоне страницы, гирлянда над
+ * карточками, живое тиканье секунд.
+ * A) Блок на главной: 4 карточки, живое тиканье секунд, значения
+ *    совпадают с часами посетителя; фон блока прозрачный (цвет
+ *    окружающих секций), карточки белые, гирлянда над карточками.
+ * B) Галочка в настройках: выключение через админ-API убирает блок
+ *    по F5 (живые настройки), включение возвращает.
+ * C) Мобильный 390: карточки помещаются, горизонтального скролла нет.
+ * D) Консоль браузера чиста (кроме штатного 401-зонда AdminToolbar).
+ */
+const { chromium } = require("playwright");
+
+const BASE = process.argv[2] || "http://127.0.0.1:8097";
+const ADMIN = { email: "admin@lakomka.local", password: "Lakomka2026!" };
+
+let pass = 0, fail = 0;
+const ok = (m) => { pass++; console.log("  OK  " + m); };
+const bad = (m) => { fail++; console.log("  FAIL " + m); };
+
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    /* Чистый Chrome-UA: headless-UA сам ловится бото-детектором (task139) */
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  });
+  const page = await ctx.newPage();
+  const consoleErrors = [];
+  const notFound = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") {
+      const u = (msg.location() && msg.location().url) || "";
+      /* Task 151: медиа в песочнице нет (uploads вне пакета) и сторонняя
+         аналитика (метрика из продовых настроек) — шум среды, не ошибки
+         приложения */
+      if (/\/uploads\//.test(u) || /mc\.yandex|yastatic|metrika/i.test(u)) return;
+      if (/ERR_CERT_AUTHORITY_INVALID/.test(msg.text())) return;
+      consoleErrors.push(msg.text());
+    }
+  });
+  page.on("response", (res) => {
+    if (res.status() === 404) notFound.push(res.url());
+  });
+
+  const api = async (path, opts = {}) =>
+    page.evaluate(
+      ({ path, opts }) =>
+        fetch(path, { cache: "no-store", ...opts }).then(async (r) => ({
+          status: r.status,
+          json: await r.json().catch(() => null),
+        })),
+      { path, opts }
+    );
+
+  /* ── A. Хрониометр на главной ── */
+  console.log("── A. Хрониометр «До Нового года» под hero ──");
+  await page.goto(BASE + "/", { waitUntil: "load", timeout: 30000 });
+  await page.waitForTimeout(1500); // гидратация + живые настройки + первый тик
+  const a = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="newyear-counter"]');
+    if (!el) return null;
+    const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+    const nums = [...el.querySelectorAll(".ny-num")].map(
+      (n) => (n.textContent || "").trim()
+    );
+    const caps = [...el.querySelectorAll(".ny-cap")].map(
+      (c) => (c.textContent || "").trim()
+    );
+    const rect = el.getBoundingClientRect();
+    const info = document.querySelector('[data-testid="home-info"]');
+    const cats = document.querySelector('[data-testid="home-cats"]');
+    const st = getComputedStyle(el);
+    const cardSt = getComputedStyle(el.querySelector(".ny-card"));
+    const headSt = getComputedStyle(el.querySelector(".ny-head"));
+    const garland = el.querySelector(".ny-garland");
+    const grid = el.querySelector(".ny-card").parentElement;
+    const firstBulb = garland?.querySelector(".ny-bulb");
+    const firstFlake = el.querySelector(".ny-flake");
+    return {
+      text,
+      nums,
+      caps,
+      cards: el.querySelectorAll(".ny-card").length,
+      bulbs: el.querySelectorAll(".ny-bulb").length,
+      flakes: el.querySelectorAll(".ny-flake").length,
+      visible: rect.height > 60,
+      between: info && cats
+        ? rect.top >= info.getBoundingClientRect().bottom - 60 &&
+          rect.bottom <= cats.getBoundingClientRect().top + 60
+        : null,
+      sr: el.querySelector(".sr-only")?.textContent || "",
+      /* Task 144: цвет окружения и дизайн плиток условий */
+      sectionBg: st.backgroundColor,
+      cardBg: cardSt.backgroundColor,
+      cardRadius: cardSt.borderRadius,
+      headColor: headSt.color,
+      garlandOverCards:
+        garland &&
+        Math.abs(garland.getBoundingClientRect().width -
+          grid.getBoundingClientRect().width) < 2 &&
+        garland.getBoundingClientRect().bottom <=
+          grid.getBoundingClientRect().top + 2,
+      /* Task 151: гирлянда — классические цвета, снежинки — голубые */
+      bulbBg: firstBulb ? getComputedStyle(firstBulb).backgroundColor : "",
+      flakeColor: firstFlake ? getComputedStyle(firstFlake).color : "",
+    };
+  });
+  if (!a) bad("счётчик не найден на главной");
+  else {
+    a.cards === 4 ? ok(`4 карточки хронометра (числа ${a.nums.join(":")})`) : bad(`карточек ${a.cards}, ожидалось 4`);
+    a.caps.join(",") === "день,час,минута,секунда" || /дн|час|мин|сек/.test(a.caps.join(","))
+      ? ok(`подписи карточек: ${a.caps.join(" / ")}`)
+      : bad(`подписи карточек странные: ${a.caps.join(",")}`);
+    /До Нового года/i.test(a.text) ? ok("надпись «До Нового года» на месте") : bad("надписи нет");
+    /осталось\s+\d+\s+(день|дня|дней)/i.test(a.sr)
+      ? ok(`sr-only фраза для скрин-ридеров: «${a.sr.trim()}»`)
+      : bad(`sr-only фраза без числа/плюрализации: «${a.sr.trim()}»`);
+    a.bulbs >= 7 ? ok(`гирлянда: ${a.bulbs} огоньков`) : bad(`огоньков ${a.bulbs}`);
+    a.flakes >= 4 ? ok(`снежинки: ${a.flakes} шт.`) : bad(`снежинок ${a.flakes}`);
+    a.visible ? ok("блок отрисован с нормальной высотой") : bad("блок схлопнулся");
+    a.between
+      ? ok("блок между плитками СКИДКА/ДОСТАВКА/ОПЛАТА и категориями")
+      : bad(`позиция блока неверная (between=${a.between})`);
+    a.sectionBg === "rgba(0, 0, 0, 0)"
+      ? ok("фон блока прозрачный — цвет окружающих секций")
+      : bad(`фон блока не прозрачный: ${a.sectionBg}`);
+    a.cardBg === "rgb(255, 255, 255)"
+      ? ok("карточки белые — дизайн плиток условий (InfoCards)")
+      : bad(`карточки не белые: ${a.cardBg}`);
+    a.cardRadius === "20px"
+      ? ok(`скругление карточек как у плиток условий (${a.cardRadius})`)
+      : bad(`скругление карточек ${a.cardRadius}, ожидалось 20px (--radius-card)`);
+    a.headColor === "rgb(58, 58, 58)"
+      ? ok("надпись — цвет заголовков сайта (--color-heading)")
+      : bad(`цвет надписи ${a.headColor}, ожидался rgb(58, 58, 58)`);
+    a.garlandOverCards
+      ? ok("гирлянда висит над карточками во всю их ширину")
+      : bad("гирлянда не над карточками (ширина/позиция не совпали)");
+    a.bulbBg === "rgb(255, 89, 100)"
+      ? ok("огоньки гирлянды классических цветов (первый — красный #ff5964)")
+      : bad(`огонёк не красный: ${a.bulbBg}`);
+    a.flakeColor.startsWith("rgba(2, 116, 190")
+      ? ok("снежинки блока — фирменный голубой (откат Task 149)")
+      : bad(`снежинка не голубая: ${a.flakeColor}`);
+
+    /* Значения совпадают с часами посетителя (±2 c на дрейф между тиками) */
+    const live = await page.evaluate(() => {
+      const now = new Date();
+      const ny = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
+      const diff = Math.max(0, ny - now);
+      const d = Math.floor(diff / 86400000),
+        h = Math.floor(diff / 3600000) % 24,
+        m = Math.floor(diff / 60000) % 60,
+        s = Math.floor(diff / 1000) % 60;
+      return {
+        d, h, m, s,
+        dom: [...document.querySelectorAll('[data-testid="newyear-counter"] .ny-num')].map(
+          (n) => (n.textContent || "").trim()
+        ),
+      };
+    });
+    const pad = (x) => String(x).padStart(2, "0");
+    const expect = [String(live.d), pad(live.h), pad(live.m), pad(live.s)];
+    const driftOk =
+      Math.abs(parseInt(live.dom[0], 10) - live.d) <= 1 &&
+      Math.abs(parseInt(live.dom[1], 10) - live.h) <= 1 &&
+      Math.abs(parseInt(live.dom[2], 10) - live.m) <= 1 &&
+      Math.abs(parseInt(live.dom[3], 10) - live.s) <= 2;
+    driftOk
+      ? ok(`значения совпадают с часами посетителя: DOM ${live.dom.join(":")} ≈ ${expect.join(":")}`)
+      : bad(`значения разошлись с часами: DOM ${live.dom.join(":")} vs ${expect.join(":")}`);
+
+    /* Живое тиканье: через 1.6 с секунды обязаны измениться */
+    const s1 = parseInt(live.dom[3], 10);
+    await page.waitForTimeout(1600);
+    const s2 = await page.evaluate(() =>
+      parseInt(
+        (document.querySelector('[data-testid="newyear-counter"] .ny-card-sec .ny-num')?.textContent || "0").trim(),
+        10
+      )
+    );
+    s1 !== s2 || (s1 === 0 && s2 <= 2)
+      ? ok(`секунды тикают: ${s1} → ${s2}`)
+      : bad(`секунды не тикают: ${s1} → ${s2}`);
+
+    /* Плавное появление при скролле: ny-in вешается, всё проявляется */
+    await page.evaluate(() =>
+      document.querySelector('[data-testid="newyear-counter"]')?.scrollIntoView({ block: "center" })
+    );
+    await page.waitForTimeout(1900); // суммарная длительность входных анимаций ~1,2 с
+    const anim = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="newyear-counter"]');
+      const card = el?.querySelector(".ny-card");
+      const head = el?.querySelector(".ny-head");
+      return {
+        played: !!el?.classList.contains("ny-in"),
+        cardOpacity: card ? getComputedStyle(card).opacity : "",
+        headOpacity: head ? getComputedStyle(head).opacity : "",
+      };
+    });
+    anim.played && anim.cardOpacity === "1" && anim.headOpacity === "1"
+      ? ok("появление при скролле: анимация сыграла, карточки и надпись полностью видны")
+      : bad(`появление не сработало: ${JSON.stringify(anim)}`);
+  }
+
+  /* ── B. Галочка в настройках ── */
+  console.log("── B. Выключение/включение галочкой в админке ──");
+  /* Авторизация cookie-сессией (как в админке): same-origin fetch шлёт куки сам */
+  const login = await api("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ADMIN),
+  });
+  if (login.status !== 200) {
+    bad(`админ-логин не прошёл (${login.status})`);
+  } else {
+    ok("логин админа (cookie-сессия)");
+    const set = async (v) =>
+      api("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newyear_counter_enabled: v ? "1" : "0" }),
+      });
+    await set(false);
+    const pubOff = await api("/api/settings/public");
+    pubOff.json?.data?.newyear_counter_enabled === false
+      ? ok("настройки: newyear_counter_enabled=false отдался публично")
+      : bad("выключение не применилось в настройках");
+    await page.goto(BASE + "/", { waitUntil: "load", timeout: 30000 });
+    await page.waitForTimeout(1200);
+    const gone = await page.evaluate(
+      () => !document.querySelector('[data-testid="newyear-counter"]')
+    );
+    gone ? ok("после выключения и F5 блок исчез") : bad("блок остался после выключения");
+    await set(true);
+    await page.goto(BASE + "/", { waitUntil: "load", timeout: 30000 });
+    await page.waitForTimeout(1200);
+    const back = await page.evaluate(
+      () => !!document.querySelector('[data-testid="newyear-counter"]')
+    );
+    back ? ok("после включения и F5 блок вернулся") : bad("блок не вернулся после включения");
+  }
+
+  /* ── C. Мобильный 390 ── */
+  console.log("── C. Мобильный 390: без горизонтали, карточки помещаются ──");
+  const mob = await ctx.newPage();
+  await mob.setViewportSize({ width: 390, height: 744 });
+  await mob.goto(BASE + "/", { waitUntil: "load", timeout: 30000 });
+  await mob.waitForTimeout(1200);
+  const c = await mob.evaluate(() => {
+    const el = document.querySelector('[data-testid="newyear-counter"]');
+    const card = el?.querySelector(".ny-card");
+    const bulbVisible = el
+      ? [...el.querySelectorAll(".ny-bulb")].filter((b) => b.offsetParent !== null).length
+      : 0;
+    return {
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+      cardW: card ? Math.round(card.getBoundingClientRect().width) : 0,
+      numFont: card ? getComputedStyle(card.querySelector(".ny-num")).fontSize : "",
+      bulbVisible,
+      h: el ? Math.round(el.getBoundingClientRect().height) : 0,
+    };
+  });
+  c.overflow <= 1 ? ok(`горизонтального скролла нет (${c.overflow}px)`) : bad(`горизонтальный скролл +${c.overflow}px`);
+  c.cardW >= 70 && c.cardW <= 100 ? ok(`карточка ${c.cardW}px — цифры и подписи помещаются`) : bad(`карточка ${c.cardW}px подозрительная`);
+  c.numFont ? ok(`размер цифр на телефоне: ${c.numFont}`) : bad("цифры не найдены на телефоне");
+  c.bulbVisible === 7 ? ok(`на телефоне видно 7 огоньков гирлянды (из 12)`) : bad(`огоньков на телефоне ${c.bulbVisible}, ожидалось 7`);
+  c.h >= 140 && c.h <= 400 ? ok(`высота блока на телефоне ${c.h}px`) : bad(`высота блока ${c.h}px странная`);
+  await mob.close();
+
+  /* ── D. Консоль ── */
+  console.log("── D. Консоль браузера ──");
+  const real = consoleErrors.filter(
+    (e) => !/401|Failed to load resource.*401/.test(e)
+  );
+  const real404 = notFound.filter(
+    (u) => !/\/api\//.test(u) && !/auth|admin/.test(u) && !/\/uploads\//.test(u)
+  );
+  real.length === 0
+    ? ok("консоль чиста (штатный 401-зонд AdminToolbar отфильтрован)")
+    : bad(`ошибки консоли: ${real.slice(0, 3).join(" | ")}`);
+  real404.length === 0
+    ? ok("нет 404-ресурсов (кроме API-зондов и отсутствующих в песочнице медиа)")
+    : bad(`404-ресурсы: ${[...new Set(real404)].slice(0, 5).join(", ")}`);
+
+  await browser.close();
+  console.log(`\nИТОГО: PASS=${pass} FAIL=${fail}`);
+  process.exit(fail ? 1 : 0);
+})().catch((e) => {
+  console.error("CRASH:", e);
+  process.exit(2);
+});

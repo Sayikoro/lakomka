@@ -1,10 +1,21 @@
 import type { MetadataRoute } from "next";
 import { SITE } from "@/lib/site";
-import { getProducts } from "@/lib/products";
+import { getCategories, getProducts } from "@/lib/products";
 
 export const dynamic = "force-static"; // для output: export; данные фиксируются на этапе сборки
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  /* Task 147/148: служебные страницы витрины (лендинги ядра
+     сняты в Task 148 — остаются существующие маршруты) */
+  const staticExtraRoutes: MetadataRoute.Sitemap = [
+    "/catalogs",
+  ].map((path) => ({
+    url: `${SITE.url}${path}`,
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.8,
+  }));
+
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: `${SITE.url}/`,
@@ -18,7 +29,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "daily",
       priority: 0.9,
     },
+    ...staticExtraRoutes,
   ];
+
+  /* Task 141: SEO-лендинги категорий /catalog/<slug> */
+  let categoryRoutes: MetadataRoute.Sitemap = [];
+  try {
+    const categories = await getCategories();
+    categoryRoutes = categories.map((c) => ({
+      url: `${SITE.url}/catalog/${c.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+    }));
+  } catch {
+    // если API недоступен — sitemap будет без категорий, но не упадёт
+  }
 
   let productRoutes: MetadataRoute.Sitemap = [];
   try {
@@ -33,5 +59,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // если API недоступен — sitemap будет без товаров, но не упадёт
   }
 
-  return [...staticRoutes, ...productRoutes];
+  return [...staticRoutes, ...categoryRoutes, ...productRoutes];
 }

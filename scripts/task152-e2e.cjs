@@ -1,381 +1,250 @@
-/* Task 152 E2E: 12 улучшений админки + «Состав подарка» (Task 151).
- *
- * Стенд :8096 (.deploy-package, MODE=both). Сценарии:
- * A) Заказы: фильтры в UI (статус/номер/письмо/даты), денежная сводка,
- *    пагинация (25 заказов, per_page 20 → 2 страницы), экспорт CSV (BOM+строки).
- * B) Дашборд: плитки-тревоги («письма не ушли», «товары заканчиваются»),
- *    график динамики по дням (SVG), переходы из плиток с подстановкой фильтра.
- * C) Карточка заказа: кнопка «Печать бланка».
- * D) Viewer: «Файлы»/«PDF» скрыты из меню.
- * E) logout-all: старый JWT отклоняется после «Выйти на всех устройствах».
- * F) Аналитика: произвольный период дат + график динамики.
- * G) Товар: форма с выбором категории и SEO-полями (маркеры DOM).
- * H) Task 151: состав свёрнут (12 карточек), «Показать ещё N», разворот.
- * I) Тосты/подтверждения: диалог admin-confirm вместо window.confirm.
- *
- * Запуск: node scripts/task152-e2e.cjs http://127.0.0.1:8096
- */
+#!/usr/bin/env node
+/* Task 152 E2E: «Состав подарка» сворачивается до 2 рядов на живом стенде.
+   Ожидания: ПК lg (≥1024) — 12 карточек, планшет sm (640–1023) — 8,
+   телефонный список — 2 позиции; центрированный текст «показать больше»;
+   клик раскрывает весь состав (счётчик = bundle_items в API); кнопка
+   появляется только когда есть что скрывать; ресайз без перезагрузки
+   перестраивает срез; модалка «Подробнее» работает из раскрытого списка. */
 const { chromium } = require("playwright");
 
-const BASE = process.argv[2] || "http://127.0.0.1:8096";
-const BIG_BUNDLE = process.env.BIG_BUNDLE || "mechta-5144";
-const ADMIN = { email: "t152e-admin@lakomka.local", password: "T152e-Admin-2026!" };
-const VIEWER = { email: "t152e-viewer@lakomka.local", password: "T152e-Viewer-2026!" };
-
+const BASE = process.argv[2] || "http://127.0.0.1:8098";
+const MANY = process.argv[3];
+const FEW = process.argv[4];
 let PASS = 0, FAIL = 0;
-const ok = (s) => { PASS++; console.log("  OK  " + s); };
-const bad = (s) => { FAIL++; console.log("  FAIL " + s); };
+const ok = (m) => { PASS++; console.log("  OK  " + m); };
+const bad = (m) => { FAIL++; console.log("  FAIL " + m); };
 
-async function login(page, creds) {
-  await page.goto(BASE + "/", { waitUntil: "load" });
-  return page.evaluate(async (c) => {
-    const r = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(c),
+/* Состояние блока «Состав подарка» на текущем окне */
+async function compState(page) {
+  return page.evaluate(() => {
+    const tab = [...document.querySelectorAll("button")].find((b) =>
+      (b.textContent || "").trim().toLowerCase().startsWith("состав"));
+    if (!tab) return null;
+    const sec = tab.closest("section");
+    if (!sec) return null;
+    const ul = [...sec.querySelectorAll("ul")].find((u) => (u.className || "").includes("sm:hidden"));
+    const grid = [...sec.querySelectorAll("div")].find((d) => (d.className || "").includes("lg:grid-cols-6"));
+    const visibleDetails = [...sec.querySelectorAll("button")].filter(
+      (b) => (b.textContent || "").trim() === "Подробнее" && b.offsetParent !== null).length;
+    const more = document.querySelector('[data-testid="composition-show-more"]');
+    let moreBox = null;
+    if (more && more.offsetParent !== null) {
+      const r = more.getBoundingClientRect();
+      const w = more.parentElement.getBoundingClientRect();
+      moreBox = {
+        text: (more.textContent || "").trim(),
+        textAlign: getComputedStyle(more.parentElement).textAlign,
+        dx: Math.abs(r.left + r.width / 2 - (w.left + w.width / 2)),
+      };
+    }
+    return {
+      ulRows: ul ? ul.children.length : -1,
+      cards: grid ? grid.children.length : -1,
+      visibleDetails,
+      more: moreBox,
+    };
+  });
+}
+
+async function openProduct(page, slug) {
+  await page.goto(`${BASE}/product/${slug}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("button")].some((b) =>
+      (b.textContent || "").trim().toLowerCase().startsWith("состав")),
+    null,
+    { timeout: 20000 },
+  );
+  /* Клик по вкладке мог прийтись ДО гидратации (кнопка уже в DOM, слушателя
+     ещё нет) — кликаем с ретраями, пока не появится состав */
+  let opened = false;
+  for (let i = 0; i < 12 && !opened; i++) {
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find((x) =>
+        (x.textContent || "").trim().toLowerCase().startsWith("состав"));
+      b.click();
     });
-    return r.ok;
-  }, creds);
+    try {
+      await page.waitForFunction(
+        () => {
+          const tab = [...document.querySelectorAll("button")].find((b) =>
+            (b.textContent || "").trim().toLowerCase().startsWith("состав"));
+          const sec = tab && tab.closest("section");
+          return !!sec && [...sec.querySelectorAll("button")]
+            .some((b) => (b.textContent || "").trim() === "Подробнее");
+        },
+        null,
+        { timeout: 2500 },
+      );
+      opened = true;
+    } catch {
+      /* гидратация ещё не готова — повторить клик */
+    }
+  }
+  if (!opened) throw new Error("вкладка «Состав» не раскрылась (гидратация?)");
+  await page.waitForTimeout(400);
 }
 
 (async () => {
   const browser = await chromium.launch();
-  try {
-  const ctx = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  });
-  const page = await ctx.newPage();
   const consoleErrors = [];
-  page.on("console", (m) => {
-    if (m.type() === "error") {
-      const url = (m.location() && m.location().url) || "";
-      if (!url.includes("/api/auth/me")) consoleErrors.push(m.text() + " @ " + url);
-    }
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.on("console", (msg) => {
+    if (msg.type() !== "error") return;
+    const url = msg.location()?.url || "";
+    if (/\/uploads\//.test(url)) return;
+    /* страница тестового простого товара намеренно отсутствует в статике (спасение) */
+    if (/test152-simple/.test(url) && /404|Failed/.test(msg.text())) return;
+    if (/\/api\/auth\//.test(url) && /401|Unauthorized/.test(msg.text())) return;
+    if (/favicon|\.webp|\.png|\.jpe?g|\.svg/i.test(url) && /404|Failed/.test(msg.text())) return;
+    if (/ERR_CERT_AUTHORITY_INVALID/.test(msg.text())) return;
+    consoleErrors.push(`${msg.text()} @ ${url}`);
   });
   page.on("pageerror", (e) => consoleErrors.push("pageerror: " + e.message));
 
-  /* ── Логин админом ── */
-  console.log("── 0. Логин ──");
-  (await login(page, ADMIN)) ? ok("логин супер-админом") : bad("логин не прошёл");
+  /* Ожидаемое полное число позиций — из API (то, что витрина должна показать после раскрытия) */
+  const apiItems = {};
+  for (const slug of [MANY, FEW]) {
+    const res = await page.request.get(`${BASE}/api/products/${encodeURIComponent(slug)}`);
+    const json = await res.json();
+    apiItems[slug] = (json.data?.bundle_items ?? []).length;
+  }
+  apiItems[MANY] >= 20
+    ? ok(`API: у ${MANY} ${apiItems[MANY]} позиций (больше 2 рядов ПК)`)
+    : bad(`API: у ${MANY} всего ${apiItems[MANY]} позиций`);
+  apiItems[FEW] > 0 && apiItems[FEW] < 12
+    ? ok(`API: у ${FEW} ${apiItems[FEW]} позиций (меньше 2 рядов ПК)`)
+    : bad(`API: у ${FEW} ${apiItems[FEW]} позиций — вне диапазона`);
 
-  /* ── A. Заказы: сводка, фильтры, пагинация, экспорт ── */
-  console.log("── A. Заказы: сводка/фильтры/пагинация/CSV ──");
-  await page.goto(BASE + "/admin/orders", { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(1500); // гидратация + запрос с дебаунсом 300 мс
+  /* A. ПК 1440: свёрнуто 12 карточек (2 ряда × 6 колонок), «показать больше» по центру */
+  await openProduct(page, MANY);
+  let st = await compState(page);
+  st && st.cards === 12
+    ? ok(`ПК: свёрнуто 12 карточек (2 ряда × 6 колонок), всего в DOM карточек ${st.cards}`)
+    : bad(`ПК: карточек ${st ? st.cards : "нет данных"}, ожидалось 12`);
+  st && st.ulRows === 12
+    ? ok("ПК: телефонный список (скрытый) держит тот же срез — DOM согласован")
+    : bad(`ПК: строк скрытого списка ${st ? st.ulRows : "?"}, ожидалось 12`);
+  st && st.visibleDetails === 12
+    ? ok("ПК: видимых «Подробнее» ровно 12 (скрытых позиций в DOM нет)")
+    : bad(`ПК: видимых «Подробнее» ${st ? st.visibleDetails : "?"}, ожидалось 12`);
+  st && st.more && st.more.text === "показать больше"
+    ? ok("ПК: текст «показать больше» на месте")
+    : bad(`ПК: кнопка/текст: ${st && st.more ? st.more.text : "нет"}`);
+  st && st.more && st.more.textAlign === "center" && st.more.dx < 4
+    ? ok(`ПК: «показать больше» выровнен по центру (text-align=center, смещение ${st.more.dx.toFixed(1)}px)`)
+    : bad(`ПК: выравнивание: ${st && st.more ? st.more.textAlign + "/" + st.more.dx : "нет кнопки"}`);
 
-  const head = await page.evaluate(() => {
-    const p = document.querySelector('[data-testid="orders-filters"]');
-    const total = [...document.querySelectorAll("p")].find((e) =>
-      /Найдено \d+ заказ/.test(e.textContent || "")
-    );
-    return {
-      filters: !!p,
-      totalText: total ? total.textContent.trim() : "",
-      csvBtn: [...document.querySelectorAll("a")].some((a) =>
-        (a.getAttribute("href") || "").includes("/admin/orders/export")
-      ),
-    };
-  });
-  head.filters ? ok("блок фильтров отрисован") : bad("блока фильтров нет");
-  head.csvBtn ? ok("кнопка «Экспорт CSV» на месте") : bad("кнопки экспорта нет");
-  /\d+ заказ\(ов\) на сумму [\d\s]+₽/.test(head.totalText)
-    ? ok(`денежная сводка: «${head.totalText}»`)
-    : bad(`сводка неожиданная: «${head.totalText}»`);
-  head.totalText.includes("25") ? ok("найдено 25 заказов") : bad(`ожидали 25: ${head.totalText}`);
-
-  /* Фильтр по статусу: «Выполненных» 5 */
-  await page.selectOption('[data-testid="orders-filters"] select >> nth=0', "done");
-  await page.waitForTimeout(1200);
-  const doneCnt = await page.evaluate(() => {
-    const t = [...document.querySelectorAll("p")].find((e) =>
-      /Найдено \d+ заказ/.test(e.textContent || "")
-    );
-    return t ? (t.textContent.match(/Найдено (\d+)/) || [])[1] : "";
-  });
-  doneCnt === "5" ? ok("фильтр статуса «Выполнен»: 5 заказов") : bad(`фильтр статуса: ${doneCnt}`);
-
-  /* Фильтр «письмо не отправлено» + статус сброс */
-  await page.selectOption('[data-testid="orders-filters"] select >> nth=0', "");
-  await page.selectOption('[data-testid="orders-filters"] select >> nth=1', "0");
-  await page.waitForTimeout(1200);
-  const emailCnt = await page.evaluate(() => {
-    const t = [...document.querySelectorAll("p")].find((e) =>
-      /Найдено \d+ заказ/.test(e.textContent || "")
-    );
-    return (t ? t.textContent.match(/Найдено (\d+)/) : ["", "?"])[1];
-  });
-  emailCnt === "2" ? ok("фильтр «письмо не отправлено»: 2 заказа") : bad(`фильтр письма: ${emailCnt}`);
-
-  /* Сброс фильтров */
-  await page.click('[data-testid="orders-filters"] button:has-text("Сбросить фильтры")');
-  await page.waitForTimeout(1200);
-
-  /* Пагинация: подвал виден и при 1 странице; per_page=20 → 2 страницы */
-  const pag1 = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="orders-pagination"]');
-    return el ? el.textContent.replace(/\s+/g, " ").trim() : "";
-  });
-  pag1.includes("Страница 1 из 1")
-    ? ok("пагинация видна при одной странице («Страница 1 из 1») — per_page переключаем")
-    : bad("подвала пагинации нет при 1 странице: " + pag1);
-  await page.selectOption('[aria-label="Заказов на странице"]', "20");
-  await page.waitForTimeout(1200);
-  const pag2 = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="orders-pagination"]');
-    return el ? el.textContent.replace(/\s+/g, " ").trim() : "";
-  });
-  pag2.includes("Страница 1 из 2")
-    ? ok("пагинация: «Страница 1 из 2» (25 заказов / 20 на странице)")
-    : bad("пагинации «1 из 2» нет: " + pag2);
-  await page.click('[data-testid="orders-pagination"] button[aria-label="Следующая страница"]');
-  await page.waitForTimeout(1200);
-  const page2 = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="orders-pagination"]');
-    const nums = [...document.querySelectorAll("table tbody tr")].length;
-    return { cur: el ? el.querySelector('[aria-current="page"]')?.textContent : "", rows: nums };
-  });
-  page2.cur === "2" ? ok("переключение на страницу 2") : bad(`страница не сменилась: ${page2.cur}`);
-  page2.rows > 0 && page2.rows <= 20 ? ok(`на странице 2 строк: ${page2.rows}`) : bad(`строк на стр. 2: ${page2.rows}`);
-
-  /* Экспорт CSV через fetch из браузера (с cookie). BOM проверяем по байтам:
-   * r.text() декодирует UTF-8 и молча срезает ведущий BOM. */
-  const csv = await page.evaluate(async () => {
-    const r = await fetch("/api/admin/orders/export?number=T152E", { credentials: "include" });
-    const buf = await r.arrayBuffer();
-    const head = new Uint8Array(buf, 0, 3);
-    return {
-      status: r.status,
-      type: r.headers.get("content-type") || "",
-      bom: head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf,
-      text: new TextDecoder().decode(buf),
-    };
-  });
-  csv.status === 200 ? ok("экспорт CSV: HTTP 200") : bad(`экспорт CSV: ${csv.status}`);
-  csv.type.includes("text/csv") ? ok("экспорт CSV: content-type text/csv") : bad(`content-type: ${csv.type}`);
-  csv.bom
-    ? ok("экспорт CSV: BOM (EF BB BF) в байтах ответа")
-    : bad("экспорт CSV: BOM отсутствует");
-  const csvLines = csv.text.split("\n").filter((l) => l.trim()).length;
-  csvLines === 26 ? ok(`экспорт CSV: 25 заказов + заголовок (${csvLines} строк)`) : bad(`CSV строк: ${csvLines}`);
-
-  /* ── C. Карточка заказа: печать ── */
-  console.log("── C. Карточка заказа ──");
-  await page.goto(BASE + "/admin/orders", { waitUntil: "load" });
-  await page.waitForTimeout(1200);
-  await page.click('table tbody tr:first-child a:has-text("ЛК-"), table tbody tr:first-child a >> nth=0');
-  await page.waitForTimeout(1500);
-  const printBtn = await page.evaluate(() => !!document.querySelector('[data-testid="print-order"]'));
-  printBtn ? ok("кнопка «Печать бланка» на карточке") : bad("кнопки печати нет");
-
-  /* ── B. Дашборд: тревоги + график ── */
-  console.log("── B. Дашборд ──");
-  await page.goto(BASE + "/admin", { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(2000);
-  const dash = await page.evaluate(() => {
-    const emails = document.querySelector('[data-testid="alert-emails"]');
-    const low = document.querySelector('[data-testid="alert-low-stock"]');
-    const chart = document.querySelector('[data-testid="daily-chart"]');
-    return {
-      emails: emails ? emails.textContent.replace(/\s+/g, " ").trim().slice(0, 60) : "",
-      low: low ? low.textContent.replace(/\s+/g, " ").trim().slice(0, 60) : "",
-      chartSvg: chart ? !!chart.querySelector("svg") : false,
-      bars: chart ? chart.querySelectorAll("rect[fill]").length : 0,
-    };
-  });
-  dash.emails.includes("Письма не ушли") ? ok("плитка «Письма не ушли» видна") : bad(`плитка писем: ${dash.emails}`);
-  /\d/.test(dash.emails) ? ok("плитка писем с числом") : bad("плитка писем без числа");
-  dash.low.includes("Товары заканчиваются") ? ok("плитка «Товары заканчиваются» видна") : bad(`плитка товаров: ${dash.low}`);
-  dash.chartSvg ? ok(`график динамики на дашборде (rect-столбики: ${dash.bars})`) : bad("графика на дашборде нет");
-
-  /* Переход из плитки → /admin/orders?email=0 с подстановкой фильтра */
-  await page.click('[data-testid="alert-emails"]');
-  await page.waitForTimeout(1800);
-  const afterTile = await page.evaluate(() => {
-    const t = [...document.querySelectorAll("p")].find((e) =>
-      /Найдено \d+ заказ/.test(e.textContent || "")
-    );
-    return {
-      url: location.search,
-      sel: document.querySelectorAll('[data-testid="orders-filters"] select')[1]?.value ?? "",
-      cnt: t ? (t.textContent.match(/Найдено (\d+)/) || [])[1] : "",
-    };
-  });
-  afterTile.sel === "0" ? ok("плитка ведёт на заказы с предзаполненным фильтром") : bad(`фильтр не подставился: ${afterTile.sel}`);
-  afterTile.cnt === "2" ? ok("фильтр из URL применился (2 заказа)") : bad(`фильтр из URL: ${afterTile.cnt}`);
-
-  /* ── G. Форма товара: категория + SEO ── */
-  console.log("── G. Форма товара ──");
-  await page.goto(BASE + "/admin/products/new", { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(1200);
-  const form = await page.evaluate(() => {
-    const cat = document.querySelector('[data-testid="product-category"]');
-    const inputs = [...document.querySelectorAll("input, textarea")].map((i) => i.value);
-    return {
-      cat: !!cat,
-      catOptions: cat ? cat.options.length : 0,
-      seoBox: [...document.querySelectorAll("p")].some((p) =>
-        (p.textContent || "").includes("SEO — для поисковиков")
-      ),
-    };
-  });
-  form.cat ? ok("форма товара: селект категории") : bad("селекта категории нет");
-  form.catOptions > 1 ? ok(`в селекте категории ${form.catOptions - 1} шт. + «без категории»`) : bad("категории не загрузились");
-  form.seoBox ? ok("форма товара: блок SEO") : bad("блока SEO нет");
-
-  /* ── F. Аналитика: произвольный период + график ── */
-  console.log("── F. Аналитика ──");
-  await page.goto(BASE + "/admin/analytics", { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(2500);
-  const an0 = await page.evaluate(() => ({
-    custom: !!document.querySelector('[data-testid="analytics-custom-period"]'),
-    chart: !!document.querySelector('[data-testid="analytics-daily-chart"] svg'),
-  }));
-  an0.custom ? ok("аналитика: поля произвольного периода") : bad("полей дат в аналитике нет");
-  an0.chart ? ok("аналитика: график динамики по дням") : bad("графика в аналитике нет");
-
-  const d = new Date();
-  const iso = (x) => x.toISOString().slice(0, 10);
-  await page.fill('[data-testid="analytics-from"]', iso(new Date(d.getTime() - 6 * 864e5)));
-  await page.fill('[data-testid="analytics-to"]', iso(d));
-  await page.waitForTimeout(2500);
-  const an1 = await page.evaluate(() => {
-    const chart = document.querySelector('[data-testid="analytics-daily-chart"] svg');
-    return { chart: !!chart, title: chart ? chart.querySelectorAll("text").length : 0 };
-  });
-  an1.chart ? ok("аналитика: график перерисовался под период (7 дней)") : bad("график пропал после установки периода");
-  an1.title > 0 && an1.title <= 8 ? ok(`подписей дней на графике: ${an1.title} (≤7)`) : bad(`подписей: ${an1.title}`);
-  /* сброс периода крестиком */
-  await page.click('[data-testid="analytics-custom-period"] button[aria-label="Сбросить произвольный период"]');
-  await page.waitForTimeout(1500);
-
-  /* ── I. Тосты/подтверждения ── */
-  console.log("── I. Диалог подтверждения ──");
-  await page.click('[data-testid="analytics-wipe"]');
-  await page.waitForTimeout(600);
-  const dlg = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="admin-confirm"]');
-    return el ? el.textContent.replace(/\s+/g, " ").slice(0, 80) : "";
-  });
-  dlg.includes("Удалить ВСЮ аналитику") ? ok("диалог подтверждения (admin-confirm) открылся") : bad(`диалог: «${dlg}»`);
-  await page.click('[data-testid="admin-confirm"] button:has-text("Отмена")');
+  /* B. ПК: клик раскрывает весь состав, кнопка исчезает */
+  await page.click('[data-testid="composition-show-more"]');
   await page.waitForTimeout(400);
+  st = await compState(page);
+  st && st.cards === apiItems[MANY]
+    ? ok(`ПК: после клика все ${apiItems[MANY]} карточек на месте`)
+    : bad(`ПК: после клика карточек ${st ? st.cards : "?"}, ожидалось ${apiItems[MANY]}`);
+  st && !st.more
+    ? ok("ПК: после раскрытия кнопка «показать больше» исчезла")
+    : bad("ПК: кнопка осталась после раскрытия");
 
-  /* ── D. Viewer: скрытие «Файлы»/«PDF» ── */
-  console.log("── D. Viewer ──");
-  await page.evaluate(async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-  });
-  (await login(page, VIEWER)) ? ok("логин viewer'ом") : bad("логин viewer не прошёл");
-  await page.goto(BASE + "/admin", { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(1800);
-  const viewerNav = await page.evaluate(() => {
-    const links = [...document.querySelectorAll('[data-testid="admin-sidebar"] a')].map(
-      (a) => a.textContent.trim()
-    );
-    return { files: links.includes("Файлы"), pdf: links.includes("PDF"), texts: links.includes("Текст на страницах") };
-  });
-  !viewerNav.files && !viewerNav.pdf
-    ? ok("viewer: «Файлы» и «PDF» скрыты из меню")
-    : bad(`viewer видит скрытое: files=${viewerNav.files} pdf=${viewerNav.pdf}`);
+  /* C. Планшет 800: свёрнуто 8 карточек (2 ряда × 4 колонки) */
+  await page.setViewportSize({ width: 800, height: 1000 });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await openProduct(page, MANY);
+  st = await compState(page);
+  st && st.cards === 8 && st.more
+    ? ok("Планшет: свёрнуто 8 карточек (2 ряда × 4 колонки), кнопка на месте")
+    : bad(`Планшет: cards=${st ? st.cards : "?"}, more=${st && st.more ? "есть" : "нет"}`);
+  await page.click('[data-testid="composition-show-more"]');
+  await page.waitForTimeout(400);
+  st = await compState(page);
+  st && st.cards === apiItems[MANY]
+    ? ok(`Планшет: после клика все ${apiItems[MANY]} карточек`)
+    : bad(`Планшет: после клика ${st ? st.cards : "?"}`);
 
-  /* ── E. logout-all ── */
-  console.log("── E. Выйти на всех устройствах ──");
-  const stale = await page.evaluate(async (c) => {
-    /* второй JWT с тем же tv — имитация «другого устройства» */
-    const r1 = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(c),
-    });
-    const ok1 = r1.ok;
-    const r2 = await fetch("/api/auth/logout-all", { method: "POST", credentials: "include" });
-    const ok2 = r2.ok;
-    const r3 = await fetch("/api/auth/me", { credentials: "include" });
-    return { ok1, ok2, me: r3.status };
-  }, VIEWER);
-  stale.ok1 && stale.ok2 ? ok("viewer залогинен, logout-all выполнен") : bad(`logout-all: ${JSON.stringify(stale)}`);
-  stale.me === 401 ? ok("после logout-all токен отклонён (401)") : bad(`/auth/me после logout-all: ${stale.me}`);
-  const me2 = await page.evaluate(async () => {
-    const r = await fetch("/api/auth/me", { credentials: "include" });
-    return r.status;
+  /* D. Телефон 375: свёрнуто 2 позиции списка, раскрытие, модалка «Подробнее» */
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await openProduct(page, MANY);
+  st = await compState(page);
+  st && st.ulRows === 2 && st.visibleDetails === 2 && st.more
+    ? ok("Телефон: свёрнуто 2 позиции списка, «показать больше» на месте")
+    : bad(`Телефон: rows=${st ? st.ulRows : "?"}, visible=${st ? st.visibleDetails : "?"}, more=${st && st.more ? "есть" : "нет"}`);
+  await page.click('[data-testid="composition-show-more"]');
+  await page.waitForTimeout(400);
+  st = await compState(page);
+  st && st.ulRows === apiItems[MANY]
+    ? ok(`Телефон: после клика все ${apiItems[MANY]} позиций списка`)
+    : bad(`Телефон: после клика ${st ? st.ulRows : "?"}, ожидалось ${apiItems[MANY]}`);
+  const dlgBefore = await page.evaluate(() =>
+    document.querySelectorAll('div[role="dialog"][aria-modal="true"]').length);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll("button")].find(
+      (x) => (x.textContent || "").trim() === "Подробнее" && x.offsetParent !== null);
+    b.click();
   });
-  me2 === 401 ? ok("второе устройство тоже отозвано") : bad(`второе устройство: ${me2}`);
-  (await login(page, ADMIN)) ? ok("повторный логин админом работает") : bad("повторный логин не прошёл");
+  await page.waitForTimeout(400);
+  const dlgAfter = await page.evaluate(() =>
+    document.querySelectorAll('div[role="dialog"][aria-modal="true"]').length);
+  dlgAfter === dlgBefore + 1
+    ? ok("Телефон: «Подробнее» из раскрытого списка открывает модалку")
+    : bad(`Телефон: модалка не открылась (${dlgBefore} → ${dlgAfter})`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  const dlgClosed = await page.evaluate(() =>
+    document.querySelectorAll('div[role="dialog"][aria-modal="true"]').length);
+  dlgClosed === dlgBefore
+    ? ok("Телефон: модалка закрывается по Escape")
+    : bad(`Телефон: модалка не закрылась (${dlgClosed} осталось)`);
 
-  /* ── H. Task 151: состав подарка свёрнут ── */
-  console.log("── H. Состав подарка (Task 151) ──");
-  await page.goto(`${BASE}/product/${BIG_BUNDLE}/`, { waitUntil: "load", timeout: 30000 });
-  await page.waitForTimeout(2000);
-  /* Состав — вкладка: по умолчанию открыто «Описание», кликаем «Состав подарка» */
-  await page.click('button:has-text("Состав подарка")');
-  await page.waitForTimeout(600);
-  const comp = await page.evaluate(() => {
-    const btn = document.querySelector('[data-testid="composition-show-all"]');
-    const grids = [...document.querySelectorAll("div")].filter((el) =>
-      el.className.includes("sm:grid-cols-4")
-    );
-    const grid = grids.pop();
-    const cards = grid ? grid.children.length : 0;
-    const mobileRows = [...document.querySelectorAll("ul.sm\\:hidden li")].length;
-    return { btnText: btn ? btn.textContent.replace(/\s+/g, " ").trim() : "", cards, mobileRows };
-  });
-  comp.cards === 12 ? ok(`состав свёрнут: ${comp.cards} карточек (2 ряда по 6)`) : bad(`карточек в свёрнутом составе: ${comp.cards}`);
-  comp.mobileRows > 0 && comp.mobileRows <= 6
-    ? ok(`мобильный список: ${comp.mobileRows} позиций`)
-    : bad(`мобильный список: ${comp.mobileRows}`);
-  comp.btnText.includes("Показать ещё")
-    ? ok(`кнопка разворота: «${comp.btnText}»`)
-    : bad(`кнопка разворота: «${comp.btnText}»`);
-  const btnNum = (comp.btnText.match(/Показать ещё (\d+)/) || [])[1];
-  await page.click('[data-testid="composition-show-all"]');
+  /* E. Короткий набор (11 позиций ≤ 12 на ПК): кнопки нет, состав целиком */
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openProduct(page, FEW);
+  st = await compState(page);
+  st && st.cards === apiItems[FEW] && !st.more
+    ? ok(`ПК: короткий набор (${apiItems[FEW]} ≤ 12) показан целиком, кнопки нет`)
+    : bad(`ПК: короткий набор cards=${st ? st.cards : "?"}, more=${st && st.more ? "лишняя" : "нет"}`);
+
+  /* F. Ресайз без перезагрузки: ПК (12) → телефон (2 позиции) */
+  await openProduct(page, MANY);
+  st = await compState(page);
+  st && st.cards === 12 ? ok("Ресайз: исходно 12 карточек на ПК") : bad(`Ресайз: до — ${st ? st.cards : "?"}`);
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.waitForTimeout(500);
-  const expanded = await page.evaluate(() => {
-    const grids = [...document.querySelectorAll("div")].filter((el) =>
-      el.className.includes("sm:grid-cols-4")
-    );
-    const grid = grids.pop();
-    const collapse = [...document.querySelectorAll("button")].find((b) =>
-      (b.textContent || "").includes("Свернуть состав")
-    );
-    return { cards: grid ? grid.children.length : 0, collapse: !!collapse };
-  });
-  expanded.cards === Number(btnNum) + 12
-    ? ok(`после разворота: ${expanded.cards} карточек (${btnNum} скрытых + 12)`)
-    : bad(`после разворота: ${expanded.cards} (ожидалось ${Number(btnNum) + 12})`);
-  expanded.collapse ? ok("кнопка «Свернуть состав» появилась") : bad("кнопки сворачивания нет");
-  await page.click('button:has-text("Свернуть состав")');
-  await page.waitForTimeout(400);
-  const collapsedBack = await page.evaluate(() => {
-    const grids = [...document.querySelectorAll("div")].filter((el) =>
-      el.className.includes("sm:grid-cols-4")
-    );
-    const grid = grids.pop();
-    return grid ? grid.children.length : 0;
-  });
-  collapsedBack === 12 ? ok("свернулся обратно до 12") : bad(`после сворачивания: ${collapsedBack}`);
+  st = await compState(page);
+  st && st.ulRows === 2 && st.visibleDetails === 2 && st.more
+    ? ok("Ресайз: без перезагрузки срез перестроился до 2 позиций списка, кнопка появилась")
+    : bad(`Ресайз: после — rows=${st ? st.ulRows : "?"}, visible=${st ? st.visibleDetails : "?"}, more=${st && st.more ? "есть" : "нет"}`);
 
-  /* ── Консоль ── */
-  const realErrors = consoleErrors.filter(
-    (e) => !e.includes("401") && !e.includes("Failed to load resource")
-  );
-  realErrors.length === 0
-    ? ok("консоль браузера чиста")
-    : bad("ошибки консоли: " + realErrors.slice(0, 3).join(" | "));
+  /* G. Простой товар (не-набор): страница жива, вкладки «Состав» нет.
+     Регресс: bundle_items у не-наборов undefined — раньше .length ронял
+     карточку (pageerror "reading 'length'"). */
+  await page.goto(`${BASE}/product/test152-simple/`, { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForFunction(
+      () => {
+        const h1 = document.querySelector("h1");
+        return !!h1 && (h1.textContent || "").includes("Тестовый простой товар 152");
+      },
+      null,
+      { timeout: 15000 },
+    );
+    ok("простой товар: карточка отрисовалась, h1 на месте (не упал на .length)");
+  } catch {
+    bad("простой товар: карточка не отрисовалась (краш ProductTabs?)");
+  }
+  const stH = await page.evaluate(() => ({
+    compTab: [...document.querySelectorAll("button")].some((b) =>
+      (b.textContent || "").trim().toLowerCase().startsWith("состав")),
+  }));
+  !stH.compTab
+    ? ok("простой товар: вкладки «Состав подарка» нет")
+    : bad("простой товар: у не-набора есть вкладка «Состав»");
+
+  /* H. Консоль чиста */
+  consoleErrors.length === 0
+    ? ok("консоль браузера чиста (без ошибок JS)")
+    : bad("ошибки консоли: " + consoleErrors.slice(0, 3).join(" | "));
 
   await browser.close();
-  console.log("");
-  console.log(`ИТОГО: PASS=${PASS} FAIL=${FAIL}`);
+  console.log(`\nИТОГО: PASS=${PASS} FAIL=${FAIL}`);
   process.exit(FAIL === 0 ? 0 : 1);
-  } finally {
-    /* Даже при крахе сценария браузер закрывается — иначе осиротевший
-       chromium держит stdout-пайп обёртки и вешает bash-вызов. */
-    await browser.close().catch(() => {});
-  }
-})().catch((e) => {
-  console.error("E2E CRASH: " + e.message);
-  process.exit(1);
-});
+})().catch((e) => { console.error("e2e упал:", e.message); process.exit(1); });

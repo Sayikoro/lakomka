@@ -12,6 +12,9 @@ interface Props {
   /** Показывать видео в карточке (галочка в админке «Настройки»).
       Выключено — карточка не играет видео при наведении и без значка видео. */
   showVideos?: boolean;
+  /** Task 141: быстрый просмотр — задан, значит на картинке появляется
+      кнопка-глаз (на телефоне видна всегда, на десктопе — по наведению). */
+  onQuickView?: (product: Product) => void;
 }
 
 function isPlayableLocalVideo(url: string | null | undefined): boolean {
@@ -20,7 +23,7 @@ function isPlayableLocalVideo(url: string | null | undefined): boolean {
   return /\.(mp4|webm)(\?|$)/i.test(url);
 }
 
-export function ProductCard({ product, showVideos = true }: Props) {
+export function ProductCard({ product, showVideos = true, onQuickView }: Props) {
   const add = useCart((s) => s.add);
   const [hover, setHover] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -53,7 +56,7 @@ export function ProductCard({ product, showVideos = true }: Props) {
 
   return (
     <div
-      className="group flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white shadow-sm transition hover:shadow-md"
+      className="group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-white shadow-sm transition hover:shadow-md"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -109,6 +112,30 @@ export function ProductCard({ product, showVideos = true }: Props) {
           </span>
         )}
       </Link>
+
+      {/* Task 141: кнопка быстрого просмотра — глаз в правом верхнем углу
+          картинки (вне ссылки — интерактивные элементы не вкладываются).
+          На телефоне/планшете видна всегда, на десктопе — при наведении.
+          Значок видео прячем, пока глаз на экране: место одно. */}
+      {onQuickView && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onQuickView(product);
+          }}
+          aria-label={`Быстрый просмотр «${product.name}»`}
+          title="Быстрый просмотр"
+          data-testid="quick-view-btn"
+          className="absolute right-2 top-2 z-20 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-white/95 text-[#3a3a3a] shadow-md outline-none transition-all duration-150 ease-out hover:bg-white hover:text-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-primary)] md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+      )}
 
       <div className="flex flex-1 flex-col gap-2 p-4">
         <Link
