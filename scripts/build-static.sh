@@ -149,6 +149,10 @@ mkdir -p "$ROOT/download"
 
 zip_full() {
   echo "[3/5] ZIP полного деплоя (со всеми медиа)…"
+  # легаси process-bg.png (Task 135 пережал в /brand/process-bg.webp):
+  # Bootstrap пакета восстанавливает «системные файлы» при первом запросе
+  # (сид/чистка БД на этапе сборки) — сносим непосредственно перед ZIP.
+  rm -f "$PKG/uploads/process-bg.png"
   FULL_ZIP="$ROOT/download/lakomka-deploy-static.zip"
   rm -f "$FULL_ZIP"
   ( cd "$PKG" && zip -qr "$FULL_ZIP" . )
@@ -162,6 +166,9 @@ make_update_package() {
   rm -rf "$PKG_U/uploads"
   # база на сервере (заказы, SMTP, товары для корзины) не перезаписывается
   rm -f "$PKG_U/backend/storage/database.sqlite"*
+  # легаси process-bg.png мог вернуться при сиде (см. zip_full) — но uploads
+  # в update-пакет не едет вовсе, на всякий случай сносим
+  rm -f "$PKG_U/uploads/process-bg.png"
   printf '{"type":"update","version":"%s","built_at":"%s","git":"%s"}\n' \
     "$VERSION" "$BUILT_AT" "$GITSHA" > "$PKG_U/update-manifest.json"
   UPDATE_ZIP="$ROOT/download/lakomka-update-$VERSION.zip"

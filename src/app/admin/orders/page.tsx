@@ -6,11 +6,21 @@
  *
  * Task 137 (редизайн): на экранах ≥lg — таблица, на телефоне/планшете —
  * карточки заказов (таблица на 390px не читается). Данные одни и те же,
- * разница только в подаче. */
+ * разница только в подаче.
+ *
+ * Task 152: фильтры (статус, номер, точный телефон, письма, период дат),
+ * пагинация, денежная сводка по фильтру и выгрузка CSV. Поиск по телефону —
+ * ТОЛЬКО точное совпадение: номер хранится зашифрованным, в БД есть лишь
+ * blind-index хеш полного номера. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
+import {
+  ORDER_STATUSES,
+  ORDER_STATUS_COLORS,
+  ORDER_STATUS_LABELS,
+} from "@/lib/order-status";
 
 interface OrderRow {
   id: number;
@@ -26,32 +36,14 @@ interface OrderRow {
   items_preview: { product_name: string; qty: number }[];
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  new: "Новый",
-  confirmed: "Подтверждён",
-  paid: "Оплачен",
-  shipped: "Отправлен",
-  done: "Выполнен",
-  cancelled: "Отменён",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  new: "bg-blue-100 text-blue-800",
-  confirmed: "bg-yellow-100 text-yellow-800",
-  paid: "bg-green-100 text-green-800",
-  shipped: "bg-indigo-100 text-indigo-800",
-  done: "bg-gray-100 text-gray-700",
-  cancelled: "bg-red-100 text-red-700",
-};
-
 function StatusChip({ status }: { status: string }) {
   return (
     <span
       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-        STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700"
+        ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700"
       }`}
     >
-      {STATUS_LABELS[status] ?? status}
+      {ORDER_STATUS_LABELS[status] ?? status}
     </span>
   );
 }
@@ -82,50 +74,241 @@ function MailFailedIcon({ error }: { error: string | null }) {
   );
 }
 
+/** Окно номеров страниц: 1 … (текущая ±2) … последняя */
+function pageNumbers(current: number, total: number): number[] {
+  const out = new Set<number>([1, total]);
+  for (let n = current - 2; n <= current + 2; n++) {
+    if (n >= 1 && n <= total) out.add(n);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+const EMPTY_FILTERS = {
+  status: "",
+  number: "",
+  phone: "",
+  email: "",
+  from: "",
+  to: "",
+};
+
 export default function AdminOrdersPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+
+  /* Фильтры (дебаунс 300 мс — один таймер на всё) */
+  const [filters, setFilters] = useState({ ...EMPTY_FILTERS });
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
+  const [total, setTotal] = useState<number | null>(null);
+  const [pages, setPages] = useState(1);
+  const [sumKopecks, setSumKopecks] = useState<number | null>(null);
+
+  /* Токен-гард: устаревшие ответы отбрасываются */
+  const seqRef = useRef(0);
+
+  /* Task 152: начальные фильтры из URL — плитки-тревоги дашборда ведут на
+   * /admin/orders?email=0. Читаем ПОСЛЕ гидрации, чтобы не расходиться
+   * с prerender-HTML. */
+  const filtersFromUrlRef = useRef(false);
+  useEffect(() => {
+    if (filtersFromUrlRef.current) return;
+    filtersFromUrlRef.current = true;
+    const sp = new URLSearchParams(window.location.search);
+    const patch: Partial<typeof EMPTY_FILTERS> = {};
+    for (const key of ["status", "number", "phone", "email", "from", "to"] as const) {
+      const v = sp.get(key) ?? "";
+      if (v) patch[key] = v;
+    }
+    if (Object.keys(patch).length > 0) {
+      /* Миктотаск: синхронный setState в эффекте — react-hooks/set-state-in-effect
+       * (тот же приём, что в analytics/page.tsx). */
+      void Promise.resolve().then(() => setFilters((f) => ({ ...f, ...patch })));
+    }
+  }, []);
+
+  const hasFilters = useMemo(
+    () => Object.values(filters).some((v) => v !== ""),
+    [filters],
+  );
+
+  const query = useMemo(() => {
+    const q = new URLSearchParams();
+    q.set("page", String(page));
+    q.set("per_page", String(perPage));
+    if (filters.status) q.set("status", filters.status);
+    if (filters.number) q.set("number", filters.number.trim());
+    if (filters.phone) q.set("phone", filters.phone.trim());
+    if (filters.email) q.set("email", filters.email);
+    if (filters.from) q.set("from", filters.from);
+    if (filters.to) q.set("to", filters.to);
+    return q.toString();
+  }, [page, perPage, filters]);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
+    /* Миктотаск: setFetching(true) синхронно дёргает setState —
+     * react-hooks/set-state-in-effect. */
+    void Promise.resolve().then(() => setFetching(true));
+    const t = setTimeout(async () => {
+      const seq = ++seqRef.current;
       try {
-        const res = await fetch(`${apiUrl}/admin/orders`, {
+        const res = await fetch(`${apiUrl}/admin/orders?${query}`, {
           credentials: "include",
           cache: "no-store",
         });
         const json = await res.json().catch(() => ({}));
-        if (!alive) return;
+        if (seq !== seqRef.current) return;
         if (!res.ok) {
           setError(json.error ?? `Ошибка ${res.status}`);
           setOrders([]);
+          setTotal(null);
           return;
         }
         setError(null);
         setOrders((json.data as OrderRow[]) ?? []);
+        setTotal(Number(json.total) || 0);
+        setPages(Math.max(1, Number(json.pages) || 1));
+        setSumKopecks(Number(json.sum_kopecks) || 0);
       } catch (e) {
-        if (!alive) return;
+        if (seq !== seqRef.current) return;
         setError(e instanceof Error ? e.message : "Ошибка сети");
         setOrders([]);
+      } finally {
+        if (seq === seqRef.current) setFetching(false);
       }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [apiUrl]);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [apiUrl, query]);
+
+  const csvHref = useMemo(() => {
+    const q = new URLSearchParams(query);
+    q.delete("page");
+    q.delete("per_page");
+    return `${apiUrl}/admin/orders/export?${q.toString()}`;
+  }, [apiUrl, query]);
+
+  const setFilter = (key: keyof typeof EMPTY_FILTERS, value: string) => {
+    setFilters((f) => ({ ...f, [key]: value }));
+    setPage(1);
+  };
+
+  const resetFilters = () => {
+    setFilters({ ...EMPTY_FILTERS });
+    setPage(1);
+  };
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-3">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[24px] font-semibold leading-tight text-[var(--color-heading)]">
             Заказы
           </h1>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Всего: {orders?.length ?? "…"}
+            {total === null
+              ? "…"
+              : `Найдено ${total} заказ(ов) на сумму ${
+                  sumKopecks !== null ? formatPrice(sumKopecks) : "…"
+                }`}
           </p>
         </div>
+        <a
+          href={csvHref}
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm hover:border-[var(--color-primary)]"
+          title="Выгрузить заказы по текущим фильтрам в CSV (Excel)"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+          Экспорт CSV
+        </a>
+      </div>
+
+      {/* ── Фильтры (Task 152) ── */}
+      <div className="admin-card mb-4 p-4" data-testid="orders-filters">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+          <label className="block text-xs text-[var(--color-muted)]">
+            Статус
+            <select
+              value={filters.status}
+              onChange={(e) => setFilter("status", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)]"
+            >
+              <option value="">Все статусы</option>
+              {ORDER_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs text-[var(--color-muted)]">
+            Номер заказа
+            <input
+              type="text"
+              value={filters.number}
+              onChange={(e) => setFilter("number", e.target.value)}
+              placeholder="ЛК-2026…"
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)] placeholder:text-[var(--color-muted)]"
+            />
+          </label>
+          <label className="block text-xs text-[var(--color-muted)]">
+            Телефон (точно)
+            <input
+              type="tel"
+              value={filters.phone}
+              onChange={(e) => setFilter("phone", e.target.value)}
+              placeholder="+7 900 000-00-00"
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)] placeholder:text-[var(--color-muted)]"
+            />
+          </label>
+          <label className="block text-xs text-[var(--color-muted)]">
+            Письмо клиенту
+            <select
+              value={filters.email}
+              onChange={(e) => setFilter("email", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)]"
+            >
+              <option value="">Все</option>
+              <option value="0">Не отправлено</option>
+              <option value="1">Отправлено</option>
+            </select>
+          </label>
+          <label className="block text-xs text-[var(--color-muted)]">
+            С даты
+            <input
+              type="date"
+              value={filters.from}
+              onChange={(e) => setFilter("from", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)]"
+            />
+          </label>
+          <label className="block text-xs text-[var(--color-muted)]">
+            По дату
+            <input
+              type="date"
+              value={filters.to}
+              onChange={(e) => setFilter("to", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] px-2 py-2 text-sm text-[var(--color-heading)]"
+            />
+          </label>
+        </div>
+        {hasFilters && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="text-sm text-[var(--color-primary)] hover:underline"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -140,12 +323,12 @@ export default function AdminOrdersPage() {
         </div>
       ) : orders.length === 0 ? (
         <div className="admin-card p-12 text-center text-[var(--color-muted)]">
-          Заказов пока нет
+          {hasFilters ? "По фильтрам ничего не найдено" : "Заказов пока нет"}
         </div>
       ) : (
         <>
           {/* ── Десктоп: таблица ── */}
-          <div className="admin-card hidden overflow-x-auto lg:block">
+          <div className={`admin-card hidden overflow-x-auto transition-opacity lg:block ${fetching ? "opacity-60" : ""}`}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-muted)]">
@@ -196,7 +379,7 @@ export default function AdminOrdersPage() {
           </div>
 
           {/* ── Телефон/планшет (<lg): карточки ── */}
-          <div className="space-y-3 lg:hidden">
+          <div className={`space-y-3 transition-opacity lg:hidden ${fetching ? "opacity-60" : ""}`}>
             {orders.map((o) => (
               <div key={o.id} className="admin-card p-4">
                 <div className="flex items-center justify-between gap-2">
@@ -229,6 +412,93 @@ export default function AdminOrdersPage() {
               </div>
             ))}
           </div>
+
+          {/* ── Пагинация (Task 152). Подвал виден при любом числе заказов —
+              иначе при ≤50 заказах нельзя переключить «На странице»; кнопки
+              листания появляются только когда страниц больше одной. ── */}
+          {total !== null && total > 0 && (
+            <div
+              data-testid="orders-pagination"
+              className="mt-4 flex flex-wrap items-center justify-between gap-3"
+            >
+              <span className="text-sm text-[var(--color-muted)]">
+                Страница {page} из {pages}
+                {` · всего ${total}`}
+              </span>
+              {pages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={page <= 1 || fetching}
+                  onClick={() => setPage(1)}
+                  aria-label="Первая страница"
+                  className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  disabled={page <= 1 || fetching}
+                  onClick={() => setPage(page - 1)}
+                  aria-label="Предыдущая страница"
+                  className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+                >
+                  ‹
+                </button>
+                {pageNumbers(page, pages).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    disabled={fetching}
+                    onClick={() => setPage(n)}
+                    aria-current={n === page ? "page" : undefined}
+                    className={`min-w-[34px] rounded-lg border px-2 py-1.5 text-sm transition-colors ${
+                      n === page
+                        ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                        : "border-[var(--color-border)] hover:border-[var(--color-primary)]"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={page >= pages || fetching}
+                  onClick={() => setPage(page + 1)}
+                  aria-label="Следующая страница"
+                  className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= pages || fetching}
+                  onClick={() => setPage(pages)}
+                  aria-label="Последняя страница"
+                  className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-sm disabled:opacity-40 hover:border-[var(--color-primary)]"
+                >
+                  »
+                </button>
+              </div>
+              )}
+              <label className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+                На странице
+                <select
+                  value={perPage}
+                  onChange={(e) => {
+                    setPerPage(Number(e.target.value) || 50);
+                    setPage(1);
+                  }}
+                  aria-label="Заказов на странице"
+                  className="rounded-lg border border-[var(--color-border)] px-2 py-1.5 text-sm"
+                >
+                  {[20, 50, 100, 200].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
         </>
       )}
     </div>

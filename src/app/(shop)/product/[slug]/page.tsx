@@ -37,18 +37,24 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const priceFormatted = priceRub.toLocaleString("ru-RU");
   const cover = product.images[0]?.url;
 
+  /* Task 152: SEO-поля товара из админки; если не заданы — прежние
+   * fallback'и (название / описание / шаблон с ценой). */
+  const seoTitle = product.meta_title?.trim() || product.name;
+  const seoDescription =
+    product.meta_description?.trim() ||
+    product.description?.slice(0, 160) ||
+    `${product.name} — купить с доставкой по Хабаровску за ${priceFormatted} ₽.`;
+
   return {
-    title: product.name,
-    description:
-      product.description?.slice(0, 160) ||
-      `${product.name} — купить с доставкой по Хабаровску за ${priceFormatted} ₽.`,
+    title: seoTitle,
+    description: seoDescription,
     alternates: {
       canonical: `/product/${product.slug}`,
     },
     openGraph: {
       type: "website",
-      title: `${product.name} — ${priceFormatted} ₽`,
-      description: product.description?.slice(0, 200) || undefined,
+      title: `${seoTitle} — ${priceFormatted} ₽`,
+      description: seoDescription.slice(0, 200),
       url: `/product/${product.slug}`,
       images: cover
         ? [{ url: cover, width: 1000, height: 1000, alt: product.name }]
@@ -56,7 +62,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     },
     twitter: {
       card: "summary_large_image",
-      title: `${product.name} — ${priceFormatted} ₽`,
+      title: `${seoTitle} — ${priceFormatted} ₽`,
       images: cover ? [cover] : undefined,
     },
     other: {

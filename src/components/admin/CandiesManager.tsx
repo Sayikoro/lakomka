@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useConfirm } from "@/components/admin/Feedback";
 
 /* ================= Типы ================= */
 
@@ -844,6 +845,7 @@ function CandyCoverModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { confirm } = useConfirm();
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -868,7 +870,12 @@ function CandyCoverModal({
   }
 
   async function remove() {
-    if (!window.confirm(`Убрать фото у «${candy.name}»?`)) return;
+    const ok = await confirm({
+      title: `Убрать фото у «${candy.name}»?`,
+      confirmLabel: "Убрать",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {

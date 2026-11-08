@@ -18,6 +18,8 @@
    ============================================================ */
 
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm, useToast } from "@/components/admin/Feedback";
+import { DailyChart, type DayRow } from "@/components/admin/DailyChart";
 
 interface Period {
   sessions: number;
@@ -215,8 +217,14 @@ const TYPE_BADGE: Record<string, string> = {
 
 export default function AdminAnalyticsPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const { confirm } = useConfirm();
+  const { toast } = useToast();
 
   const [days, setDays] = useState(7);
+  /* Task 152: произвольный период — from/to (YYYY-MM-DD) имеют приоритет
+   * над кнопками 1/3/7/30 (бэкенд rangeParam). Пустые поля — «без границы». */
+  const [custom, setCustom] = useState({ from: "", to: "" });
+  const [chartDays, setChartDays] = useState<DayRow[] | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [bots, setBots] = useState<BotRow[]>([]);
@@ -234,21 +242,30 @@ export default function AdminAnalyticsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    /* Task 152: произвольный период перекрывает кнопки «Сегодня/3/7/30 дн. */
+    const periodQS =
+      custom.from || custom.to
+        ? `from=${encodeURIComponent(custom.from)}&to=${encodeURIComponent(custom.to)}`
+        : `days=${days}`;
     try {
-      const [sRes, sesRes, bRes, blRes] = await Promise.all([
-        fetch(`${apiUrl}/admin/analytics/summary?days=${days}`, {
+      const [sRes, sesRes, bRes, blRes, dRes] = await Promise.all([
+        fetch(`${apiUrl}/admin/analytics/summary?${periodQS}`, {
           credentials: "include",
           cache: "no-store",
         }),
-        fetch(`${apiUrl}/admin/analytics/sessions?days=${days}&bot=${sessionFilter}&limit=60`, {
+        fetch(`${apiUrl}/admin/analytics/sessions?${periodQS}&bot=${sessionFilter}&limit=60`, {
           credentials: "include",
           cache: "no-store",
         }),
-        fetch(`${apiUrl}/admin/analytics/bots?days=${days}`, {
+        fetch(`${apiUrl}/admin/analytics/bots?${periodQS}`, {
           credentials: "include",
           cache: "no-store",
         }),
         fetch(`${apiUrl}/admin/analytics/blocks`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${apiUrl}/admin/dashboard/daily?${periodQS}`, {
           credentials: "include",
           cache: "no-store",
         }),
@@ -262,12 +279,18 @@ export default function AdminAnalyticsPage() {
       if (sesRes.ok) setSessions(((await sesRes.json()).data?.items ?? []) as SessionRow[]);
       if (bRes.ok) setBots(((await bRes.json()).data?.items ?? []) as BotRow[]);
       if (blRes.ok) setBlocks(((await blRes.json()).data?.items ?? []) as BlockRow[]);
+      if (dRes.ok) {
+        const dJson = await dRes.json().catch(() => ({}));
+        setChartDays((dJson.data?.days as DayRow[]) ?? null);
+      } else {
+        setChartDays(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить аналитику");
     } finally {
       setLoading(false);
     }
-  }, [apiUrl, days, sessionFilter]);
+  }, [apiUrl, days, sessionFilter, custom]);
 
   useEffect(() => {
     /* Микротаск: setLoading(true) внутри load() синхронно дёргает setState —
@@ -315,10 +338,20 @@ export default function AdminAnalyticsPage() {
 
   async function toggleBlock(s: { ip_hash: string; ip_mask: string; blocked: number | null }) {
     const action = s.blocked ? "unblock" : "block";
-    const confirmText = s.blocked
-      ? `Разблокировать IP ${s.ip_mask}?`
-      : `Заблокировать IP ${s.ip_mask}? Витрина и API перестанут отвечать этому адресу.`;
-    if (!window.confirm(confirmText)) return;
+    const ok = await confirm(
+      s.blocked
+        ? {
+            title: `Разблокировать IP ${s.ip_mask}?`,
+            confirmLabel: "Разблокировать",
+          }
+        : {
+            title: `Заблокировать IP ${s.ip_mask}?`,
+            message: "Витрина и API перестанут отвечать этому адресу.",
+            confirmLabel: "Заблокировать",
+            danger: true,
+          },
+    );
+    if (!ok) return;
     try {
       const res = await fetch(`${apiUrl}/admin/analytics/${action}`, {
         method: "POST",
@@ -328,17 +361,24 @@ export default function AdminAnalyticsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        window.alert(json.error ?? "Не удалось выполнить");
+        toast(json.error ?? "Не удалось выполнить", "error");
         return;
       }
+      toast(s.blocked ? "IP разблокирован" : "IP заблокирован");
       await load();
     } catch {
-      window.alert("Сеть недоступна");
+      toast("Сеть недоступна", "error");
     }
   }
 
   async function blockBot(b: BotRow) {
-    if (!window.confirm(`Заблокировать IP ${b.ip_mask} (${shortUa(b.ua, 40)})?`)) return;
+    const ok = await confirm({
+      title: `Заблокировать IP ${b.ip_mask}?`,
+      message: `User-Agent: ${shortUa(b.ua, 40)}`,
+      confirmLabel: "Заблокировать",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`${apiUrl}/admin/analytics/block`, {
         method: "POST",
@@ -348,22 +388,24 @@ export default function AdminAnalyticsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        window.alert(json.error ?? "Не удалось выполнить");
+        toast(json.error ?? "Не удалось выполнить", "error");
         return;
       }
+      toast("IP заблокирован");
       await load();
     } catch {
-      window.alert("Сеть недоступна");
+      toast("Сеть недоступна", "error");
     }
   }
 
   async function wipeAnalytics() {
-    if (
-      !window.confirm(
-        "Удалить ВСЮ аналитику (события, сессии, боты)? Блок-лист IP сохранится. Отменить будет нельзя."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Удалить ВСЮ аналитику?",
+      message: "События, сессии и боты будут стёрты безвозвратно. Блок-лист IP сохранится.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`${apiUrl}/admin/analytics/wipe`, {
         method: "POST",
@@ -371,12 +413,13 @@ export default function AdminAnalyticsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        window.alert(json.error ?? "Не удалось выполнить");
+        toast(json.error ?? "Не удалось выполнить", "error");
         return;
       }
+      toast("Аналитика очищена");
       await load();
     } catch {
-      window.alert("Сеть недоступна");
+      toast("Сеть недоступна", "error");
     }
   }
 
@@ -401,9 +444,12 @@ export default function AdminAnalyticsPage() {
               <button
                 key={d}
                 type="button"
-                onClick={() => setDays(d)}
+                onClick={() => {
+                  setDays(d);
+                  setCustom({ from: "", to: "" });
+                }}
                 className={`px-3 py-1.5 text-sm transition-colors ${
-                  days === d
+                  days === d && !custom.from && !custom.to
                     ? "bg-[var(--color-primary)] text-white"
                     : "bg-[var(--color-card)] text-[var(--color-body)] hover:bg-[var(--color-bg-soft)]"
                 }`}
@@ -411,6 +457,41 @@ export default function AdminAnalyticsPage() {
                 {d === 1 ? "Сегодня" : `${d} дн.`}
               </button>
             ))}
+          </div>
+          {/* Task 152: произвольный период дат */}
+          <div
+            className="flex items-center gap-1.5 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-1"
+            data-testid="analytics-custom-period"
+          >
+            <span className="text-xs text-[var(--color-muted)]">с</span>
+            <input
+              type="date"
+              value={custom.from}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              aria-label="Период с даты"
+              data-testid="analytics-from"
+              className="rounded-md border border-[var(--color-border)] px-1.5 py-1 text-sm text-[var(--color-heading)]"
+            />
+            <span className="text-xs text-[var(--color-muted)]">по</span>
+            <input
+              type="date"
+              value={custom.to}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              aria-label="Период по дату"
+              data-testid="analytics-to"
+              className="rounded-md border border-[var(--color-border)] px-1.5 py-1 text-sm text-[var(--color-heading)]"
+            />
+            {(custom.from || custom.to) && (
+              <button
+                type="button"
+                onClick={() => setCustom({ from: "", to: "" })}
+                aria-label="Сбросить произвольный период"
+                title="Вернуться к кнопкам периода"
+                className="rounded-md px-1.5 py-0.5 text-xs text-[var(--color-muted)] hover:bg-[var(--color-bg-soft)] hover:text-[var(--color-heading)]"
+              >
+                ✕
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -468,6 +549,30 @@ export default function AdminAnalyticsPage() {
               hint={`всего событий: ${fmtNum(p.events)}`}
             />
           </div>
+
+          {/* Динамика по дням (Task 152: тот же график, что на дашборде) */}
+          <section
+            className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-card)]"
+            data-testid="analytics-daily-chart"
+          >
+            <header className="border-b border-[var(--color-border)] px-4 py-3">
+              <h2 className="text-[15px] font-semibold text-[var(--color-heading)]">
+                Динамика по дням
+              </h2>
+              <p className="text-xs text-[var(--color-muted)]">
+                Заказы (столбики) и визиты (линия) за выбранный период
+              </p>
+            </header>
+            <div className="px-4 py-4">
+              {chartDays ? (
+                <DailyChart days={chartDays} />
+              ) : (
+                <div className="flex h-[180px] items-center justify-center text-sm text-[var(--color-muted)]">
+                  График недоступен
+                </div>
+              )}
+            </div>
+          </section>
 
           {/* Популярные подарки */}
           <section className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-card)]">

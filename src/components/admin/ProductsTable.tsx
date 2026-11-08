@@ -38,7 +38,7 @@ interface Props {
   reload?: () => void | Promise<void>;
 }
 
-type Filter = "all" | "catalog" | "hidden" | "bundles" | "simple" | "recipe" | "deleted";
+type Filter = "all" | "catalog" | "hidden" | "bundles" | "simple" | "recipe" | "deleted" | "low_stock";
 
 const TYPE_LABEL: Record<string, string> = {
   simple: "Товар",
@@ -76,6 +76,22 @@ export function ProductsTable({ initialProducts, reload }: Props) {
   const [search, setSearch] = useState(""); // применённый поиск (после дебаунса)
   const [filter, setFilter] = useState<Filter>("all");
   const [page, setPage] = useState(1);
+  /* Task 152: плитка-тревога ведёт на /admin/products?filter=low_stock —
+   * начальный фильтр читаем из URL ПОСЛЕ гидрации (в useEffect, чтобы не
+   * расходиться с prerender). */
+  const filterFromUrlRef = useRef(false);
+  useEffect(() => {
+    if (filterFromUrlRef.current) return;
+    filterFromUrlRef.current = true;
+    const f = new URLSearchParams(window.location.search).get("filter");
+    if (f === "low_stock") {
+      /* Миктотаск: синхронный setState в эффекте — react-hooks/set-state-in-effect. */
+      void Promise.resolve().then(() => {
+        setFilter("low_stock");
+        setPage(1);
+      });
+    }
+  }, []);
   /* Task 130: 20 товаров на страницу (просил владелец) */
   const [perPage, setPerPage] = useState(20);
   const [total, setTotal] = useState<number | null>(null);
@@ -525,6 +541,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
           <option value="simple">Только товары</option>
           <option value="bundles">Только наборы</option>
           <option value="recipe">Только конфеты</option>
+          <option value="low_stock">Заканчиваются</option>
           <option value="deleted">Корзина</option>
         </select>
         <span className="text-sm text-[var(--color-muted)]">

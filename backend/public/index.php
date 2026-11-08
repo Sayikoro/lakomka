@@ -306,6 +306,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AuthController.php';
         AuthController::logout();
     }
+    /* «Выйти на всех устройствах» — отзыв всех JWT пользователя (Task 152) */
+    if ($path === '/api/auth/logout-all' && $method === 'POST') {
+        require_once __DIR__ . '/../src/Controllers/AuthController.php';
+        AuthController::logoutAll($pdo);
+    }
     if ($path === '/api/auth/first-run' && $method === 'GET') {
         require_once __DIR__ . '/../src/Controllers/AuthController.php';
         AuthController::firstRun($pdo);
@@ -484,6 +489,11 @@ $stmt->execute([$m[1]]);
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         AdminOrdersController::list($pdo);
     }
+    /* CSV-выгрузка заказов с теми же фильтрами, что у списка (Task 152) */
+    if ($path === '/api/admin/orders/export' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
+        AdminOrdersController::exportCsv($pdo);
+    }
     if (preg_match('#^/api/admin/orders/(\d+)/resend-email$#', $path, $m) && $method === 'POST') {
         require_once __DIR__ . '/../src/Controllers/AdminOrdersController.php';
         Auth::requireEditor();
@@ -522,6 +532,16 @@ $stmt->execute([$m[1]]);
             Auth::requireEditor();
             AdminOrdersController::updateStatus($pdo, $id);
         }
+    }
+
+    /* ========== ADMIN: DASHBOARD (Task 152) ========== */
+    if ($path === '/api/admin/dashboard/daily' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminDashboardController.php';
+        AdminDashboardController::daily($pdo);
+    }
+    if ($path === '/api/admin/dashboard/alerts' && $method === 'GET') {
+        require_once __DIR__ . '/../src/Controllers/AdminDashboardController.php';
+        AdminDashboardController::alerts($pdo);
     }
 
     /* ========== ADMIN: ANALYTICS (Task 133) ========== */

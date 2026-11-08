@@ -26,9 +26,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import { LogoutButton } from "@/components/admin/LogoutButton";
+import { LogoutAllButton } from "@/components/admin/LogoutAllButton";
 import { DownloadsProvider } from "@/components/admin/downloads/Downloads";
 import { NewOrdersBadge, UpdateBadge } from "@/components/admin/AdminIndicators";
 import { ThemeToggle } from "@/components/admin/ThemeToggle";
+import { AdminFeedbackProvider } from "@/components/admin/Feedback";
 import {
   IconAnalytics,
   IconBox,
@@ -89,8 +91,20 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Контент",
     items: [
-      { href: "/admin/pdf", label: "PDF", icon: IconPdf },
-      { href: "/admin/files", label: "Файлы", icon: IconFolder },
+      {
+        href: "/admin/pdf",
+        label: "PDF",
+        icon: IconPdf,
+        /* Task 152: viewer внутри этих разделов получал 403 — скрыли
+         * из меню заранее, как уже сделано для «Текст на страницах». */
+        roles: ["super_admin", "editor"],
+      },
+      {
+        href: "/admin/files",
+        label: "Файлы",
+        icon: IconFolder,
+        roles: ["super_admin", "editor"],
+      },
       {
         href: "/admin/page-texts",
         label: "Текст на страницах",
@@ -231,7 +245,7 @@ export default function AdminLayout({
   const sidebar = (
     <aside
       data-testid="admin-sidebar"
-      className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--color-border)] bg-[var(--color-card)] shadow-xl transition-transform duration-200 lg:translate-x-0 lg:shadow-none ${
+      className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-[var(--color-border)] bg-[var(--color-card)] shadow-xl transition-transform duration-200 print:hidden lg:translate-x-0 lg:shadow-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
@@ -320,6 +334,7 @@ export default function AdminLayout({
                 {ROLE_LABELS[user.role] ?? user.role}
               </span>
             </span>
+            <LogoutAllButton />
             <LogoutButton />
           </div>
         )}
@@ -329,11 +344,13 @@ export default function AdminLayout({
 
   return (
     <div className="admin-scope min-h-screen bg-[var(--color-bg-soft)]">
+      {/* Тосты и подтверждения (Task 152) — на весь шелл админки */}
+      <AdminFeedbackProvider>
       {sidebar}
 
       {/* Затемнение под выезжающим меню (только < lg) */}
       <div
-        className={`fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/40 transition-opacity print:hidden lg:hidden ${
           menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={() => setMenuOpen(false)}
@@ -342,7 +359,7 @@ export default function AdminLayout({
 
       <div className="lg:pl-64">
         {/* Верхняя панель: бургер (<lg), заголовок раздела, индикаторы, тема */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 sm:gap-3 sm:px-4 lg:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 sm:gap-3 sm:px-4 print:hidden lg:px-6">
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
@@ -381,7 +398,7 @@ export default function AdminLayout({
       {/* Нижняя таб-панель (телефон/планшет <lg): частые разделы + «Ещё» */}
       <nav
         aria-label="Быстрый доступ"
-        className="admin-tabbar fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[var(--color-border)] bg-[var(--color-card)] lg:hidden"
+        className="admin-tabbar fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-[var(--color-border)] bg-[var(--color-card)] print:hidden lg:hidden"
       >
         {TAB_ITEMS.map((item) => {
           const active = isActive(item.href, item.exact ?? false);
@@ -411,6 +428,7 @@ export default function AdminLayout({
           Ещё
         </button>
       </nav>
+      </AdminFeedbackProvider>
     </div>
   );
 }

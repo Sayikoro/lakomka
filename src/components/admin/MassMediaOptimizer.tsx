@@ -14,6 +14,7 @@
    ============================================================ */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useConfirm, useToast } from "@/components/admin/Feedback";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -96,6 +97,8 @@ export function MassMediaOptimizer() {
   const [zipBusy, setZipBusy] = useState(false);
   const [zipInfo, setZipInfo] = useState<ZipReport | null>(null);
   const [purging, setPurging] = useState<string | null>(null);
+  const { confirm } = useConfirm();
+  const { toast } = useToast();
 
   const open = (k: Kind) => {
     setKind(k);
@@ -225,10 +228,10 @@ export function MassMediaOptimizer() {
         a.click();
         a.remove();
       } else {
-        window.alert(json.error ?? `Ошибка ${res.status}`);
+        toast(json.error ?? `Ошибка ${res.status}`, "error");
       }
     } catch {
-      window.alert("Ошибка сети");
+      toast("Ошибка сети", "error");
     } finally {
       setZipBusy(false);
     }
@@ -238,10 +241,14 @@ export function MassMediaOptimizer() {
   async function purgeEntry(e: MediaEntry) {
     if (purging) return;
     const label = e.product ? `«${e.product.name}» — ${e.name}` : e.name;
-    if (!window.confirm(
-      `Убрать в корзину файлов ${label}?\n\n`
-      + "Файл не привязан к товарам. Он переедет в раздел «Файлы → Корзина» и будет удалён навсегда через 30 дней."
-    )) return;
+    const ok = await confirm({
+      title: `Убрать в корзину файлов ${label}?`,
+      message:
+        "Файл не привязан к товарам. Он переедет в раздел «Файлы → Корзина» и будет удалён навсегда через 30 дней.",
+      confirmLabel: "Убрать",
+      danger: true,
+    });
+    if (!ok) return;
     setPurging(e.url);
     try {
       const res = await fetch(`${API_URL}/admin/files/unused-purge`, {
@@ -260,10 +267,10 @@ export function MassMediaOptimizer() {
           return next;
         });
       } else {
-        window.alert(json.error ?? "Не удалось убрать файл (возможно, он уже привязан к товару)");
+        toast(json.error ?? "Не удалось убрать файл (возможно, он уже привязан к товару)", "error");
       }
     } catch {
-      window.alert("Ошибка сети");
+      toast("Ошибка сети", "error");
     } finally {
       setPurging(null);
     }
@@ -271,10 +278,13 @@ export function MassMediaOptimizer() {
 
   async function runFix() {
     if (fixing) return;
-    if (!window.confirm(
-      "Проверить все картинки товаров и витрины?\n\n"
-      + "Сервер сверит каждую ссылку с файлами на диске: если файла нет, а рядом лежит картинка с тем же именем в другом формате — ссылка будет исправлена. Ничего не удаляется."
-    )) return;
+    const ok = await confirm({
+      title: "Проверить все картинки товаров и витрины?",
+      message:
+        "Сервер сверит каждую ссылку с файлами на диске: если файла нет, а рядом лежит картинка с тем же именем в другом формате — ссылка будет исправлена. Ничего не удаляется.",
+      confirmLabel: "Проверить",
+    });
+    if (!ok) return;
     setFixing(true);
     setFixReport(null);
     try {
@@ -288,10 +298,10 @@ export function MassMediaOptimizer() {
       if (res.ok && json.data?.ok) {
         setFixReport(json.data as FixReport);
       } else {
-        window.alert(json.error ?? `Ошибка ${res.status}`);
+        toast(json.error ?? `Ошибка ${res.status}`, "error");
       }
     } catch {
-      window.alert("Ошибка сети");
+      toast("Ошибка сети", "error");
     } finally {
       setFixing(false);
     }

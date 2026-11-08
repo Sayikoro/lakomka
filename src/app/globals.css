@@ -435,3 +435,17 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .adm-rise { animation: none; }
 }
+
+/* ── Печать бланка заказа (Task 152): только содержимое карточки ── */
+@media print {
+  .admin-scope {
+    background: #fff !important;
+  }
+  .admin-scope main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .admin-scope * {
+    box-shadow: none !important;
+  }
+}

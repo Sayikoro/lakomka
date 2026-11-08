@@ -18,6 +18,7 @@ interface AdminProductFull {
   slug: string;
   sku: string | null;
   type: string;
+  category_id: number | null;
   price_kopecks: number;
   stock_qty: number;
   show_in_catalog: number;
@@ -30,6 +31,8 @@ interface AdminProductFull {
   width_cm: number | null;
   height_cm: number | null;
   recipe_weight_g: number | null;
+  meta_title: string | null;
+  meta_description: string | null;
   media?: MediaItem[];
 }
 
@@ -84,7 +87,9 @@ function ProductEditInner() {
   }, [apiUrl, id]);
 
   useEffect(() => {
-    void load();
+    /* Миктотаск: setLoading(true) внутри load() синхронно дёргает setState —
+     * react-hooks/set-state-in-effect (как в analytics/page.tsx). */
+    void Promise.resolve().then(() => load());
   }, [load]);
 
   if (!id) {
@@ -153,6 +158,7 @@ function ProductEditInner() {
               slug: product.slug,
               sku: product.sku ?? "",
               type: product.type as ProductFormValues["type"],
+              category_id: product.category_id ?? null,
               price_kopecks: product.price_kopecks,
               stock_qty: product.stock_qty,
               show_in_catalog: product.show_in_catalog,
@@ -165,6 +171,8 @@ function ProductEditInner() {
               width_cm: product.width_cm ?? null,
               height_cm: product.height_cm ?? null,
               recipe_weight_g: product.recipe_weight_g ?? null,
+              meta_title: product.meta_title ?? "",
+              meta_description: product.meta_description ?? "",
             }}
           />
 

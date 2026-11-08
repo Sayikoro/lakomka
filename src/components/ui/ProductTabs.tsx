@@ -44,6 +44,18 @@ export function ProductTabs({ product }: Props) {
   const t = useT();
   const isBundle = product.type === "bundle" && (product.bundle_items?.length ?? 0) > 0;
 
+  /* Task 151: состав в свёрнутом виде — 2 ряда конфет (12 на ПК),
+   * остальные скрываются, чтобы большой набор (до 96 позиций)
+   * не растягивал страницу. Кнопка разворачивает полный список. */
+  const COLLAPSED_GRID = 12; // 2 ряда по 6 колонок (lg); на sm это 3 ряда по 4
+  const COLLAPSED_LIST = 6;  // мобильный список — тоже компактный
+  const [expanded, setExpanded] = useState(false);
+  const allItems = product.bundle_items ?? [];
+  const totalItems = allItems.length;
+  const gridItems = expanded ? allItems : allItems.slice(0, COLLAPSED_GRID);
+  const listItems = expanded ? allItems : allItems.slice(0, COLLAPSED_LIST);
+  const hiddenCount = totalItems - gridItems.length;
+
   const tabs: TabKey[] = ["description", "details"];
   if (isBundle) tabs.push("composition");
 
@@ -135,16 +147,36 @@ export function ProductTabs({ product }: Props) {
             <>
               {/* Телефон: список — фото, название, под ним производитель, кнопка «Подробнее» */}
               <ul className="m-0 list-none space-y-2 p-0 sm:hidden">
-                {product.bundle_items!.map((item) => (
+                {listItems.map((item) => (
                   <CompositionRow key={item.id} item={item} onDetails={() => setSelected(item)} />
                 ))}
               </ul>
               {/* ПК/планшет: карточная система */}
               <div className="hidden grid-cols-3 gap-2 sm:grid sm:grid-cols-4 lg:grid-cols-6">
-                {product.bundle_items!.map((item) => (
+                {gridItems.map((item) => (
                   <CompositionCard key={item.id} item={item} onDetails={() => setSelected(item)} />
                 ))}
               </div>
+              {/* Task 151: разворот полного состава */}
+              {hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(true)}
+                  data-testid="composition-show-all"
+                  className="mt-4 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-primary)] transition hover:border-[var(--color-primary)] hover:bg-[var(--color-bg-soft)]"
+                >
+                  Показать ещё {hiddenCount} — весь состав ({totalItems})
+                </button>
+              )}
+              {expanded && totalItems > COLLAPSED_GRID && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="mt-4 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-muted)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-heading)]"
+                >
+                  Свернуть состав
+                </button>
+              )}
             </>
           )}
         </div>

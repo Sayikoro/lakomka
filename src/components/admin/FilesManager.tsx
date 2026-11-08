@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDownloads } from "@/components/admin/downloads/Downloads";
+import { useConfirm } from "@/components/admin/Feedback";
 import { STORAGE_ACCEPT, uploadToStorage } from "@/lib/file-storage";
 
 interface Entry {
@@ -196,6 +197,7 @@ function typeLabel(e: Entry): string {
 
 export function FilesManager() {
   const downloads = useDownloads();
+  const { confirm } = useConfirm();
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
   const [path, setPath] = useState("");
@@ -474,7 +476,13 @@ export function FilesManager() {
   };
 
   const purgeTrashItem = async (it: TrashItem) => {
-    if (!window.confirm(`Удалить «${it.product?.name ?? it.name}» навсегда? Вернуть будет нельзя.`)) return;
+    const ok = await confirm({
+      title: `Удалить «${it.product?.name ?? it.name}» навсегда?`,
+      message: "Вернуть будет нельзя.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!ok) return;
     setTrashBusyId(it.id);
     setError(null);
     try {
@@ -509,12 +517,13 @@ export function FilesManager() {
   /* Task 130: «Очистить корзину» одной кнопкой с обычным подтверждением */
   const emptyTrash = async () => {
     if (trashItems.length === 0) return;
-    if (
-      !window.confirm(
-        `Очистить корзину полностью? Позиций: ${trashItems.length}. Вернуть будет нельзя.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Очистить корзину полностью?",
+      message: `Позиций: ${trashItems.length}. Вернуть будет нельзя.`,
+      confirmLabel: "Очистить",
+      danger: true,
+    });
+    if (!ok) return;
     setTrashBusyId("*");
     setError(null);
     try {
@@ -560,12 +569,14 @@ export function FilesManager() {
 
   const purgeUnused = async () => {
     if (unusedSelected.size === 0) return;
-    if (
-      !window.confirm(
-        `Убрать в корзину ${unusedSelected.size} файл(ов)?\nОни не привязаны к товарам и настройкам витрины.\nКорзина хранит файлы 30 дней — всё можно восстановить.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Убрать в корзину ${unusedSelected.size} файл(ов)?`,
+      message:
+        "Они не привязаны к товарам и настройкам витрины.\nКорзина хранит файлы 30 дней — всё можно восстановить.",
+      confirmLabel: "Убрать",
+      danger: true,
+    });
+    if (!ok) return;
     setUnusedBusy(true);
     setError(null);
     try {
@@ -603,13 +614,14 @@ export function FilesManager() {
   async function compressEntry(e: Entry) {
     if (!e.public_url) return;
     const full = entryFull(e);
-    if (
-      /\.mp4$/i.test(e.name) &&
-      !window.confirm(
-        "Перекодировать MP4 заново с усилением сжатия?\nРазмер уменьшится, качество немного снизится.\nЕсли видео уже сжато — сервер оставит его как есть.",
-      )
-    ) {
-      return;
+    if (/\.mp4$/i.test(e.name)) {
+      const ok = await confirm({
+        title: "Перекодировать MP4 заново с усилением сжатия?",
+        message:
+          "Размер уменьшится, качество немного снизится.\nЕсли видео уже сжато — сервер оставит его как есть.",
+        confirmLabel: "Перекодировать",
+      });
+      if (!ok) return;
     }
     setError(null);
     setBusy(full);

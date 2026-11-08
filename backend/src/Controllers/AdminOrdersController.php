@@ -3,43 +3,99 @@
 require_once __DIR__ . '/../Auth.php';
 require_once __DIR__ . '/../AdminLog.php';
 require_once __DIR__ . '/../Crypto.php';
+require_once __DIR__ . '/../OrderStatuses.php';
 
 class AdminOrdersController
 {
-    public static function list(PDO $pdo): void
+    /** Общий WHERE-конструктор для list() и exportCsv(): фильтры статуса, номера,
+     *  точного телефона (blind index), неушедших писем и периода дат.
+     *  null — невалидный телефон (результат заведомо пустой). */
+    private static function buildWhere(array &$params): ?string
     {
-        Auth::requireAuth();
+        $sql = ' WHERE 1=1';
 
-        $status = $_GET['status'] ?? null;
-        $phone  = trim($_GET['phone'] ?? '');
-        $number = trim($_GET['number'] ?? '');
-
-        $sql = 'SELECT id, order_number, customer_name, customer_phone, customer_email,
-                       total_kopecks, status, delivery_method, created_at,
-                       email_sent, email_error
-                FROM orders WHERE 1=1';
-        $params = [];
-
-        if ($status !== null && $status !== '') {
+        $status = $_GET['status'] ?? '';
+        if ($status !== '') {
             $sql .= ' AND status = ?';
             $params[] = $status;
         }
 
+        $phone = trim($_GET['phone'] ?? '');
         if ($phone !== '') {
             $hash = Crypto::phoneHash($phone);
-            if ($hash === null) {
-                jsonResponse(['data' => []]);
-            }
+            if ($hash === null) return null; // невалидный телефон — пустой результат
             $sql .= ' AND customer_phone_hash = ?';
             $params[] = $hash;
         }
 
+        $number = trim($_GET['number'] ?? '');
         if ($number !== '') {
             $sql .= ' AND order_number LIKE ?';
             $params[] = "%$number%";
         }
 
-        $sql .= ' ORDER BY id DESC LIMIT 200';
+        // email=0 — заказы, у которых письмо клиенту не ушло (email_sent = 0)
+        $email = $_GET['email'] ?? '';
+        if ($email === '0') {
+            $sql .= ' AND email_sent = 0';
+        } elseif ($email === '1') {
+            $sql .= ' AND email_sent = 1';
+        }
+
+        // Произвольный период по дате создания: from/to в формате YYYY-MM-DD.
+        // created_at хранится строкой date('c') — лексикографическое сравнение корректно.
+        $from = trim($_GET['from'] ?? '');
+        $to   = trim($_GET['to'] ?? '');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+            $sql .= ' AND created_at >= ?';
+            $params[] = $from . 'T00:00:00';
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            $sql .= ' AND created_at <= ?';
+            $params[] = $to . 'T23:59:59';
+        }
+
+        return $sql;
+    }
+
+    /**
+     * GET /api/admin/orders — список с пагинацией и фильтрами.
+     * Параметры: status, phone (точное совпадение — blind index), number (LIKE),
+     * email (0|1 — фильтр по факту отправки письма), from/to (YYYY-MM-DD),
+     * page (>=1), per_page (10..200, default 50).
+     * Ответ: {data, total, page, per_page, pages, sum_kopecks} — сумма по всем
+     * записям, подходящим под фильтры (денежная сводка над списком).
+     */
+    public static function list(PDO $pdo): void
+    {
+        Auth::requireAuth();
+
+        $params = [];
+        $where = self::buildWhere($params);
+
+        if ($where === null) {
+            jsonResponse(['data' => [], 'total' => 0, 'page' => 1, 'per_page' => 50, 'pages' => 1, 'sum_kopecks' => 0]);
+        }
+
+        // Итоги по фильтру: количество + сумма денег
+        $countStmt = $pdo->prepare('SELECT COUNT(*), COALESCE(SUM(total_kopecks), 0) FROM orders' . $where);
+        $countStmt->execute($params);
+        $row = $countStmt->fetch(PDO::FETCH_NUM);
+        $total = (int)$row[0];
+        $sumKopecks = (int)$row[1];
+
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $perPage = (int)($_GET['per_page'] ?? 50);
+        if ($perPage < 10) $perPage = 10;
+        if ($perPage > 200) $perPage = 200;
+        $pages = max(1, (int)ceil($total / $perPage));
+        if ($page > $pages) $page = $pages;
+
+        $sql = 'SELECT id, order_number, customer_name, customer_phone, customer_email,
+                       total_kopecks, status, delivery_method, created_at,
+                       email_sent, email_error
+                FROM orders' . $where
+             . ' ORDER BY id DESC LIMIT ' . $perPage . ' OFFSET ' . (($page - 1) * $perPage);
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -61,7 +117,64 @@ class AdminOrdersController
         }
         unset($o);
 
-        jsonResponse(['data' => $orders]);
+        jsonResponse([
+            'data' => $orders,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'pages' => $pages,
+            'sum_kopecks' => $sumKopecks,
+        ]);
+    }
+
+    /**
+     * GET /api/admin/orders/export — выгрузка заказов в CSV (те же фильтры, что
+     * у списка, но без пагинации — все подходящие строки, максимум 10000).
+     * BOM в начале файла — чтобы Excel открывал кириллицу без танцев.
+     */
+    public static function exportCsv(PDO $pdo): void
+    {
+        Auth::requireAuth();
+
+        $params = [];
+        $where = self::buildWhere($params);
+
+        $sql = 'SELECT id, order_number, customer_name, customer_phone, customer_email,
+                       total_kopecks, status, delivery_method, address, comment, created_at, email_sent
+                FROM orders' . ($where === null ? ' WHERE 1=0' : $where)
+             . ' ORDER BY id DESC LIMIT 10000';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $orders = $stmt->fetchAll();
+
+        AdminLog::add($pdo, AdminLog::actor(Auth::requireAuth()), 'order.export', 'CSV, ' . count($orders) . ' заказ(ов)');
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="lakomka-orders-' . date('Y-m-d-His') . '.csv"');
+        header('Cache-Control: no-store');
+
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Номер', 'Дата', 'Клиент', 'Телефон', 'Email', 'Сумма, ₽', 'Статус', 'Доставка', 'Адрес', 'Комментарий', 'Письмо'], ';');
+        $deliveryLabels = ['pickup' => 'Самовывоз', 'city' => 'По Хабаровску', 'region' => 'За городом', 'tk' => 'Транспортной компанией'];
+        foreach ($orders as $o) {
+            fputcsv($out, [
+                $o['order_number'],
+                $o['created_at'],
+                Crypto::decrypt($o['customer_name']),
+                Crypto::decrypt($o['customer_phone']),
+                Crypto::decrypt($o['customer_email']),
+                number_format($o['total_kopecks'] / 100, 2, ',', ''),
+                OrderStatuses::LABELS[$o['status']] ?? $o['status'],
+                $deliveryLabels[$o['delivery_method']] ?? $o['delivery_method'],
+                Crypto::decrypt($o['address'] ?? ''),
+                Crypto::decrypt($o['comment'] ?? ''),
+                $o['email_sent'] === null ? '' : ($o['email_sent'] ? 'отправлено' : 'НЕ ОТПРАВЛЕНО'),
+            ], ';');
+        }
+        fclose($out);
+        exit;
     }
 
     /** GET /api/admin/orders/unread?since_id=N — бейдж новых заказов (Task 97-106).
@@ -203,7 +316,7 @@ class AdminOrdersController
         $status = (string)($data['status'] ?? '');
         $comment = trim((string)($data['comment'] ?? ''));
 
-        $allowed = ['new', 'confirmed', 'paid', 'shipped', 'done', 'cancelled'];
+        $allowed = OrderStatuses::ALL;
         if (!in_array($status, $allowed, true)) {
             jsonResponse(['error' => 'Некорректный статус'], 422);
         }

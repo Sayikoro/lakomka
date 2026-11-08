@@ -29,6 +29,19 @@ class AdminProductsController
                        recipe_weight_g, deleted_at
                 FROM products';
 
+    /** Порог «заканчивается» — настройка low_stock_threshold (default 5).
+     *  Одна логика с AdminDashboardController::alerts (Task 152). */
+    private static function lowStockThreshold(PDO $pdo): int
+    {
+        $st = $pdo->prepare("SELECT value FROM settings WHERE key = 'low_stock_threshold'");
+        $st->execute();
+        if ($row = $st->fetch()) {
+            $custom = (int)$row['value'];
+            if ($custom >= 0 && $custom <= 1000) return $custom;
+        }
+        return 5;
+    }
+
     public static function list(PDO $pdo): void
     {
         Auth::requireAuth();
@@ -58,6 +71,12 @@ class AdminProductsController
         } elseif ($filter === 'deleted') {
             /* Корзина: только мягко-удалённые (Task 100) */
             $where .= ' AND deleted_at IS NOT NULL';
+        } elseif ($filter === 'low_stock') {
+            /* Task 152: плитка-тревога «Товары заканчиваются» — опубликованные
+             * товары с остатком не выше порога (настройка low_stock_threshold,
+             * по умолчанию 5 — той же логике следует AdminDashboardController). */
+            $threshold = self::lowStockThreshold($pdo);
+            $where .= ' AND deleted_at IS NULL AND is_published = 1 AND stock_qty <= ' . $threshold;
         } else {
             /* По умолчанию удалённые (в корзине) не показываем */
             $where .= ' AND deleted_at IS NULL';
@@ -366,8 +385,8 @@ class AdminProductsController
                 (sku, slug, name, description, manufacturer, type,
                  price_kopecks, stock_qty, category_id, video_url,
                  packaging_material, weight_g, length_cm, width_cm, height_cm,
-                 show_in_catalog, is_published)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 show_in_catalog, is_published, meta_title, meta_description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         try {
@@ -390,6 +409,10 @@ class AdminProductsController
                 $height,
                 $showInCatalog,
                 (int)(bool)($data['is_published'] ?? 1),
+                isset($data['meta_title']) && trim((string)$data['meta_title']) !== ''
+                    ? trim((string)$data['meta_title']) : null,
+                isset($data['meta_description']) && trim((string)$data['meta_description']) !== ''
+                    ? trim((string)$data['meta_description']) : null,
             ]);
         } catch (PDOException $e) {
             if (str_contains($e->getMessage(), 'UNIQUE')) {
@@ -511,6 +534,25 @@ class AdminProductsController
             $d = trim((string)$data['description']);
             $fields[] = 'description = ?';
             $params[] = $d !== '' ? $d : null;
+        }
+
+        /* SEO-поля (Task 152): пустая строка → NULL (витрина тогда берёт
+         * название/описание по умолчанию). */
+        if (array_key_exists('meta_title', $data)) {
+            $mt = trim((string)$data['meta_title']);
+            if (mb_strlen($mt) > 255) {
+                jsonResponse(['error' => 'SEO-заголовок длиннее 255 символов'], 422);
+            }
+            $fields[] = 'meta_title = ?';
+            $params[] = $mt !== '' ? $mt : null;
+        }
+        if (array_key_exists('meta_description', $data)) {
+            $md = trim((string)$data['meta_description']);
+            if (mb_strlen($md) > 1000) {
+                jsonResponse(['error' => 'SEO-описание длиннее 1000 символов'], 422);
+            }
+            $fields[] = 'meta_description = ?';
+            $params[] = $md !== '' ? $md : null;
         }
 
         if (array_key_exists('manufacturer', $data)) {

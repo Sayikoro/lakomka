@@ -5,9 +5,10 @@ import { ProductForm, type ProductFormValues } from "@/components/admin/ProductF
 import { BundleEditor, type BundleRow } from "@/components/admin/BundleEditor";
 import { MediaUploader, type MediaItem } from "@/components/admin/MediaUploader";
 
-interface AdminProductFull extends ProductFormValues {
+interface AdminProductFull extends Omit<ProductFormValues, "meta_title" | "meta_description"> {
   id: number;
-  category_id: number | null;
+  meta_title: string | null;
+  meta_description: string | null;
   media?: MediaItem[];
 }
 
@@ -78,6 +79,7 @@ export default async function AdminProductDetailPage({ params }: PageProps) {
               slug: product.slug,
               sku: product.sku ?? "",
               type: product.type,
+              category_id: product.category_id ?? null,
               price_kopecks: product.price_kopecks,
               stock_qty: product.stock_qty,
               show_in_catalog: product.show_in_catalog,
@@ -90,6 +92,8 @@ export default async function AdminProductDetailPage({ params }: PageProps) {
               width_cm: product.width_cm ?? null,
               height_cm: product.height_cm ?? null,
               recipe_weight_g: product.recipe_weight_g ?? null,
+              meta_title: product.meta_title ?? "",
+              meta_description: product.meta_description ?? "",
             }}
           />
 
