@@ -108,7 +108,9 @@ export function CategoryGrid({ categories, products }: CategoryGridProps) {
         return (
           <Link
             key={cat.slug}
-            href={`/catalog?category=${cat.slug}`}
+            /* Task 141: ведём на SEO-лендинг категории /catalog/<slug>
+               (мета-теги и текст из админки), а не на фильтр ?category= */
+            href={`/catalog/${cat.slug}`}
             className="group relative mx-auto flex w-full max-w-[240px] flex-col transition hover:-translate-y-0.5"
           >
             <div className="relative aspect-square overflow-hidden rounded-[var(--radius-card)] bg-[var(--color-bg-soft)]">

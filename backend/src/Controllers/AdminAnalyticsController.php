@@ -19,12 +19,14 @@ class AdminAnalyticsController
 
     /* ============================ СВОДКА ============================ */
 
-    /** GET /api/admin/analytics/summary?days=7 */
+    /** GET /api/admin/analytics/summary?days=7[&from=YYYY-MM-DD&to=YYYY-MM-DD]
+     *  Task 152: произвольный период — from/to имеют приоритет над days. */
     public static function summary(PDO $pdo): void
     {
         Auth::requireAuth();
-        $days = self::daysParam();
-        $cutoff = date('c', time() - $days * 86400);
+        $range = self::rangeParam();
+        $cutoff = $range['from'];
+        $upper  = $range['to'];
         $today = date('c', strtotime('today'));
 
         /* Сессии и события за период */
@@ -33,9 +35,9 @@ class AdminAnalyticsController
                     SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) humans,
                     SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) bots,
                     SUM(views) views
-             FROM visit_sessions WHERE first_seen >= ?"
+             FROM visit_sessions WHERE first_seen >= ? AND first_seen <= ?"
         );
-        $s->execute([$cutoff]);
+        $s->execute([$cutoff, $upper]);
         $sess = $s->fetch() ?: [];
 
         $e = $pdo->prepare(
@@ -44,9 +46,9 @@ class AdminAnalyticsController
                     SUM(CASE WHEN type = 'click' THEN 1 ELSE 0 END) clicks,
                     SUM(CASE WHEN type = 'gift_view' THEN 1 ELSE 0 END) gift_views,
                     SUM(CASE WHEN type = 'cart_add' THEN 1 ELSE 0 END) cart_adds
-             FROM visit_events WHERE created_at >= ?"
+             FROM visit_events WHERE created_at >= ? AND created_at <= ?"
         );
-        $e->execute([$cutoff]);
+        $e->execute([$cutoff, $upper]);
         $ev = $e->fetch() ?: [];
 
         $s2 = $pdo->prepare(
@@ -68,9 +70,9 @@ class AdminAnalyticsController
         try {
             $sp = $pdo->prepare(
                 "SELECT COUNT(*) FROM visit_sessions
-                 WHERE first_seen >= ? AND is_bot = 0 AND bot_score >= ?"
+                 WHERE first_seen >= ? AND first_seen <= ? AND is_bot = 0 AND bot_score >= ?"
             );
-            $sp->execute([$cutoff, VisitGuard::SUSPICION_THRESHOLD]);
+            $sp->execute([$cutoff, $upper, VisitGuard::SUSPICION_THRESHOLD]);
             $suspected = (int)$sp->fetchColumn();
         } catch (Throwable $err) {
             error_log('[analytics suspected] ' . $err->getMessage());
@@ -78,7 +80,9 @@ class AdminAnalyticsController
         }
 
         jsonResponse(['data' => [
-            'days' => $days,
+            'days' => $range['days'],
+            'from' => $_GET['from'] ?? null,
+            'to' => $_GET['to'] ?? null,
             'period' => [
                 'sessions' => (int)($sess['total'] ?? 0),
                 'humans' => (int)($sess['humans'] ?? 0),
@@ -97,16 +101,16 @@ class AdminAnalyticsController
                 'events' => (int)$e2->fetchColumn(),
             ],
             'blocked_ips' => $blocked,
-            'gifts' => self::topGifts($pdo, $cutoff),
-            'pages' => self::topPages($pdo, $cutoff),
-            'sources' => self::sources($pdo, $cutoff),
+            'gifts' => self::topGifts($pdo, $cutoff, $upper),
+            'pages' => self::topPages($pdo, $cutoff, $upper),
+            'sources' => self::sources($pdo, $cutoff, $upper),
         ]]);
     }
 
     /* ========================== ПОДАРКИ ============================= */
 
     /** Популярность подарков: просмотры карточки, уникальные сессии, «в корзину». */
-    private static function topGifts(PDO $pdo, string $cutoff): array
+    private static function topGifts(PDO $pdo, string $cutoff, string $upper): array
     {
         $views = [];
         try {
@@ -116,10 +120,10 @@ class AdminAnalyticsController
                         SUM(CASE WHEN type = 'cart_add' THEN 1 ELSE 0 END) cart_adds,
                         COUNT(DISTINCT CASE WHEN type = 'gift_view' THEN session_id END) sessions
                  FROM visit_events
-                 WHERE gift_slug != '' AND created_at >= ?
+                 WHERE gift_slug != '' AND created_at >= ? AND created_at <= ?
                  GROUP BY gift_slug ORDER BY views DESC LIMIT 20"
             );
-            $stmt->execute([$cutoff]);
+            $stmt->execute([$cutoff, $upper]);
             $views = $stmt->fetchAll() ?: [];
         } catch (Throwable $err) {
             error_log('[analytics gifts] ' . $err->getMessage());
@@ -179,16 +183,16 @@ class AdminAnalyticsController
     /* ========================== СТРАНИЦЫ ============================ */
 
     /** Страницы: просмотры, средний доскролл, среднее время. */
-    private static function topPages(PDO $pdo, string $cutoff): array
+    private static function topPages(PDO $pdo, string $cutoff, string $upper): array
     {
         $map = [];
         try {
             $stmt = $pdo->prepare(
                 "SELECT path, COUNT(*) v FROM visit_events
-                 WHERE type = 'pageview' AND created_at >= ?
+                 WHERE type = 'pageview' AND created_at >= ? AND created_at <= ?
                  GROUP BY path ORDER BY v DESC LIMIT 15"
             );
-            $stmt->execute([$cutoff]);
+            $stmt->execute([$cutoff, $upper]);
             foreach ($stmt->fetchAll() as $r) {
                 $map[$r['path']] = ['path' => $r['path'], 'views' => (int)$r['v'], 'scroll' => null, 'time' => null];
             }
@@ -204,9 +208,9 @@ class AdminAnalyticsController
         try {
             $stmt = $pdo->prepare(
                 "SELECT path, ROUND(AVG(CAST(json_extract(meta, '$.pct') AS REAL))) s
-                 FROM visit_events WHERE type = 'scroll' AND created_at >= ? GROUP BY path"
+                 FROM visit_events WHERE type = 'scroll' AND created_at >= ? AND created_at <= ? GROUP BY path"
             );
-            $stmt->execute([$cutoff]);
+            $stmt->execute([$cutoff, $upper]);
             foreach ($stmt->fetchAll() as $r) {
                 if (isset($map[$r['path']])) {
                     $map[$r['path']]['scroll'] = $r['s'] !== null ? (int)$r['s'] : null;
@@ -214,9 +218,9 @@ class AdminAnalyticsController
             }
             $stmt = $pdo->prepare(
                 "SELECT path, ROUND(AVG(CAST(json_extract(meta, '$.sec') AS REAL))) t
-                 FROM visit_events WHERE type = 'leave' AND created_at >= ? GROUP BY path"
+                 FROM visit_events WHERE type = 'leave' AND created_at >= ? AND created_at <= ? GROUP BY path"
             );
-            $stmt->execute([$cutoff]);
+            $stmt->execute([$cutoff, $upper]);
             foreach ($stmt->fetchAll() as $r) {
                 if (isset($map[$r['path']])) {
                     $map[$r['path']]['time'] = $r['t'] !== null ? (int)$r['t'] : null;
@@ -232,13 +236,13 @@ class AdminAnalyticsController
     }
 
     /** Откуда приходят: группировка referrer по домену (в PHP). */
-    private static function sources(PDO $pdo, string $cutoff): array
+    private static function sources(PDO $pdo, string $cutoff, string $upper): array
     {
         $stmt = $pdo->prepare(
             "SELECT referrer, COUNT(*) c FROM visit_sessions
-             WHERE first_seen >= ? GROUP BY referrer ORDER BY c DESC LIMIT 200"
+             WHERE first_seen >= ? AND first_seen <= ? GROUP BY referrer ORDER BY c DESC LIMIT 200"
         );
-        $stmt->execute([$cutoff]);
+        $stmt->execute([$cutoff, $upper]);
 
         $hosts = [];
         foreach ($stmt->fetchAll() as $r) {
@@ -263,20 +267,21 @@ class AdminAnalyticsController
 
     /* ========================== СЕССИИ ============================== */
 
-    /** GET /api/admin/analytics/sessions?days=7&bot=all|bot|human|blocked&limit=60 */
+    /** GET /api/admin/analytics/sessions?days=7&bot=all|bot|human|blocked&limit=60[&from&to] */
     public static function sessions(PDO $pdo): void
     {
         Auth::requireAuth();
-        $days = self::daysParam();
-        $cutoff = date('c', time() - $days * 86400);
+        $range = self::rangeParam();
+        $cutoff = $range['from'];
+        $upper  = $range['to'];
         $bot = (string)($_GET['bot'] ?? 'all');
         $limit = (int)($_GET['limit'] ?? 60);
         if ($limit < 1 || $limit > 200) {
             $limit = 60;
         }
 
-        $where = ['last_seen >= ?'];
-        $params = [$cutoff];
+        $where = ['last_seen >= ?', 'last_seen <= ?'];
+        $params = [$cutoff, $upper];
         if ($bot === 'bot') {
             $where[] = 'is_bot = 1';
         } elseif ($bot === 'human') {
@@ -328,22 +333,21 @@ class AdminAnalyticsController
 
     /* ============================ БОТЫ ============================== */
 
-    /** GET /api/admin/analytics/bots?days=7 — краулеры на публичных API. */
+    /** GET /api/admin/analytics/bots?days=7[&from&to] — краулеры на публичных API. */
     public static function bots(PDO $pdo): void
     {
         Auth::requireAuth();
-        $days = self::daysParam();
-        $cutoff = date('c', time() - $days * 86400);
+        $range = self::rangeParam();
 
         /* Группируем по ip_hash (а не по маске): маска обобщает соседние
            адреса, а блокировка должна работать по точному хешу. */
         $stmt = $pdo->prepare(
             "SELECT ua, ip_hash, MAX(ip_mask) ip_mask, SUM(hits) hits, MAX(last_seen) last_seen,
                     COUNT(DISTINCT path) paths
-             FROM bot_hits WHERE last_seen >= ?
+             FROM bot_hits WHERE last_seen >= ? AND last_seen <= ?
              GROUP BY ua, ip_hash ORDER BY hits DESC LIMIT 60"
         );
-        $stmt->execute([$cutoff]);
+        $stmt->execute([$range['from'], $range['to']]);
 
         jsonResponse(['data' => ['items' => $stmt->fetchAll() ?: []]]);
     }
@@ -436,6 +440,35 @@ class AdminAnalyticsController
     {
         $days = (int)($_GET['days'] ?? 7);
         return in_array($days, self::DAYS, true) ? $days : 7;
+    }
+
+    /**
+     * Период выборки (Task 152): from/to (YYYY-MM-DD) имеют приоритет над
+     * days (1/3/7/30). Верхняя граница всегда конкретная строка — запросы
+     * статичны, недостающая граница заменяется «дальним будущим».
+     * @return array{days:int, from:string, to:string}
+     */
+    private static function rangeParam(): array
+    {
+        $from = trim($_GET['from'] ?? '');
+        $to   = trim($_GET['to'] ?? '');
+        $okFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1;
+        $okTo   = preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1;
+
+        if ($okFrom || $okTo) {
+            return [
+                'days' => self::daysParam(),
+                'from' => $okFrom ? $from . 'T00:00:00' : '1970-01-01T00:00:00',
+                'to'   => $okTo   ? $to . 'T23:59:59' : '9999-12-31T23:59:59',
+            ];
+        }
+
+        $days = self::daysParam();
+        return [
+            'days' => $days,
+            'from' => date('c', time() - $days * 86400),
+            'to'   => '9999-12-31T23:59:59',
+        ];
     }
 
     private static function jsonBody(): array

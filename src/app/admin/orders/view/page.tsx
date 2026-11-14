@@ -10,6 +10,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
+import { DELIVERY_LABELS, ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { StatusChanger } from "@/components/admin/StatusChanger";
 import { ResendEmailButton } from "@/components/admin/ResendEmailButton";
 
@@ -43,22 +44,6 @@ interface Order {
   items: OrderItem[];
   history: HistoryEntry[];
 }
-
-const DELIVERY_LABELS: Record<string, string> = {
-  pickup: "Самовывоз",
-  city: "По Хабаровску",
-  region: "За городом",
-  tk: "Транспортной компанией",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  new: "Новый",
-  confirmed: "Подтверждён",
-  paid: "Оплачен",
-  shipped: "Отправлен",
-  done: "Выполнен",
-  cancelled: "Отменён",
-};
 
 function OrderViewInner() {
   const searchParams = useSearchParams();
@@ -94,7 +79,9 @@ function OrderViewInner() {
   }, [apiUrl, id]);
 
   useEffect(() => {
-    void load();
+    /* Миктотаск: setLoading(true) внутри load() синхронно дёргает setState —
+     * react-hooks/set-state-in-effect (как в analytics/page.tsx). */
+    void Promise.resolve().then(() => load());
   }, [load]);
 
   if (!id) {
@@ -137,13 +124,27 @@ function OrderViewInner() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-6 flex items-center gap-3 print:hidden">
         <Link
           href="/admin/orders"
           className="text-sm text-[var(--color-muted)] hover:text-[var(--color-primary)]"
         >
           ← К списку заказов
         </Link>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          data-testid="print-order"
+          className="ml-auto inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-sm hover:border-[var(--color-primary)]"
+          title="Печать бланка заказа (Ctrl+P)"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
+          </svg>
+          Печать бланка
+        </button>
       </div>
 
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-4">
@@ -263,10 +264,10 @@ function OrderViewInner() {
           </section>
         </div>
 
-        {/* Правая колонка — статус и история */}
+        {/* Правая колонка — статус и история (при печати: только статус) */}
         <aside className="space-y-6">
           {order.email_sent === 0 && order.customer_email && (
-            <section className="rounded-[var(--radius-card)] border border-red-300 bg-red-50 p-6">
+            <section className="rounded-[var(--radius-card)] border border-red-300 bg-red-50 p-6 print:hidden">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-red-700">
                 <svg
                   width="22"
@@ -299,13 +300,15 @@ function OrderViewInner() {
             </h2>
             <p className="mb-4">
               <span className="inline-block rounded-full bg-[var(--color-card)] px-3 py-1 text-sm font-medium text-[var(--color-heading)]">
-                {STATUS_LABELS[order.status] ?? order.status}
+                {ORDER_STATUS_LABELS[order.status] ?? order.status}
               </span>
             </p>
-            <StatusChanger orderId={order.id} currentStatus={order.status} onChanged={load} />
+            <div className="print:hidden">
+              <StatusChanger orderId={order.id} currentStatus={order.status} onChanged={load} />
+            </div>
           </section>
 
-          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
+          <section className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6 print:hidden">
             <h2 className="mb-3 text-lg font-semibold text-[var(--color-heading)]">
               История
             </h2>
@@ -316,7 +319,7 @@ function OrderViewInner() {
                 {order.history.map((h, i) => (
                   <li key={i} className="border-l-2 border-[var(--color-primary)] pl-3">
                     <p className="font-medium text-[var(--color-heading)]">
-                      {STATUS_LABELS[h.status] ?? h.status}
+                      {ORDER_STATUS_LABELS[h.status] ?? h.status}
                     </p>
                     <p className="text-xs text-[var(--color-muted)]">{h.created_at}</p>
                     {h.comment && (

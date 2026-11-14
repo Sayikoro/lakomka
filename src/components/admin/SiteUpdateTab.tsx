@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadFileInChunks } from "@/lib/chunked-upload";
 import { useDownloads } from "@/components/admin/downloads/Downloads";
+import { useConfirm } from "@/components/admin/Feedback";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -145,6 +146,7 @@ export function SiteUpdateTab() {
   const [deployLoading, setDeployLoading] = useState(true);
   const [deployError, setDeployError] = useState<string | null>(null);
   const { start: startDownload } = useDownloads();
+  const { confirm } = useConfirm();
 
   /* Task 114: снапшот текущего сайта */
   const [snapBusy, setSnapBusy] = useState(false);
@@ -210,11 +212,13 @@ export function SiteUpdateTab() {
 
   /* ── Task 114: снапшот текущего сайта ── */
   async function createSnapshot() {
-    const ok = window.confirm(
-      "Собрать деплой-архив из ТЕКУЩЕГО состояния сайта?\n\n" +
-      "В архив войдёт всё, что сейчас на сервере: витрина, backend, медиа и база данных.\n" +
-      "На слабом хостинге это может занять несколько минут — окно можно закрыть и работать дальше."
-    );
+    const ok = await confirm({
+      title: "Собрать деплой-архив из ТЕКУЩЕГО состояния сайта?",
+      message:
+        "В архив войдёт всё, что сейчас на сервере: витрина, backend, медиа и база данных.\n" +
+        "На слабом хостинге это может занять несколько минут — окно можно закрыть и работать дальше.",
+      confirmLabel: "Собрать",
+    });
     if (!ok) return;
     setSnapBusy(true);
     setSnapError(null);
@@ -239,7 +243,13 @@ export function SiteUpdateTab() {
   }
 
   async function deleteSnapshot(name: string) {
-    if (!window.confirm(`Удалить снапшот ${name}? Файл будет стёрт с сервера безвозвратно.`)) return;
+    const ok = await confirm({
+      title: `Удалить снапшот ${name}?`,
+      message: "Файл будет стёрт с сервера безвозвратно.",
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!ok) return;
     setSnapError(null);
     try {
       const res = await fetch(`${API_URL}/admin/site-update/deploy-archive/delete`, {
@@ -289,9 +299,12 @@ export function SiteUpdateTab() {
 
   async function installGithub() {
     if (!gh?.asset || !gh.release) return;
-    const ok = window.confirm(
-      `Скачать и установить обновление ${gh.asset.version} с GitHub?\n\nФайлы сайта будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений.`
-    );
+    const ok = await confirm({
+      title: `Скачать и установить обновление ${gh.asset.version} с GitHub?`,
+      message:
+        "Файлы сайта будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений.",
+      confirmLabel: "Установить",
+    });
     if (!ok) return;
 
     setGhError(null);
@@ -339,11 +352,13 @@ export function SiteUpdateTab() {
 
     // lakomka-media-*.zip применяется в обратном режиме — только uploads/**
     const isMedia = /^lakomka-media-.*\.zip$/i.test(file.name);
-    const ok = window.confirm(
-      isMedia
-        ? "Применить МЕДИА-архив?\n\nНа сервер будут добавлены/перезаписаны только файлы картинок и видео (uploads/). Страницы, скрипты и база данных (заказы, товары, настройки) останутся без изменений."
-        : "Применить обновление сайта?\n\nФайлы сайта (страницы, стили, скрипты, PHP) будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений."
-    );
+    const ok = await confirm({
+      title: isMedia ? "Применить МЕДИА-архив?" : "Применить обновление сайта?",
+      message: isMedia
+        ? "На сервер будут добавлены/перезаписаны только файлы картинок и видео (uploads/). Страницы, скрипты и база данных (заказы, товары, настройки) останутся без изменений."
+        : "Файлы сайта (страницы, стили, скрипты, PHP) будут перезаписаны. Медиа и база данных (заказы, товары, настройки) останутся без изменений.",
+      confirmLabel: "Применить",
+    });
     if (!ok) return;
 
     setPhase("uploading");

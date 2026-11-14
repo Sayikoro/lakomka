@@ -99,13 +99,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  color: var(--color-heading);
-  font-weight: 500;
-  line-height: 1.3;
-}
-
 @layer base {
+  /* Task 151: правило заголовков перенесено ВНУТРЬ @layer base. Раньше оно
+     стояло вне слоёв, а в Tailwind v4 unlayered-стили побеждают layered-
+     утилиты (.text-white, text-[…]) НЕЗАВИСИМО от специфичности — из-за
+     этого H1 Hero («новогодняя») красился в --color-heading (серый),
+     а строки 2–3 (<p>) оставались белыми: заголовок «новогодняя коллекция
+     2027» выглядел «разных цветов/серым» (жалобы владельца в Task 149 и
+     151). В base-слое утилиты сильнее: цвет заголовка по умолчанию прежний,
+     но собственный класс элемента теперь применяется. */
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--color-heading);
+    font-weight: 500;
+    line-height: 1.3;
+  }
   a {
     color: var(--color-primary);
   }
@@ -434,4 +441,298 @@ h1, h2, h3, h4, h5, h6 {
 }
 @media (prefers-reduced-motion: reduce) {
   .adm-rise { animation: none; }
+}
+
+/* ── Task 142/143: счётчик «До Нового года» — хрониометр на главной ── */
+
+/* Task 144: блок в цвете окружающих секций — прозрачный фон, сквозь
+   него виден фон страницы (--color-bg-page), как у плиток СКИДКА/
+   ДОСТАВКА/ОПЛАТА и категорий. Праздничность несут карточки,
+   гирлянда и снежинки, а не цветная подложка. */
+.ny-section {
+  background: transparent;
+}
+
+/* Гирлянда: висит НАД карточками хронометра (внутри контейнера, во всю
+   их ширину); провод — отдельная линия (анимируется «прорастание» из
+   центра), огоньки — классические цвета (Task 151: владелец просил вернуть
+   радужную гирлянду Task 142 — белить надо было заголовок, а не огоньки),
+   мерцание вразнобой (фаза — от --b) */
+.ny-garland {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 38px;
+  pointer-events: none;
+}
+.ny-garland::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(58, 58, 58, 0.22);
+  transform-origin: 50% 50%;
+}
+.ny-bulb {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  margin-top: 13px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 12px 3px currentColor;
+  opacity: 0.95;
+  animation: ny-twinkle 2.3s ease-in-out infinite;
+  animation-delay: calc(var(--b, 0) * -0.47s);
+}
+.ny-bulb::before {
+  content: "";
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  width: 2px;
+  height: 13px;
+  transform: translateX(-50%);
+  background: rgba(58, 58, 58, 0.16);
+}
+@keyframes ny-twinkle {
+  0%,
+  100% {
+    opacity: 0.95;
+    box-shadow: 0 0 12px 3px currentColor;
+  }
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 4px 1px currentColor;
+  }
+}
+@media (max-width: 640px) {
+  .ny-garland {
+    gap: 26px;
+  }
+  .ny-bulb:nth-child(n + 8) {
+    display: none;
+  }
+}
+
+/* Снежинки: медленное падение с лёгким вращением; на светлом фоне —
+   фирменный голубой, чтобы оставались видны (Task 151: откат перекраски
+   Task 149 — владельцу нужны были белыми заголовок, а не снежинки) */
+.ny-flake {
+  position: absolute;
+  top: -34px;
+  color: rgba(2, 116, 190, 0.38);
+  pointer-events: none;
+  user-select: none;
+  animation: ny-fall linear infinite;
+}
+@keyframes ny-fall {
+  0% {
+    transform: translateY(-10px) rotate(-8deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  85% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(300px) rotate(330deg);
+    opacity: 0;
+  }
+}
+
+/* Карточка хронометра — дизайн плиток условий (InfoCards): белая,
+   скругление --radius-card, без рамки; плавный подъём с мягкой тенью
+   при наведении */
+.ny-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 4px 12px;
+  border-radius: var(--radius-card);
+  background: var(--color-bg);
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+@media (hover: hover) {
+  .ny-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 26px -12px rgba(0, 0, 0, 0.18);
+  }
+}
+/* Цифры — фирменный синий (оттенки прежней синей подложки теперь живут
+   в самих цифрах) с мягким голубым свечением */
+.ny-num {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(
+    180deg,
+    #2e8fd0 0%,
+    var(--color-primary) 55%,
+    #01609e 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 12px rgba(2, 116, 190, 0.22));
+}
+@media (min-width: 640px) {
+  .ny-num {
+    font-size: 52px;
+  }
+}
+.ny-cap {
+  margin-top: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+@media (min-width: 640px) {
+  .ny-cap {
+    font-size: 12px;
+  }
+}
+
+/* Секунды мягко «дышат» — видно, что отсчёт живой */
+.ny-card-sec .ny-num {
+  animation: ny-tick 1s ease-in-out infinite;
+}
+@keyframes ny-tick {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 12px rgba(2, 116, 190, 0.22));
+  }
+  50% {
+    filter: drop-shadow(0 0 4px rgba(2, 116, 190, 0.08));
+  }
+}
+
+/* ── Task 143: плавное появление блока при скролле ──
+   Классы ny-anim (вооружено) и ny-in (показался на экране) вешает
+   JS после монтирования; в статике/без JS их нет — блок просто виден.
+   Порядок: надпись → карточки поднимаются по очереди → провод
+   «прорастает» из центра → огоньки загораются слева направо. */
+.ny-anim:not(.ny-in) .ny-head,
+.ny-anim:not(.ny-in) .ny-hint,
+.ny-anim:not(.ny-in) .ny-glow {
+  opacity: 0;
+}
+.ny-anim:not(.ny-in) .ny-card {
+  opacity: 0;
+  transform: translateY(26px) scale(0.94);
+}
+.ny-anim:not(.ny-in) .ny-garland::before {
+  transform: scaleX(0);
+}
+.ny-anim:not(.ny-in) .ny-bulb {
+  transform: scale(0);
+}
+.ny-in .ny-head {
+  animation: ny-fade 0.55s ease backwards;
+}
+.ny-in .ny-glow {
+  animation: ny-fade 0.9s ease backwards;
+}
+.ny-in .ny-hint {
+  animation: ny-fade 0.55s ease backwards 0.55s;
+}
+.ny-in .ny-card {
+  animation: ny-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(160ms + var(--i, 0) * 90ms);
+}
+.ny-in .ny-garland::before {
+  animation: ny-draw 0.7s ease backwards 0.12s;
+}
+.ny-in .ny-bulb {
+  animation:
+    ny-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards,
+    ny-twinkle 2.3s ease-in-out infinite;
+  animation-delay:
+    calc(420ms + var(--b, 0) * 55ms),
+    calc(var(--b, 0) * -0.47s);
+}
+@keyframes ny-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ny-rise {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ny-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes ny-pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ny-bulb,
+  .ny-flake,
+  .ny-card-sec .ny-num {
+    animation: none;
+  }
+  .ny-flake {
+    display: none;
+  }
+  /* Страховка: даже если JS успел вооружить анимацию — всё видно сразу.
+     Селекторы те же, что у скрытия — выигрывают порядком в файле. */
+  .ny-anim:not(.ny-in) .ny-head,
+  .ny-anim:not(.ny-in) .ny-hint,
+  .ny-anim:not(.ny-in) .ny-glow {
+    opacity: 1;
+  }
+  .ny-anim:not(.ny-in) .ny-card {
+    opacity: 1;
+    transform: none;
+  }
+  .ny-anim:not(.ny-in) .ny-garland::before {
+    transform: scaleX(1);
+  }
+  .ny-anim:not(.ny-in) .ny-bulb {
+    transform: none;
+  }
+}
+
+/* ── Печать бланка заказа (Task 153): только содержимое карточки ── */
+@media print {
+  .admin-scope {
+    background: #fff !important;
+  }
+  .admin-scope main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .admin-scope * {
+    box-shadow: none !important;
+  }
 }

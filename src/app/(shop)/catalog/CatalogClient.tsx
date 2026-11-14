@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductCardNew } from "@/components/ui/ProductCardNew";
+import { QuickView } from "@/components/ui/QuickView";
 import { SmartImg } from "@/components/ui/SmartImg";
 import { DualSlider, SORT_OPTIONS, priceLabel, weightLabel } from "@/components/ui/DualSlider";
 import type { SortKey } from "@/components/ui/DualSlider";
@@ -23,6 +24,9 @@ interface Props {
   /** Показывать видео в карточках каталога (галочка в админке «Настройки»).
       Запекается при сборке, после монтирования обновляется с /api/settings/public. */
   showVideos?: boolean;
+  /** Task 141: категория, выбранная при загрузке — для страницы
+      /catalog/<slug> (SEO-лендинги категорий). Не задан — обычный каталог. */
+  initialCategory?: string;
 }
 
 /** Фолбэк-миниатюры для категорий без товаров */
@@ -97,9 +101,10 @@ export function CatalogClient({
   categories,
   template = "classic",
   showVideos = true,
+  initialCategory,
 }: Props) {
   const t = useT();
-  const [category, setCategory] = useState<string>("all"); // slug категории | "all"
+  const [category, setCategory] = useState<string>(initialCategory ?? "all"); // slug категории | "all"
   const [weightIdx, setWeightIdx] = useState<[number, number]>([0, 0]); // индексы ступеней, пересчитываются от данных
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 0]); // kopecks, пересчитываются от данных
   const [search, setSearch] = useState("");
@@ -118,6 +123,8 @@ export function CatalogClient({
   /* Видео в карточках: начальное значение запечено при сборке, после
      монтирования сверяем с /api/settings/public — как и шаблон карточки */
   const [cardVideo, setCardVideo] = useState(showVideos);
+  /* Task 141: быстрый просмотр — так же запечён/обновляется с API */
+  const [quickViewEnabled, setQuickViewEnabled] = useState(true);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/settings/public", { cache: "no-store" })
@@ -130,6 +137,8 @@ export function CatalogClient({
         }
         const v = json?.data?.card_video_enabled;
         if (typeof v === "boolean") setCardVideo(v);
+        const qv = json?.data?.quick_view_enabled;
+        if (typeof qv === "boolean") setQuickViewEnabled(qv);
       })
       .catch(() => {});
     return () => {
@@ -367,8 +376,18 @@ export function CatalogClient({
     filtersTouchedRef.current = true;
     setCategory(slug);
     setPage(1); // смена категории — к первой странице
-    // Синхронизируем ?category= в адресе (ссылки с главной: /catalog?category=vip)
     const url = new URL(window.location.href);
+    /* Task 141: на SEO-лендинге категории (/catalog/<slug>) адрес
+       синхронизируется путём: «Все» → /catalog, выбор — /catalog/<slug>.
+       Страницы категорий запечены при сборке — по F5 откроется лендинг.
+       На обычном /catalog живёт прежний ?category= (старые ссылки). */
+    if (initialCategory) {
+      url.searchParams.delete("category");
+      url.pathname = slug === "all" ? "/catalog" : `/catalog/${slug}`;
+      window.history.replaceState(null, "", url);
+      return;
+    }
+    // Синхронизируем ?category= в адресе (ссылки с главной: /catalog?category=vip)
     if (slug === "all") url.searchParams.delete("category");
     else url.searchParams.set("category", slug);
     window.history.replaceState(null, "", url);
@@ -382,6 +401,13 @@ export function CatalogClient({
     setSearch("");
     setPage(1);
     const url = new URL(window.location.href);
+    if (initialCategory) {
+      /* На лендинге категории «Сбросить» возвращает к обычному каталогу */
+      url.searchParams.delete("category");
+      url.pathname = "/catalog";
+      window.history.replaceState(null, "", url);
+      return;
+    }
     url.searchParams.delete("category");
     window.history.replaceState(null, "", url);
   };
@@ -390,6 +416,9 @@ export function CatalogClient({
     page: safePage,
     pages: totalPages,
   });
+
+  /* Task 141: быстрый просмотр — модалка поверх каталога */
+  const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[240px_1fr]">
@@ -595,9 +624,19 @@ export function CatalogClient({
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
             {pageItems.map((p) =>
               cardTemplate === "new" ? (
-                <ProductCardNew key={p.id} product={p} showVideos={cardVideo} />
+                <ProductCardNew
+                  key={p.id}
+                  product={p}
+                  showVideos={cardVideo}
+                  onQuickView={quickViewEnabled ? setQuickViewProduct : undefined}
+                />
               ) : (
-                <ProductCard key={p.id} product={p} showVideos={cardVideo} />
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  showVideos={cardVideo}
+                  onQuickView={quickViewEnabled ? setQuickViewProduct : undefined}
+                />
               )
             )}
           </div>
@@ -679,6 +718,9 @@ export function CatalogClient({
           </div>
         </section>
       )}
+
+      {/* Task 141: модалка быстрого просмотра */}
+      <QuickView product={quickViewProduct} onClose={() => setQuickViewProduct(null)} />
     </div>
   );
 }

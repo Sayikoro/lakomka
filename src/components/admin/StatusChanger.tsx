@@ -2,15 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const ALL_STATUSES: { value: string; label: string }[] = [
-  { value: "new", label: "Новый" },
-  { value: "confirmed", label: "Подтверждён" },
-  { value: "paid", label: "Оплачен" },
-  { value: "shipped", label: "Отправлен" },
-  { value: "done", label: "Выполнен" },
-  { value: "cancelled", label: "Отменён" },
-];
+import { ORDER_STATUSES } from "@/lib/order-status";
 
 interface Props {
   orderId: number;
@@ -65,7 +57,7 @@ export function StatusChanger({ orderId, currentStatus, onChanged }: Props) {
           onChange={(e) => setStatus(e.target.value)}
           className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none"
         >
-          {ALL_STATUSES.map((s) => (
+          {ORDER_STATUSES.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>

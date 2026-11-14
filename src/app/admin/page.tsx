@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import type { ComponentType, SVGProps } from "react";
+import { DailyChart, type DayRow } from "@/components/admin/DailyChart";
 import {
   IconAnalytics,
   IconBox,
@@ -40,6 +41,19 @@ interface SummaryData {
   };
   today: { sessions: number; views: number };
   blocked_ips: number;
+}
+
+/* Task 152: плитки-тревоги и график по дням */
+interface AlertsData {
+  emails_failed: {
+    count: number;
+    latest: { id: number; order_number: string; customer_name: string; created_at: string }[];
+  };
+  low_stock: {
+    count: number;
+    threshold: number;
+    items: { id: number; name: string; type: string; stock_qty: number }[];
+  };
 }
 
 /* Поверхность плитки: карточка + появление; ховер-тень только у кликабельных */
@@ -67,6 +81,8 @@ export default function AdminDashboardPage() {
   const [unread, setUnread] = useState<UnreadData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [totalProducts, setTotalProducts] = useState<number | null>(null);
+  const [alerts, setAlerts] = useState<AlertsData | null>(null);
+  const [days, setDays] = useState<DayRow[] | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -107,6 +123,30 @@ export default function AdminDashboardPage() {
           const total = Number((json as { total?: number }).total);
           setTotalProducts(Number.isFinite(total) ? total : null);
         }
+      } catch {
+        /* fail-soft */
+      }
+
+      /* Task 152: плитки-тревоги */
+      try {
+        const res = await fetch(`${apiUrl}/admin/dashboard/alerts`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (alive && res.ok) setAlerts(json.data ?? null);
+      } catch {
+        /* fail-soft */
+      }
+
+      /* Task 152: динамика за 14 дней */
+      try {
+        const res = await fetch(`${apiUrl}/admin/dashboard/daily?days=14`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (alive && res.ok) setDays((json.data?.days as DayRow[]) ?? null);
       } catch {
         /* fail-soft */
       }
@@ -191,6 +231,78 @@ export default function AdminDashboardPage() {
             просмотров: {summary ? summary.today.views : dash}
           </span>
         </Link>
+      </div>
+
+      {/* ── Требует внимания (Task 152: плитки-тревоги) ── */}
+      {(alerts?.emails_failed.count ?? 0) > 0 || (alerts?.low_stock.count ?? 0) > 0 ? (
+        <>
+          <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+            Требует внимания
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
+            <Link
+              href="/admin/orders?email=0"
+              data-testid="alert-emails"
+              className="admin-card adm-rise flex flex-col gap-1 border-red-200 bg-red-50 p-4 transition-shadow hover:shadow-md sm:p-5 dark:border-red-900/40 dark:bg-red-950/30"
+            >
+              <span className="inline-flex items-center gap-2 text-[13px] font-medium text-red-700 dark:text-red-400">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <path d="m2 7 10 6 10-6" />
+                </svg>
+                Письма не ушли
+              </span>
+              <span className="text-[28px] font-semibold leading-tight text-red-700 dark:text-red-400">
+                {alerts ? alerts.emails_failed.count : "…"}
+              </span>
+              <span className="truncate text-xs text-red-600/80 dark:text-red-400/70">
+                {alerts && alerts.emails_failed.count > 0
+                  ? `Последний: ${alerts.emails_failed.latest[0]?.order_number ?? ""}`
+                  : "Письма клиентам отправляются штатно"}
+              </span>
+            </Link>
+
+            <Link
+              href="/admin/products?filter=low_stock"
+              data-testid="alert-low-stock"
+              className="admin-card adm-rise flex flex-col gap-1 border-amber-200 bg-amber-50 p-4 transition-shadow hover:shadow-md sm:p-5 dark:border-amber-900/40 dark:bg-amber-950/30"
+            >
+              <span className="inline-flex items-center gap-2 text-[13px] font-medium text-amber-700 dark:text-amber-400">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <line x1="12" x2="12" y1="9" y2="13" />
+                  <line x1="12" x2="12.01" y1="17" y2="17" />
+                </svg>
+                Товары заканчиваются
+              </span>
+              <span className="text-[28px] font-semibold leading-tight text-amber-700 dark:text-amber-400">
+                {alerts ? alerts.low_stock.count : "…"}
+              </span>
+              <span className="truncate text-xs text-amber-600/80 dark:text-amber-400/70">
+                {alerts && alerts.low_stock.count > 0
+                  ? `Остаток ≤ ${alerts.low_stock.threshold}: ${alerts.low_stock.items
+                      .slice(0, 2)
+                      .map((i) => i.name)
+                      .join(", ")}${alerts.low_stock.items.length > 2 ? "…" : ""}`
+                  : `Остаток всех товаров выше ${alerts?.low_stock.threshold ?? 5} шт.`}
+              </span>
+            </Link>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── Динамика за 14 дней (Task 152) ── */}
+      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+        Динамика за 14 дней
+      </h2>
+      <div className="admin-card adm-rise p-4 sm:p-5">
+        {days ? (
+          <DailyChart days={days} />
+        ) : (
+          <div className="flex h-[180px] items-center justify-center text-sm text-[var(--color-muted)]">
+            Загрузка графика…
+          </div>
+        )}
       </div>
 
       {/* Последний заказ */}

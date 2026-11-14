@@ -1,8 +1,18 @@
 import type { Product } from "./types";
 
-/* Хелперы для URL с lakomkakhv.ru */
-const wpu = (file: string) =>
-  `https://lakomkakhv.ru/wp-content/uploads/2026/08/${file}`;
+/* ----------------------------------------------------------
+   Task 145: все статические ассеты витрины — ЛОКАЛЬНЫЕ.
+   Раньше логотипы брендов и иконки hotline с WordPress
+   (lakomkakhv.ru/wp-content/uploads/...) — после удаления
+   WordPress ссылки умерли. Теперь файлы лежат в репозито-
+   рии (public/uploads/brands, public/uploads/icons) и едут
+   с каждым деплоем/обновлением.
+   ---------------------------------------------------------- */
+const brandLogo = (slug: string) => `/uploads/brands/${slug}.png`;
+const icon = (name: string) => `/uploads/icons/${name}.svg`;
+
+/* Нейтральная локальная картинка-фолбэк (собственный ассет магазина) */
+const fallbackImage = "/brand/tuby.webp";
 
 const candyPlaceholder = (label: string) =>
   `https://placehold.co/400x400/f5e6d3/7a4a1e.png?text=${encodeURIComponent(label)}`;
@@ -64,8 +74,8 @@ const gifts: Product[] = [
     packaging_material: "cardboard", show_in_catalog: 1,
     media: [],
     images: [
-      { id: 201, url: wpu("LAM_015.png"), alt: "Адвент-календарь", sort_order: 0 },
-      { id: 202, url: wpu("LA_047.png"),  alt: "Адвент-календарь — вид сзади", sort_order: 1 },
+      { id: 201, url: fallbackImage, alt: "Адвент-календарь", sort_order: 0 },
+      { id: 202, url: fallbackImage, alt: "Адвент-календарь — вид сзади", sort_order: 1 },
     ],
     bundle_items: [
       { id: 301, product_id: 6, component_id: 1, quantity: 5, component: candies[0] },
@@ -79,7 +89,7 @@ const gifts: Product[] = [
     price_kopecks: 185000, old_price_kopecks: null,
     packaging_material: "tin", show_in_catalog: 1,
     media: [],
-    images: [{ id: 203, url: wpu("N_002_1000x1000.png"), alt: "Новогодний набор", sort_order: 0 }],
+    images: [{ id: 203, url: fallbackImage, alt: "Новогодний набор", sort_order: 0 }],
     bundle_items: [
       { id: 304, product_id: 7, component_id: 2, quantity: 6, component: candies[1] },
       { id: 305, product_id: 7, component_id: 4, quantity: 8, component: candies[3] },
@@ -91,7 +101,7 @@ const gifts: Product[] = [
     price_kopecks: 103000, old_price_kopecks: 120000,
     packaging_material: "cardboard", show_in_catalog: 1,
     media: [],
-    images: [{ id: 204, url: wpu("KA_008.png"), alt: "Набор Лакомка", sort_order: 0 }],
+    images: [{ id: 204, url: fallbackImage, alt: "Набор Лакомка", sort_order: 0 }],
     bundle_items: [
       { id: 306, product_id: 8, component_id: 1, quantity: 4, component: candies[0] },
       { id: 307, product_id: 8, component_id: 3, quantity: 3, component: candies[2] },
@@ -104,7 +114,7 @@ const gifts: Product[] = [
     price_kopecks: 385000, old_price_kopecks: null,
     packaging_material: "textile", show_in_catalog: 1,
     media: [],
-    images: [{ id: 205, url: wpu("KA_015.png"), alt: "Набор ВИП", sort_order: 0 }],
+    images: [{ id: 205, url: fallbackImage, alt: "Набор ВИП", sort_order: 0 }],
     bundle_items: [
       { id: 309, product_id: 9, component_id: 1, quantity: 8, component: candies[0] },
       { id: 310, product_id: 9, component_id: 2, quantity: 6, component: candies[1] },
@@ -118,7 +128,7 @@ const gifts: Product[] = [
     price_kopecks: 65000, old_price_kopecks: null,
     packaging_material: "cardboard", show_in_catalog: 1,
     media: [],
-    images: [{ id: 206, url: wpu("KA_012_2.png"), alt: "Набор для детей", sort_order: 0 }],
+    images: [{ id: 206, url: fallbackImage, alt: "Набор для детей", sort_order: 0 }],
     bundle_items: [
       { id: 313, product_id: 10, component_id: 4, quantity: 10, component: candies[3] },
       { id: 314, product_id: 10, component_id: 5, quantity: 8, component: candies[4] },
@@ -130,7 +140,7 @@ const gifts: Product[] = [
     price_kopecks: 42000, old_price_kopecks: null,
     packaging_material: "tube", show_in_catalog: 1,
     media: [],
-    images: [{ id: 207, url: wpu("KAM_038.png"), alt: "Тубус ассорти", sort_order: 0 }],
+    images: [{ id: 207, url: fallbackImage, alt: "Тубус ассорти", sort_order: 0 }],
     bundle_items: [
       { id: 315, product_id: 11, component_id: 2, quantity: 6, component: candies[1] },
       { id: 316, product_id: 11, component_id: 5, quantity: 6, component: candies[4] },
@@ -142,7 +152,7 @@ const gifts: Product[] = [
     price_kopecks: 38000, old_price_kopecks: null,
     packaging_material: "pouch", show_in_catalog: 1,
     media: [],
-    images: [{ id: 208, url: wpu("KA_101.png"), alt: "Мешочек ассорти", sort_order: 0 }],
+    images: [{ id: 208, url: fallbackImage, alt: "Мешочек ассорти", sort_order: 0 }],
     bundle_items: [
       { id: 317, product_id: 12, component_id: 1, quantity: 5, component: candies[0] },
       { id: 318, product_id: 12, component_id: 3, quantity: 5, component: candies[2] },
@@ -154,7 +164,7 @@ const gifts: Product[] = [
     price_kopecks: 120000, old_price_kopecks: null,
     packaging_material: "textile", show_in_catalog: 1,
     media: [],
-    images: [{ id: 209, url: wpu("KA_023.png"), alt: "Подарок маме", sort_order: 0 }],
+    images: [{ id: 209, url: fallbackImage, alt: "Подарок маме", sort_order: 0 }],
     bundle_items: [
       { id: 319, product_id: 13, component_id: 2, quantity: 5, component: candies[1] },
       { id: 320, product_id: 13, component_id: 5, quantity: 8, component: candies[4] },
@@ -166,7 +176,7 @@ const gifts: Product[] = [
     price_kopecks: 85000, old_price_kopecks: null,
     packaging_material: "cardboard", show_in_catalog: 1,
     media: [],
-    images: [{ id: 210, url: wpu("LA_035.png"), alt: "Чайный набор", sort_order: 0 }],
+    images: [{ id: 210, url: fallbackImage, alt: "Чайный набор", sort_order: 0 }],
   },
   {
     id: 15, sku: "set-samovar", slug: "samovar-suvenirnyy",
@@ -174,7 +184,7 @@ const gifts: Product[] = [
     price_kopecks: 185000, old_price_kopecks: null,
     packaging_material: "cardboard", show_in_catalog: 1,
     media: [],
-    images: [{ id: 211, url: wpu("LA_085.png"), alt: "Самовар", sort_order: 0 }],
+    images: [{ id: 211, url: fallbackImage, alt: "Самовар", sort_order: 0 }],
   },
 ];
 
@@ -206,13 +216,13 @@ export interface Category {
 }
 
 export const mockCategories: Category[] = [
-  { slug: "nabory",    name: "Наборы",      imageUrl: wpu("N_002_1000x1000.png") },
-  { slug: "vip",       name: "ВИП подарки", imageUrl: wpu("KA_008.png") },
-  { slug: "zhest",     name: "Жесть",       imageUrl: wpu("LA_085.png") },
-  { slug: "igrushki",  name: "Игрушки",     imageUrl: wpu("KA_015.png") },
-  { slug: "karton",    name: "Картон",      imageUrl: wpu("LA_035.png") },
-  { slug: "meshochki", name: "Мешочки",     imageUrl: wpu("KA_101.png") },
-  { slug: "tekstil",   name: "Текстиль",    imageUrl: wpu("KA_020.png") },
+  { slug: "nabory",    name: "Наборы",      imageUrl: fallbackImage },
+  { slug: "vip",       name: "ВИП подарки", imageUrl: fallbackImage },
+  { slug: "zhest",     name: "Жесть",       imageUrl: fallbackImage },
+  { slug: "igrushki",  name: "Игрушки",     imageUrl: fallbackImage },
+  { slug: "karton",    name: "Картон",      imageUrl: fallbackImage },
+  { slug: "meshochki", name: "Мешочки",     imageUrl: fallbackImage },
+  { slug: "tekstil",   name: "Текстиль",    imageUrl: fallbackImage },
   { slug: "tuby",      name: "Тубы",        imageUrl: "/brand/tuby.webp" },
 ];
 
@@ -225,34 +235,34 @@ export interface Brand {
 }
 
 export const mockBrands: Brand[] = [
-  { name: "Конти",            logoUrl: wpu("konti_logo_1000x1000-300x300.png") },
-  { name: "Мишкино",          logoUrl: wpu("Mishkino_logo-1_1000x1000-300x300.png") },
-  { name: "Красный Октябрь",  logoUrl: wpu("Кр-Окт_1000x1000-300x300.png") },
-  { name: "Невский кондитер", logoUrl: wpu("Невский-кондитер_лого_1000x1000-300x300.png") },
-  { name: "Атаг",             logoUrl: wpu("атаг_лого_1000x1000-300x300.png") },
-  { name: "Сладонеж",         logoUrl: wpu("сладонеж_1000x1000-300x300.png") },
-  { name: "Рот Фронт",        logoUrl: wpu("РотФронт_1000x1000-300x300.png") },
-  { name: "Бабаевский",       logoUrl: wpu("Бабаев_1000x1000-300x300.png") },
-  { name: "Шок-Маг",          logoUrl: wpu("Logo_shok-mag_1000x1000-300x300.png") },
-  { name: "КФС",              logoUrl: wpu("Logo_KFS_1000x1000-300x300.png") },
-  { name: "Жако",             logoUrl: wpu("жако_1000x1000-300x300.png") },
-  { name: "KDV",              logoUrl: wpu("KDV_logo_1000x1000-300x300.png") },
-  { name: "АККонд",           logoUrl: wpu("акконд_лого_1000x1000-300x300.png") },
-  { name: "Сладуница",        logoUrl: wpu("сладуница_лого_1000x1000-300x300.png") },
-  { name: "Mars",             logoUrl: wpu("Mars_1000x1000-300x300.png") },
-  { name: "SweetLife",        logoUrl: wpu("СвитЛайф_лого_1000x1000-300x300.png") },
-  { name: "Бисквит",          logoUrl: wpu("bb_1000x1000-300x300.png") },
-  { name: "СибБелка",         logoUrl: wpu("СибБелка_1000x1000-300x300.png") },
+  { name: "Конти",            logoUrl: brandLogo("konti") },
+  { name: "Мишкино",          logoUrl: brandLogo("mishkino") },
+  { name: "Красный Октябрь",  logoUrl: brandLogo("krasny-oktyabr") },
+  { name: "Невский кондитер", logoUrl: brandLogo("nevskiy-konditer") },
+  { name: "Атаг",             logoUrl: brandLogo("atag") },
+  { name: "Сладонеж",         logoUrl: brandLogo("sladonezh") },
+  { name: "Рот Фронт",        logoUrl: brandLogo("rot-front") },
+  { name: "Бабаевский",       logoUrl: brandLogo("babaevskiy") },
+  { name: "Шок-Маг",          logoUrl: brandLogo("shok-mag") },
+  { name: "КФС",              logoUrl: brandLogo("kfs") },
+  { name: "Жако",             logoUrl: brandLogo("jako") },
+  { name: "KDV",              logoUrl: brandLogo("kdv") },
+  { name: "АККонд",           logoUrl: brandLogo("akkond") },
+  { name: "Сладуница",        logoUrl: brandLogo("sladunitsa") },
+  { name: "Mars",             logoUrl: brandLogo("mars") },
+  { name: "SweetLife",        logoUrl: brandLogo("sweetlife") },
+  { name: "Бисквит",          logoUrl: brandLogo("biskvit") },
+  { name: "СибБелка",         logoUrl: brandLogo("sibbelka") },
 ];
 
 /* -------------------------------------------------- */
 /* Иконки info-карточек и шагов процесса              */
 /* -------------------------------------------------- */
 export const mockIcons = {
-  discount: wpu("ico-02-3.svg"),
-  delivery: wpu("ico-04-3.svg"),
-  payment:  wpu("ico-03-3.svg"),
-  step1:    wpu("ico2_-02.svg"),
-  step2:    wpu("ico2_-03.svg"),
-  step3:    wpu("ico2_-04.svg"),
+  discount: icon("discount"),
+  delivery: icon("delivery"),
+  payment:  icon("payment"),
+  step1:    "/uploads/ico-step1.svg",
+  step2:    "/uploads/ico-step2.svg",
+  step3:    "/uploads/ico-step3.svg",
 };

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'viewer'
         CHECK (role IN ('super_admin', 'editor', 'viewer')),
     last_login_at TEXT,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -19,7 +20,11 @@ CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    -- Task 141: SEO категории (заполняется в админке; пусто — автогенерация)
+    meta_title TEXT NOT NULL DEFAULT '',
+    meta_description TEXT NOT NULL DEFAULT '',
+    seo_text TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -46,6 +51,8 @@ CREATE TABLE IF NOT EXISTS products (
     show_in_catalog INTEGER NOT NULL DEFAULT 1,
     is_published INTEGER NOT NULL DEFAULT 1,
     stock_qty INTEGER NOT NULL DEFAULT 0,
+    meta_title TEXT,
+    meta_description TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

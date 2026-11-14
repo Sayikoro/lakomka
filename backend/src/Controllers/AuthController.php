@@ -30,7 +30,7 @@ class AuthController
         }
 
         $stmt = $pdo->prepare(
-            'SELECT id, email, password_hash, role FROM users WHERE email = ?'
+            'SELECT id, email, password_hash, role, token_version FROM users WHERE email = ?'
         );
         $stmt->execute([$email]);
         $user = $stmt->fetch();
@@ -49,10 +49,14 @@ class AuthController
         }
 
         $role = $user['role'] ?? 'viewer';
-        $token = Auth::issueToken((int)$user['id'], $user['email'], $role);
+        $token = Auth::issueToken((int)$user['id'], $user['email'], $role, (int)($user['token_version'] ?? 0));
 
-        $pdo->prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
-            ->execute([$user['id']]);
+        /* last_login_at — косметика: коллизия записи в SQLite не должна
+         * ронять вход 500-й (busy_timeout не бесконечен под нагрузкой). */
+        try {
+            $pdo->prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
+                ->execute([$user['id']]);
+        } catch (Throwable $e) { }
 
         // Очищаем старые записи (старше суток) — чтобы таблица не росла
         try {
@@ -104,6 +108,32 @@ class AuthController
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
+        jsonResponse(['data' => ['ok' => true]]);
+    }
+
+    /**
+     * POST /api/auth/logout-all — «Выйти на всех устройствах» (Task 152).
+     * Инкремент token_version текущего пользователя: все ранее выданные JWT
+     * мгновенно становятся недействительными (сверка в Auth::requireAuth),
+     * включая текущее устройство — клиент после ответа делает редирект на логин.
+     */
+    public static function logoutAll(PDO $pdo): void
+    {
+        $payload = Auth::requireAuth();
+
+        $pdo->prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?')
+            ->execute([$payload['sub']]);
+
+        require_once __DIR__ . '/../AdminLog.php';
+        AdminLog::add($pdo, AdminLog::actor($payload), 'auth.logout_all', 'Отзыв всех токенов');
+
+        setcookie('admin_token', '', [
+            'expires'  => time() - 3600,
+            'path'     => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+
         jsonResponse(['data' => ['ok' => true]]);
     }
 

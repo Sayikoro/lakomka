@@ -8,9 +8,12 @@ interface Props {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Task 141: тестовый идентификатор диалога (страница уже содержит
+      другие role=dialog — корзина, контакты, cookie-баннер) */
+  testId?: string;
 }
 
-export function Modal({ open, onClose, title, children }: Props) {
+export function Modal({ open, onClose, title, children, testId }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -33,6 +36,7 @@ export function Modal({ open, onClose, title, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        data-testid={testId}
         className="relative w-full max-w-lg rounded-[var(--radius-card)] bg-white p-6 shadow-xl"
       >
         <div className="mb-4 flex items-start justify-between gap-4">

@@ -20,7 +20,7 @@
    Сервер по ним отличает ИИ-агентов с обычным Chrome-UA от людей.
    ============================================================ */
 
-type VisitEventType = "pageview" | "click" | "scroll" | "gift_view" | "cart_add" | "leave";
+type VisitEventType = "pageview" | "click" | "scroll" | "gift_view" | "cart_add" | "leave" | "gift_share";
 
 export interface VisitEvent {
   t: VisitEventType;
@@ -332,5 +332,31 @@ export function trackCartAdd(slug: string, name: string): void {
     path: currentPath || location.pathname,
     gs: slug.slice(0, 200),
     gn: name.slice(0, 200),
+  });
+}
+
+/**
+ * Task 141: нажатие «Поделиться» в карточке товара.
+ * channel: native (системный шаринг телефона) | telegram | whatsapp | vk | copy.
+ * Событие не чаще раза в минуту на slug+channel — чтобы «поделиться»
+ * одним подарком пять раз подряд не считалось пятью визитами.
+ */
+export function trackGiftShare(
+  slug: string,
+  name: string,
+  channel: string,
+): void {
+  if (typeof window === "undefined" || !slug) return;
+  const key = `${slug}:${channel}`;
+  const now = Date.now();
+  const last = lastGiftViewAt.get(key) ?? 0;
+  if (now - last < 60_000) return;
+  lastGiftViewAt.set(key, now);
+  push({
+    t: "gift_share",
+    path: currentPath || `/product/${slug}`,
+    gs: slug.slice(0, 200),
+    gn: name.slice(0, 200),
+    m: { channel },
   });
 }

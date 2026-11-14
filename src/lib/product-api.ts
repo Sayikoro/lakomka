@@ -22,6 +22,10 @@ export interface Category {
   slug: string;
   name: string;
   sort_order: number;
+  /* Task 141: SEO-поля категории (заполняются в админке; пусто — автогенерация) */
+  meta_title?: string;
+  meta_description?: string;
+  seo_text?: string;
 }
 
 interface ApiImage { url: string; alt: string | null; }
@@ -63,6 +67,8 @@ export interface ApiProduct {
   show_in_catalog: number;
   stock_qty?: number | null;
   video_url?: string | null;
+  meta_title?: string | null;
+  meta_description?: string | null;
   component_ids?: number[];
   images?: ApiImage[];
   media?: ApiMedia[];
@@ -128,6 +134,8 @@ export function normalizeProduct(p: ApiProduct): Product {
     name: p.name,
     description: p.description,
     manufacturer: p.manufacturer,
+    meta_title: p.meta_title ?? null,
+    meta_description: p.meta_description ?? null,
     type: p.type,
     category_id: p.category_id ?? null,
     price_kopecks: p.price_kopecks,

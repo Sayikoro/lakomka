@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { MediaGallery, type GalleryPick } from "@/components/admin/MediaGallery";
+import type { Category } from "@/lib/product-api";
 import type { ProductType } from "@/lib/types";
 
 export interface ProductFormValues {
@@ -12,6 +13,7 @@ export interface ProductFormValues {
   slug: string;
   sku: string;
   type: ProductType;
+  category_id: number | null;
   price_kopecks: number;
   stock_qty: number;
   show_in_catalog: number;
@@ -24,6 +26,8 @@ export interface ProductFormValues {
   width_cm: number | null;
   height_cm: number | null;
   recipe_weight_g: number | null;
+  meta_title: string;
+  meta_description: string;
 }
 
 interface Props {
@@ -34,12 +38,14 @@ interface Props {
 const DEFAULTS: ProductFormValues = {
   name: "", slug: "", sku: "",
   type: "simple",
+  category_id: null,
   price_kopecks: 0, stock_qty: 0,
   show_in_catalog: 1, is_published: 1,
   description: "", manufacturer: "",
   packaging_material: "",
   weight_g: null, length_cm: null, width_cm: null, height_cm: null,
   recipe_weight_g: null,
+  meta_title: "", meta_description: "",
 };
 
 const PACKAGING_OPTIONS = [
@@ -83,6 +89,25 @@ export function ProductForm({ mode, initial }: Props) {
   // в БД пишется только ссылка на уже существующий файл в /uploads).
   const [picked, setPicked] = useState<GalleryPick[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(false);
+
+  /* Task 152: выбор категории прямо в форме (раньше — только массовая
+   * операция из списка). Категории берём same-origin /api/categories:
+   * витринная getCategories() зовёт PHP_API_URL — абсолютный URL серверного
+   * билда, из браузера другой origin и CORS-блок. */
+  const [categories, setCategories] = useState<Category[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const api = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+    fetch(`${api}/categories`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((j) => {
+        if (alive && Array.isArray(j.data)) setCategories(j.data as Category[]);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /* ── Task 121: автосохранение черновика + защита от ухода ──
    * Длинная форма теряла всё при случайном закрытии вкладки. Теперь:
@@ -199,6 +224,7 @@ export function ProductForm({ mode, initial }: Props) {
         name: form.name,
         slug: form.slug,
         sku: form.sku || null,
+        category_id: form.category_id,
         price_kopecks: form.price_kopecks,
         stock_qty: form.stock_qty,
         show_in_catalog: form.type === "recipe" ? 0 : form.show_in_catalog,
@@ -210,6 +236,8 @@ export function ProductForm({ mode, initial }: Props) {
         length_cm: form.length_cm,
         width_cm: form.width_cm,
         height_cm: form.height_cm,
+        meta_title: form.meta_title,
+        meta_description: form.meta_description,
       };
       if (mode === "create") payload.type = form.type;
       if (form.type === "bundle") {
@@ -349,10 +377,32 @@ export function ProductForm({ mode, initial }: Props) {
         </div>
       </div>
 
-      <div>
-        <label className={label}>Производитель</label>
-        <input value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)}
-          placeholder="Например, Конти" className={input} />
+      {/* Категория (Task 152) */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className={label}>Категория</label>
+          <select
+            value={form.category_id ?? ""}
+            onChange={(e) => set("category_id", e.target.value === "" ? null : Number(e.target.value))}
+            className={input}
+            data-testid="product-category"
+          >
+            <option value="">— без категории —</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          {categories.length === 0 && (
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Категории не загрузились — список будет доступен позже
+            </p>
+          )}
+        </div>
+        <div>
+          <label className={label}>Производитель</label>
+          <input value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)}
+            placeholder="Например, Конти" className={input} />
+        </div>
       </div>
 
       <div>
@@ -399,6 +449,41 @@ export function ProductForm({ mode, initial }: Props) {
           </p>
         </div>
       )}
+
+      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-4">
+        <p className="mb-3 text-sm font-medium text-[var(--color-heading)]">
+          SEO — для поисковиков (Яндекс, Google)
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className={label}>SEO-заголовок (title)</label>
+            <input
+              value={form.meta_title}
+              onChange={(e) => set("meta_title", e.target.value)}
+              placeholder="Оставь пустым — возьмётся название товара"
+              maxLength={255}
+              className={input}
+            />
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Показывается во вкладке браузера и в поисковой выдаче. Оптимально до 60 символов ({form.meta_title.length}/60).
+            </p>
+          </div>
+          <div>
+            <label className={label}>SEO-описание (description)</label>
+            <textarea
+              value={form.meta_description}
+              onChange={(e) => set("meta_description", e.target.value)}
+              rows={2}
+              placeholder="Оставь пустым — возьмётся описание товара"
+              maxLength={1000}
+              className={input}
+            />
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Сниппет под ссылкой в поисковой выдаче. Оптимально до 160 символов ({form.meta_description.length}/160).
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-4">
         <p className="mb-3 text-sm font-medium text-[var(--color-heading)]">Упаковка и габариты</p>

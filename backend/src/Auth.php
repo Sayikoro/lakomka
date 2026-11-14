@@ -21,7 +21,7 @@ class Auth
         return base64_decode(strtr($data, '-_', '+/'));
     }
 
-    public static function issueToken(int $userId, string $email, string $role): string
+    public static function issueToken(int $userId, string $email, string $role, int $tokenVersion = 0): string
     {
         $cfg = self::config();
         $header = self::b64url(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
@@ -29,6 +29,7 @@ class Auth
             'sub'   => $userId,
             'email' => $email,
             'role'  => $role,
+            'tv'    => $tokenVersion,
             'iat'   => time(),
             'exp'   => time() + ($cfg['jwt_ttl'] ?? 604800),
         ]));
@@ -84,19 +85,28 @@ class Auth
             exit;
         }
 
-        // Проверяем, что пользователь существует и берём актуальную роль
+        // Проверяем, что пользователь существует, берём актуальную роль
+        // и версию токенов: если владелец нажал «Выйти на всех устройствах»
+        // (token_version инкрементирован), все ранее выданные JWT мгновенно
+        // перестают приниматься — токены stateless, поэтому сверка с БД.
         $pdo = Database::get();
-        $stmt = $pdo->prepare('SELECT role FROM users WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT role, token_version FROM users WHERE id = ?');
         $stmt->execute([$payload['sub']]);
-        $currentRole = $stmt->fetchColumn();
+        $row = $stmt->fetch();
 
-        if (!$currentRole) {
+        if (!$row) {
             http_response_code(401);
             echo json_encode(['error' => 'Пользователь не существует']);
             exit;
         }
 
-        $payload['role'] = $currentRole;
+        if ((int)($payload['tv'] ?? 0) < (int)($row['token_version'] ?? 0)) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Сессия отозвана (выйти на всех устройствах)']);
+            exit;
+        }
+
+        $payload['role'] = $row['role'];
         return $payload;
     }
 

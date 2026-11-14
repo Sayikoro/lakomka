@@ -47,6 +47,18 @@ class AdminFilesController
                 'deletable' => false,
                 'hint' => 'Картинки и видео товаров. Нужны сайту — удаление сломает карточки. Только контроль объёма.',
             ],
+            /* Task 146: галереи картинок под шорткоды [gallery слаг].
+               Управление — вкладка «Галерея» там же в разделе «Файлы»;
+               в проводнике раздел тоже виден (скачать/переименовать файл,
+               посмотреть объём). deletable = true: галерею можно удалить
+               целиком (блок витрины тогда честно покажет запасной вид). */
+            'galleries' => [
+                'title' => 'Галереи (шорткоды)',
+                'dir' => Paths::galleriesDir(),
+                'public' => '/uploads/galleries',
+                'deletable' => true,
+                'hint' => 'Галереи картинок для блоков сайта: каждая папка — галерея, ставится в блок шорткодом [gallery слаг-папки]. Управляйте на вкладке «Галерея».',
+            ],
             'backups' => [
                 'title' => 'Дампы базы данных',
                 'dir' => Paths::backupsDir(),
@@ -290,7 +302,7 @@ class AdminFilesController
             jsonResponse(['data' => [
                 'path' => '',
                 'title' => 'Файлы',
-                'hint' => 'Разделы: экспортные и импортные архивы, медиа товаров.',
+                'hint' => 'Разделы: экспортные и импортные архивы, медиа товаров, галереи.',
                 'deletable' => false,
                 'entries' => $entries,
                 'total_size' => array_sum(array_column($entries, 'size')),
@@ -314,6 +326,10 @@ class AdminFilesController
             if ($name === '.' || $name === '..') continue;
             /* Корзина удалённых файлов не видна в общем списке (Task 100) */
             if ($key === 'media' && $rel === '' && $name === '.trash') continue;
+            /* Task 146: в галереях служебные файлы (манифест .order.json с
+             *  заголовком и порядком) в списке не показываем — их трогать
+             *  не нужно, правится только через вкладку «Галерея» */
+            if ($key === 'galleries' && $name[0] === '.') continue;
             $full = $abs . '/' . $name;
             /* публичный URL записи (для media — «/uploads/…» без ключа раздела:
              * именно в таком виде пути лежат в product_images/products.video_url) */
@@ -614,9 +630,11 @@ class AdminFilesController
 
         /* 8) ОПТИМИЗАТОР: картинки jpg/png → webp, видео mov/m4v → mp4.
             При любой ошибке файл остаётся как есть. Имя может смениться
-            (расширение/суффикс) — ответ отдаёт итоговые значения. */
+            (расширение/суффикс) — ответ отдаёт итоговые значения.
+            Task 146: галереи оптимизируем так же, как медиа товаров
+            (логотипы/фото загружаются тяжёлыми jpg/png). */
         $optNote = '';
-        if ($key === 'media') {
+        if (in_array($key, ['media', 'galleries'], true)) {
             if (in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
                 $opt = MediaOptimizer::optimizeImageFile($dest);
                 if ($opt['converted']) {

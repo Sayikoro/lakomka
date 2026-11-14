@@ -8,6 +8,7 @@ import Link from "next/link";
 import { ProductsTable } from "@/components/admin/ProductsTable";
 import { ProductsImportExport } from "@/components/admin/ProductsImportExport";
 import { MassMediaOptimizer } from "@/components/admin/MassMediaOptimizer";
+import { CategoriesSeo } from "@/components/admin/CategoriesSeo";
 
 export interface AdminProduct {
   id: number;
@@ -112,6 +113,7 @@ export default function AdminProductsPage() {
         <>
           <MassMediaOptimizer />
           <ProductsImportExport />
+          <CategoriesSeo />
           <ProductsTable initialProducts={products ?? []} reload={load} />
         </>
       )}

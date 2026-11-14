@@ -81,6 +81,16 @@ class Paths
         return self::ensureDir(dirname(__DIR__) . '/storage/backups');
     }
 
+    /** Task 146: корень галерей (вкладка «Галерея» в разделе «Файлы»):
+     *  …/uploads/galleries. Каждая галерея — подпапка, её имя = слаг
+     *  шорткода [gallery слаг]; картинки внутри, порядок и заголовок —
+     *  в манифесте .order.json (скрыт из листинга и отдачи). Папка
+     *  публичная: картинки раздаются статикой по /uploads/galleries/… */
+    public static function galleriesDir(): string
+    {
+        return self::ensureDir(self::uploadsRoot() . '/galleries');
+    }
+
     /** mkdir рекурсивно, без ошибок в вывод (права проверяет вызывающий код). */
     public static function ensureDir(string $dir): string
     {

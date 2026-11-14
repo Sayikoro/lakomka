@@ -63,10 +63,10 @@ $PHP -r '
 require $argv[1]."/backend/config.php"; require $argv[1]."/backend/src/Database.php";
 require $argv[1]."/backend/src/Controllers/AdminProductsController.php";
 $m = new ReflectionMethod("AdminProductsController", "renderPdfImagePage");
-$m->setAccessible(true);
+
 /* 1) нормальная картинка 800×1131 → страница 1240×1754 */
 $im = imagecreatetruecolor(800, 1131); imagefill($im,0,0,imagecolorallocate($im,200,30,30));
-imagejpeg($im, "/tmp/t132u/src.jpg", 85); imagedestroy($im);
+imagejpeg($im, "/tmp/t132u/src.jpg", 85);;
 $r1 = $m->invoke(null, "/tmp/t132u/src.jpg", "/tmp/t132u/page.jpg");
 $s = $r1 ? getimagesize("/tmp/t132u/page.jpg") : [0,0];
 echo (int)$r1, "|", $s[0], "x", $s[1];
@@ -76,7 +76,7 @@ echo "$U" | grep -q '^1|1240x1754' && ok "рендер: 800×1131 → стран
 $PHP -r '
 require $argv[1]."/backend/config.php";
 require $argv[1]."/backend/src/Controllers/AdminProductsController.php";
-$m = new ReflectionMethod("AdminProductsController", "renderPdfImagePage"); $m->setAccessible(true);
+$m = new ReflectionMethod("AdminProductsController", "renderPdfImagePage"); 
 file_put_contents("/tmp/t132u/broken.jpg", "это не картинка вовсе");
 echo (int)$m->invoke(null, null, "/tmp/t132u/x.jpg"),
      "|", (int)$m->invoke(null, "/tmp/t132u/nope.jpg", "/tmp/t132u/x.jpg"),
@@ -87,7 +87,7 @@ U2=$(cat /tmp/t132u/unit2.out)
 $PHP -r '
 require $argv[1]."/backend/config.php";
 require $argv[1]."/backend/src/Controllers/AdminProductsController.php";
-$m = new ReflectionMethod("AdminProductsController", "pdfSettingFile"); $m->setAccessible(true);
+$m = new ReflectionMethod("AdminProductsController", "pdfSettingFile"); 
 file_put_contents($argv[1]."/public/uploads/pdf/unit-probe.jpg", "jpeg-bytes");
 echo $m->invoke(null, "/uploads/pdf/unit-probe.jpg") === null ? "null" : "file",
      "|", $m->invoke(null, "/uploads/pdf/absent-404.jpg") === null ? "null" : "file",
@@ -118,9 +118,9 @@ echo "$LOGIN" | grep -q "token\|\"ok\"" && ok "логин администрат
 # ── загрузка обложек ──
 $PHP -r '
 $im = imagecreatetruecolor(800, 1131); imagefill($im,0,0,imagecolorallocate($im,200,30,30));
-imagejpeg($im, "/tmp/t132u/cover-red.jpg", 85); imagedestroy($im);
+imagejpeg($im, "/tmp/t132u/cover-red.jpg", 85);;
 $im = imagecreatetruecolor(800, 1131); imagefill($im,0,0,imagecolorallocate($im,30,140,50));
-imagejpeg($im, "/tmp/t132u/cover-green.jpg", 85); imagedestroy($im);
+imagejpeg($im, "/tmp/t132u/cover-green.jpg", 85);;
 ' && ok "фикстуры обложек созданы" || bad "фикстуры не создались"
 UP1=$(curl -s -b "$CJ" -X POST "$BASE/admin/uploads/pdf-page" -F "file=@/tmp/t132u/cover-red.jpg;type=image/jpeg")
 URL1=$(echo "$UP1" | python3 -c "import json,sys; print(json.load(sys.stdin).get('data',{}).get('url',''))" 2>/dev/null)
@@ -184,7 +184,7 @@ if [ -f /tmp/t132-render/pg-1.jpg ] && [ -f /tmp/t132-render/pg-4.jpg ]; then
   $PHP -r '
 $px = function($f) { $im = imagecreatefromjpeg($f); $w = imagesx($im); $h = imagesy($im);
   $c = imagecolorat($im, (int)($w / 2), (int)($h / 2));
-  $r = ($c >> 16) & 0xFF; $g = ($c >> 8) & 0xFF; $b = $c & 0xFF; imagedestroy($im); return [$r,$g,$b]; };
+  $r = ($c >> 16) & 0xFF; $g = ($c >> 8) & 0xFF; $b = $c & 0xFF;; return [$r,$g,$b]; };
 $p1 = $px($argv[1]); /* центр первой страницы */
 $p2 = $px($argv[2]); /* центр второй (карточки) */
 $p4 = $px($argv[3]); /* центр последней */

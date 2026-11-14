@@ -30,6 +30,9 @@ export interface Product {
   name: string;
   description?: string | null;
   manufacturer?: string | null;
+  /** SEO-поля (Task 152): null/undefined — витрина берёт name/description */
+  meta_title?: string | null;
+  meta_description?: string | null;
   type: ProductType;
   category_id?: number | null;
   price_kopecks: number;
@@ -57,8 +60,9 @@ export interface CartLine {
 
 export type DeliveryMethod = "pickup" | "city" | "region" | "tk";
 
-export type OrderStatus =
-  | "new" | "confirmed" | "paid" | "shipped" | "done" | "cancelled";
+/* Task 152: единый источник статусов заказа — src/lib/order-status.ts */
+import type { OrderStatus } from "./order-status";
+export type { OrderStatus };
 
 export interface OrderItem {
   id: number;
