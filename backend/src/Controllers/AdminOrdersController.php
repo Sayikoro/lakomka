@@ -156,7 +156,10 @@ class AdminOrdersController
 
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Номер', 'Дата', 'Клиент', 'Телефон', 'Email', 'Сумма, ₽', 'Статус', 'Доставка', 'Адрес', 'Комментарий', 'Письмо'], ';');
+        /* $escape задан явно — без него PHP 8.4+ льёт Deprecated прямо в CSV
+           (поймано тестами task154 на PHP 8.5.8: display_errors=STDOUT в
+           статическом php пачкал экспорт, e2e-проверка числа строк падала) */
+        fputcsv($out, ['Номер', 'Дата', 'Клиент', 'Телефон', 'Email', 'Сумма, ₽', 'Статус', 'Доставка', 'Адрес', 'Комментарий', 'Письмо'], ';', '"', '\\');
         $deliveryLabels = ['pickup' => 'Самовывоз', 'city' => 'По Хабаровску', 'region' => 'За городом', 'tk' => 'Транспортной компанией'];
         foreach ($orders as $o) {
             fputcsv($out, [
@@ -171,7 +174,7 @@ class AdminOrdersController
                 Crypto::decrypt($o['address'] ?? ''),
                 Crypto::decrypt($o['comment'] ?? ''),
                 $o['email_sent'] === null ? '' : ($o['email_sent'] ? 'отправлено' : 'НЕ ОТПРАВЛЕНО'),
-            ], ';');
+            ], ';', '"', '\\');
         }
         fclose($out);
         exit;
