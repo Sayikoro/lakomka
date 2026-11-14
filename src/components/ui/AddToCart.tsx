@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useCart } from "@/store/cart";
 import { useT } from "@/components/texts/TextsProvider";
 import type { Product } from "@/lib/types";
+import { QtyInput } from "@/components/ui/QtyInput";
 
 interface Props {
   product: Product;
@@ -32,7 +33,12 @@ export function AddToCart({ product }: Props) {
         >
           −
         </button>
-        <span className="w-10 text-center font-medium">{qty}</span>
+        {/* Task 154: количество можно ввести с клавиатуры, не только стрелками */}
+        <QtyInput
+          value={qty}
+          onCommit={setQty}
+          className="h-10 w-10 font-medium"
+        />
         <button
           type="button"
           onClick={() => setQty((q) => q + 1)}

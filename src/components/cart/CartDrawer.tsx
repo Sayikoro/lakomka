@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
+import { QtyInput } from "@/components/ui/QtyInput";
+import { useMounted } from "@/lib/use-mounted";
 
 interface CartDrawerProps {
   open: boolean;
@@ -15,8 +17,7 @@ interface CartDrawerProps {
    внизу — «Оформить заказ». Пустая корзина — «Пусто».
    Портал в body: иначе fixed-шторка остаётся в stacking-контексте шапки. */
 export function CartDrawer({ open, onClose }: CartDrawerProps) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   const lines = useCart((s) => s.lines);
   const setQty = useCart((s) => s.setQty);
@@ -148,9 +149,13 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
                           >
                             −
                           </button>
-                          <span className="w-7 text-center text-[13px] font-semibold text-[var(--color-heading)]">
-                            {l.qty}
-                          </span>
+                          {/* Task 154: количество можно ввести с клавиатуры (16px — без зума на iOS) */}
+                          <QtyInput
+                            value={l.qty}
+                            onCommit={(q) => setQty(l.product.id, q)}
+                            ariaLabel={`Количество «${l.product.name}»`}
+                            className="h-8 w-8 text-[16px] font-semibold text-[var(--color-heading)]"
+                          />
                           <button
                             type="button"
                             onClick={() => setQty(l.product.id, l.qty + 1)}

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/utils";
 import { useT } from "@/components/texts/TextsProvider";
 import { SmartImage } from "@/components/ui/SmartImg";
+import { QtyInput } from "@/components/ui/QtyInput";
+import { useMounted } from "@/lib/use-mounted";
 
 export default function CartPage() {
   const lines = useCart((s) => s.lines);
@@ -14,8 +16,7 @@ export default function CartPage() {
   const clear = useCart((s) => s.clear);
   const t = useT();
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   const totalKopecks = useMemo(
     () => lines.reduce((sum, l) => sum + l.product.price_kopecks * l.qty, 0),
@@ -103,7 +104,13 @@ export default function CartPage() {
                       >
                         −
                       </button>
-                      <span className="w-10 text-center font-medium">{line.qty}</span>
+                      {/* Task 154: количество можно ввести с клавиатуры */}
+                      <QtyInput
+                        value={line.qty}
+                        onCommit={(q) => setQty(line.product.id, q)}
+                        ariaLabel={`Количество «${line.product.name}»`}
+                        className="h-9 w-10 font-medium"
+                      />
                       <button
                         type="button"
                         onClick={() => setQty(line.product.id, line.qty + 1)}
