@@ -99,6 +99,36 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ============================================================
+   Курсор (Task 155): текстовый курсор (I-beam) — только в полях ввода.
+   Браузер по умолчанию рисует I-beam над ЛЮБЫМ текстом (cursor:auto
+   над текстовым содержимым), из-за чего обычный заголовок/абзац
+   выглядит как поле ввода. Ставим body cursor:default — он наследуется
+   всеми элементами (стрелка везде), а текстовым полям возвращаем
+   cursor:text явно (иначе они унаследовали бы стрелку от body).
+   Ссылки остаются «рукой» (pointer из UA-стилей), кнопкам pointer
+   задаём сами (в UA у них default), явные cursor-pointer классы
+   компонентов не перекрываются. Блок unlayered — в Tailwind v4
+   unlayered-стили сильнее layered-утилит, но конфликтов нет: pointer
+   vs pointer совпадают, disabled:cursor-* применяются только к
+   disabled-кнопкам, которые :not(:disabled) не матчит.
+   Выделение текста мышью не запрещается — меняется только вид курсора.
+   ============================================================ */
+body {
+  cursor: default;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+textarea,
+[contenteditable="true"],
+[contenteditable=""] {
+  cursor: text;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 @layer base {
   /* Task 151: правило заголовков перенесено ВНУТРЬ @layer base. Раньше оно
      стояло вне слоёв, а в Tailwind v4 unlayered-стили побеждают layered-
