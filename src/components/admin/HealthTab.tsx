@@ -20,7 +20,11 @@ interface HealthData {
     disk_free_bytes: number | null;
     disk_total_bytes: number | null;
   };
-  db: { size_bytes: number | null };
+  db: {
+    size_bytes: number | null;
+    /** Task 157: когда база последний раз менялась (mtime файла) — «возраст» данных */
+    modified_at: number | null;
+  };
   backups: {
     interval_days: number;
     count: number;
@@ -273,6 +277,13 @@ export function HealthTab() {
           <p>Размер: {fmtBytes(data.db.size_bytes)}</p>
           <p>Товаров: {data.products_total}</p>
           <p>Новых заказов в ожидании: {data.orders_new}</p>
+          {/* Task 157: «возраст» базы — если база новее последнего бэкапа, копия устарела */}
+          <p>
+            Изменена: {fmtWhen(data.db.modified_at)}
+            {data.db.modified_at && data.backups.last?.time && data.db.modified_at > data.backups.last.time && (
+              <span className="text-amber-700"> · новее последнего бэкапа</span>
+            )}
+          </p>
         </Card>
 
         <Card

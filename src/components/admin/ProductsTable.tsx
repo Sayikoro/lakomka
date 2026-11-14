@@ -372,6 +372,12 @@ export function ProductsTable({ initialProducts, reload }: Props) {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
+  /* Task 157: ПОЧИНКА inline-правки цены/остатка — она не работала с появления:
+     onChange уже записывал ввод в state, а onBlur сравнивал ввод с ЭТИМ ЖЕ
+     обновлённым state → значения всегда совпадали и PATCH никогда не уходил.
+     Теперь при фокусе фиксируем исходное значение и сравниваем с ним. */
+  const editBase = useRef<Record<number, { price: number; stock: number }>>({});
+
   async function patch(id: number, payload: Record<string, unknown>) {
     setSavingId(id);
     setError(null);
@@ -872,26 +878,34 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                     </span>
                   </td>
                   <td className="p-3 text-right">
+                    {/* Task 157: inline-правка цены/остатка (была ранее) + коммит по Enter
+                        и aria-label — раньше сохранение было только по клику мимо поля. */}
                     <input
                       type="number"
+                      aria-label="Цена, ₽"
                       value={Math.round(p.price_kopecks / 100)}
+                      onFocus={() => { editBase.current[p.id] = { price: p.price_kopecks, stock: p.stock_qty }; }}
                       onChange={(e) => setProducts((list) => list.map((x) => x.id === p.id ? { ...x, price_kopecks: (Number(e.target.value) || 0) * 100 } : x))}
                       onBlur={(e) => {
                         const newKopecks = (Number(e.target.value) || 0) * 100;
-                        if (newKopecks !== p.price_kopecks) patch(p.id, { price_kopecks: newKopecks });
+                        if (newKopecks !== (editBase.current[p.id]?.price ?? p.price_kopecks)) patch(p.id, { price_kopecks: newKopecks });
                       }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                       className="w-24 rounded border border-[var(--color-border)] px-2 py-1 text-right text-sm"
                     />
                   </td>
                   <td className="p-3 text-right">
                     <input
                       type="number"
+                      aria-label="Остаток, шт"
                       value={p.stock_qty}
+                      onFocus={() => { editBase.current[p.id] = { price: p.price_kopecks, stock: p.stock_qty }; }}
                       onChange={(e) => setProducts((list) => list.map((x) => x.id === p.id ? { ...x, stock_qty: Number(e.target.value) || 0 } : x))}
                       onBlur={(e) => {
                         const newStock = Number(e.target.value) || 0;
-                        if (newStock !== p.stock_qty) patch(p.id, { stock_qty: newStock });
+                        if (newStock !== (editBase.current[p.id]?.stock ?? p.stock_qty)) patch(p.id, { stock_qty: newStock });
                       }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                       className="w-20 rounded border border-[var(--color-border)] px-2 py-1 text-right text-sm"
                     />
                   </td>
@@ -954,6 +968,25 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                         <Link href={`/admin/products/edit?id=${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
                           ред.
                         </Link>
+                        {/* Task 157: «открыть на сайте» прямо из строки — раньше приходилось
+                            искать товар на витрине вручную. У «частей набора» своей карточки
+                            нет; у скрытого товара карточка недоступна — приглушаем и предупреждаем. */}
+                        {p.type !== "recipe" && p.slug && (
+                          <a
+                            href={`/product/${p.slug}/`}
+                            target="_blank"
+                            rel="noreferrer"
+                            data-testid={`site-link-${p.id}`}
+                            title={p.show_in_catalog === 1
+                              ? "Открыть карточку товара на сайте (в новой вкладке)"
+                              : "Товар скрыт из каталога — на сайте карточка недоступна"}
+                            className={`mr-3 text-xs ${p.show_in_catalog === 1
+                              ? "text-[var(--color-primary)] hover:underline"
+                              : "text-[var(--color-muted)] hover:text-[var(--color-body)]"}`}
+                          >
+                            сайт
+                          </a>
+                        )}
                         <button
                           onClick={() => duplicate(p)}
                           disabled={duplicatingId === p.id}

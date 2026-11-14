@@ -76,6 +76,10 @@ class Health
             ],
             'db' => [
                 'size_bytes' => is_file($db) ? (int)filesize($db) : null,
+                /* Task 157: «возраст» базы — когда последний раз менялась (mtime
+                 * файла). Здорово видно, что бэкап снят ДО важных правок:
+                 * если база новее последнего бэкапа — копия устарела. */
+                'modified_at' => is_file($db) ? (int)@filemtime($db) ?: null : null,
             ],
             'backups' => [
                 'interval_days' => max(0, (int)($settings['backup_interval_days'] ?? '3') ?: 3),
