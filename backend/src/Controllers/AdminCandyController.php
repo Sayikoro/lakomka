@@ -40,10 +40,12 @@ class AdminCandyController
         $params = [];
 
         if ($search !== '') {
-            $sql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR p.manufacturer LIKE ?)';
-            $params[] = "%$search%";
-            $params[] = "%$search%";
-            $params[] = "%$search%";
+            /* Task 158: без учёта регистра (кириллица) — mb_lower() из Database::get() */
+            $lowered = '%' . mb_strtolower($search, 'UTF-8') . '%';
+            $sql .= ' AND (mb_lower(p.name) LIKE ? OR mb_lower(p.sku) LIKE ? OR mb_lower(p.manufacturer) LIKE ?)';
+            $params[] = $lowered;
+            $params[] = $lowered;
+            $params[] = $lowered;
         }
 
         $sql .= ' ORDER BY p.name COLLATE NOCASE ASC LIMIT 2000';

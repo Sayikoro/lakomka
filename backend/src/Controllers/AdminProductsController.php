@@ -53,9 +53,13 @@ class AdminProductsController
         $params = [];
 
         if ($search !== '') {
-            $where .= ' AND (name LIKE ? OR sku LIKE ?)';
-            $params[] = "%$search%";
-            $params[] = "%$search%";
+            /* Task 158: регистр больше не важен — LIKE в SQLite
+             * опускает только ASCII, «подарок» не находил «Подарок».
+             * mb_lower() (Database::get()) — обе стороны к нижнему регистру. */
+            $lowered = '%' . mb_strtolower($search, 'UTF-8') . '%';
+            $where .= ' AND (mb_lower(name) LIKE ? OR mb_lower(sku) LIKE ?)';
+            $params[] = $lowered;
+            $params[] = $lowered;
         }
 
         if ($filter === 'catalog') {

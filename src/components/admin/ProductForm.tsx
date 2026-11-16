@@ -90,6 +90,11 @@ export function ProductForm({ mode, initial }: Props) {
   const [picked, setPicked] = useState<GalleryPick[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(false);
 
+  /* Task 158: SEO-блок — скрывающаяся панель (просил владелец: SEO правят
+   * редко, а блок всегда занимал место в форме). Свёрнут по умолчанию;
+   * в шапке — статус заполненности, чтобы видно было, стоит ли раскрывать. */
+  const [seoOpen, setSeoOpen] = useState(false);
+
   /* Task 152: выбор категории прямо в форме (раньше — только массовая
    * операция из списка). Категории берём same-origin /api/categories:
    * витринная getCategories() зовёт PHP_API_URL — абсолютный URL серверного
@@ -450,39 +455,82 @@ export function ProductForm({ mode, initial }: Props) {
         </div>
       )}
 
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-4">
-        <p className="mb-3 text-sm font-medium text-[var(--color-heading)]">
-          SEO — для поисковиков (Яндекс, Google)
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className={label}>SEO-заголовок (title)</label>
-            <input
-              value={form.meta_title}
-              onChange={(e) => set("meta_title", e.target.value)}
-              placeholder="Оставь пустым — возьмётся название товара"
-              maxLength={255}
-              className={input}
-            />
-            <p className="mt-1 text-xs text-[var(--color-muted)]">
-              Показывается во вкладке браузера и в поисковой выдаче. Оптимально до 60 символов ({form.meta_title.length}/60).
-            </p>
+      {/* Task 158: SEO — скрывающаяся панель. На кнопке-шапке статус:
+          «заполнено» зелёным, если title или description заполнены. */}
+      <div
+        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)]"
+        data-testid="seo-panel"
+      >
+        <button
+          type="button"
+          onClick={() => setSeoOpen((v) => !v)}
+          aria-expanded={seoOpen}
+          data-testid="seo-panel-toggle"
+          className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left"
+        >
+          <span className="text-sm font-medium text-[var(--color-heading)]">
+            SEO — для поисковиков (Яндекс, Google)
+            {!seoOpen && (
+              <span
+                className={`ml-2 text-xs font-normal ${
+                  form.meta_title.trim() !== "" || form.meta_description.trim() !== ""
+                    ? "text-[#2e9e5b]"
+                    : "text-[var(--color-muted)]"
+                }`}
+              >
+                {form.meta_title.trim() !== "" || form.meta_description.trim() !== ""
+                  ? "заполнено"
+                  : "не заполнено — можно оставить пустым"}
+              </span>
+            )}
+          </span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className={`shrink-0 text-[var(--color-muted)] transition-transform ${seoOpen ? "rotate-180" : ""}`}
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
+        </button>
+
+        {seoOpen && (
+          <div className="space-y-3 border-t border-[var(--color-border)] p-4" data-testid="seo-panel-content">
+            <div>
+              <label className={label}>SEO-заголовок (title)</label>
+              <input
+                value={form.meta_title}
+                onChange={(e) => set("meta_title", e.target.value)}
+                placeholder="Оставь пустым — возьмётся название товара"
+                maxLength={255}
+                className={input}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Показывается во вкладке браузера и в поисковой выдаче. Оптимально до 60 символов ({form.meta_title.length}/60).
+              </p>
+            </div>
+            <div>
+              <label className={label}>SEO-описание (description)</label>
+              <textarea
+                value={form.meta_description}
+                onChange={(e) => set("meta_description", e.target.value)}
+                rows={2}
+                placeholder="Оставь пустым — возьмётся описание товара"
+                maxLength={1000}
+                className={input}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Сниппет под ссылкой в поисковой выдаче. Оптимально до 160 символов ({form.meta_description.length}/160).
+              </p>
+            </div>
           </div>
-          <div>
-            <label className={label}>SEO-описание (description)</label>
-            <textarea
-              value={form.meta_description}
-              onChange={(e) => set("meta_description", e.target.value)}
-              rows={2}
-              placeholder="Оставь пустым — возьмётся описание товара"
-              maxLength={1000}
-              className={input}
-            />
-            <p className="mt-1 text-xs text-[var(--color-muted)]">
-              Сниппет под ссылкой в поисковой выдаче. Оптимально до 160 символов ({form.meta_description.length}/160).
-            </p>
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-soft)] p-4">

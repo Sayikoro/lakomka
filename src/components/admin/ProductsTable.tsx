@@ -16,7 +16,11 @@
  *  - массовые операции: чекбоксы → статус/категория/цена ±%/удаление;
  *  - мягкое удаление с «Отменить» вместо подтверждающих окон
  *    (удалённое живёт в «Корзине», восстановление в один клик);
- *  - метки медиа в строке: «нет фото» и «видео: N». */
+ *  - метки медиа в строке: «нет фото» и «видео: N».
+ *
+ * Task 158: быстрое отключение подарка одним кликом — кнопка «скрыть»
+ * гасит show_in_catalog и is_published (витрина требует оба =1),
+ * «в каталог» возвращает оба; у скрытого товара метка «скрыт». */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -871,6 +875,17 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                         удалён: {new Date(p.deleted_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                       </span>
                     )}
+                    {/* Task 158: метка «скрыт» — сразу видно, что товар не на витрине
+                        (у «частей набора» скрытость — норма, их не метим). */}
+                    {!isDeletedRow && p.type !== "recipe" && (p.show_in_catalog === 0 || p.is_published === 0) && (
+                      <span
+                        data-testid={`hidden-badge-${p.id}`}
+                        title="Товар скрыт с витрины — в каталоге его не видно. Вернуть: кнопка «в каталог» или галочки справа"
+                        className="ml-2 inline-block rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"
+                      >
+                        скрыт
+                      </span>
+                    )}
                   </td>
                   <td className="p-3">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_BADGE[p.type] ?? "bg-gray-100"}`}>
@@ -965,6 +980,34 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                       </>
                     ) : (
                       <>
+                        {/* Task 158: быстрое отключение подарка одним кликом (просил владелец:
+                            раньше скрыть товар = открыть карточку или снимать обе галочки
+                            по отдельности). Витрина требует оба флага = 1, поэтому «скрыть»
+                            гасит оба, а «в каталог» возвращает оба. У «частей набора»
+                            действия нет — их в каталоге нет и так. */}
+                        {p.type !== "recipe" && (
+                          (p.show_in_catalog === 1 && p.is_published === 1) ? (
+                            <button
+                              onClick={() => patch(p.id, { show_in_catalog: 0, is_published: 0 })}
+                              disabled={savingId === p.id}
+                              data-testid={`quick-hide-${p.id}`}
+                              title="Скрыть подарок из каталога одним кликом — покупатели его больше не увидят. Вернуть можно тут же кнопкой «в каталог»"
+                              className="mr-3 text-xs text-[var(--color-muted)] hover:text-red-600 disabled:opacity-50"
+                            >
+                              скрыть
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => patch(p.id, { show_in_catalog: 1, is_published: 1 })}
+                              disabled={savingId === p.id}
+                              data-testid={`quick-show-${p.id}`}
+                              title="Вернуть в каталог одним кликом — включит «в каталоге» и «опубликован»"
+                              className="mr-3 text-xs text-[var(--color-primary)] hover:underline disabled:opacity-50"
+                            >
+                              в каталог
+                            </button>
+                          )
+                        )}
                         <Link href={`/admin/products/edit?id=${p.id}`} className="mr-3 text-xs text-[var(--color-primary)] hover:underline">
                           ред.
                         </Link>

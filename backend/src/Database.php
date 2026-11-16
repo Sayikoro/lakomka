@@ -22,7 +22,31 @@ class Database
         $pdo->exec('PRAGMA foreign_keys = ON');
         $pdo->exec('PRAGMA synchronous = NORMAL');
 
+        /* Task 158: поиск без учёта регистра для кириллицы.
+         * LIKE в SQLite сравнивает регистр только ASCII-букв: «подарок»
+         * не находил «Подарок». Регистрируем функцию mb_lower() —
+         * оба сравниваемых выражения опускаются через mb_strtolower,
+         * поэтому поиск по названию/SKU/производителю/номеру заказа
+         * находит и «Изюм», и «изюм». Функция вешается на общее
+         * соединение (Database::get()) — все контроллеры её видят. */
+        self::registerCaseInsensitiveHelpers($pdo);
+
         self::$instance = $pdo;
         return $pdo;
+    }
+
+    /** Task 158: mb_lower() на любом PDO-соединении (get() зовёт для
+     * боевого соединения, тесты — для своих временных баз). */
+    public static function registerCaseInsensitiveHelpers(PDO $pdo): void
+    {
+        try {
+            $pdo->sqliteCreateFunction(
+                'mb_lower',
+                static fn(?string $s): ?string => $s === null ? null : mb_strtolower($s, 'UTF-8'),
+                1
+            );
+        } catch (PDOException) {
+            /* нет поддержки sqliteCreateFunction — поиски останутся как были */
+        }
     }
 }

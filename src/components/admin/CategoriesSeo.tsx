@@ -31,6 +31,16 @@ export function CategoriesSeo() {
   const [savedId, setSavedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /* Task 158: весь блок — скрывающаяся панель (просил владелец: SEO-редактор
+   * нужен редко, а стоял всегда раскрытым над таблицей товаров). По умолчанию
+   * свёрнут — таблица сразу видна; в шапке панели — сколько категорий
+   * заполнено, чтобы видно было, есть ли смысл раскрывать. */
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  const filledCount = cats
+    ? cats.filter((c) => (c.meta_title ?? "") !== "" || (c.meta_description ?? "") !== "" || (c.seo_text ?? "") !== "").length
+    : 0;
+
   const load = useCallback(async () => {
     try {
       const res = await fetch(`${apiUrl}/admin/categories`, {
@@ -97,19 +107,60 @@ export function CategoriesSeo() {
     "w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
 
   return (
-    <div className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)] p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-[var(--color-heading)]">
-          SEO категорий
-        </h2>
-        <span className="text-xs text-[var(--color-muted)]">
-          страницы /catalog/&lt;категория&gt; — мета-теги и текст
+    <div
+      className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-card)]"
+      data-testid="categories-seo-panel"
+    >
+      {/* Task 158: шапка-кнопка — панель открывается/закрывается целиком */}
+      <button
+        type="button"
+        onClick={() => setPanelOpen((v) => !v)}
+        aria-expanded={panelOpen}
+        data-testid="categories-seo-panel-toggle"
+        className="flex w-full cursor-pointer items-center justify-between gap-3 p-6 text-left"
+      >
+        <span>
+          <span className="text-lg font-semibold text-[var(--color-heading)]">
+            SEO категорий
+          </span>
+          <span className="ml-3 text-xs text-[var(--color-muted)]">
+            страницы /catalog/&lt;категория&gt; — мета-теги и текст
+          </span>
+          {!panelOpen && (
+            <span className="ml-3 text-xs text-[var(--color-muted)]">
+              {cats === null
+                ? ""
+                : filledCount > 0
+                  ? `заполнено: ${filledCount} из ${cats.length}`
+                  : "не заполнено — мета-теги генерируются автоматически"}
+            </span>
+          )}
         </span>
-      </div>
-      <p className="mt-1 text-sm text-[var(--color-muted)]">
-        Заполните заголовок, описание и текст — они попадут на страницу категории.
-        Пустые поля заполняются автоматически из названия.
-      </p>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-[var(--color-muted)]">
+          {panelOpen ? "свернуть" : "открыть"}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className={`transition-transform ${panelOpen ? "rotate-180" : ""}`}
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
+        </span>
+      </button>
+
+      {panelOpen && (
+        <div className="border-t border-[var(--color-border)] p-6">
+          <p className="mb-4 text-sm text-[var(--color-muted)]">
+            Заполните заголовок, описание и текст — они попадут на страницу категории.
+            Пустые поля заполняются автоматически из названия.
+          </p>
 
       {error && (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -222,6 +273,8 @@ export function CategoriesSeo() {
               </div>
             );
           })}
+        </div>
+      )}
         </div>
       )}
     </div>

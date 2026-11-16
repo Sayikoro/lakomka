@@ -30,8 +30,10 @@ class AdminOrdersController
 
         $number = trim($_GET['number'] ?? '');
         if ($number !== '') {
-            $sql .= ' AND order_number LIKE ?';
-            $params[] = "%$number%";
+            /* Task 158: без учёта регистра — номер содержит буквенный префикс,
+             * «лк-…» должен находить тот же заказ, что и «ЛК-…» */
+            $sql .= ' AND mb_lower(order_number) LIKE ?';
+            $params[] = '%' . mb_strtolower($number, 'UTF-8') . '%';
         }
 
         // email=0 — заказы, у которых письмо клиенту не ушло (email_sent = 0)
