@@ -15,7 +15,8 @@ class AdminProductsController
        BundleEditor и корзина. С page= — новый:
          page (1..N), per_page (10–200, по умолчанию 50),
          sort=default|name_asc|name_desc|price_asc|price_desc,
-         category=<id>, price_min/price_max (копейки),
+         category=<id>|none (none = без категории, Task 160),
+         price_min/price_max (копейки),
          weight_min/weight_max (граммы).
        Ответ: {data, total, page, per_page, pages, price_min, price_max,
                weight_steps[], categories_present[]}
@@ -117,10 +118,16 @@ class AdminProductsController
         $whereFull = $where;
         $paramsFull = $params;
 
-        $categoryId = (int)($_GET['category'] ?? 0);
+        /* Task 160: category=none — товары без категории (category_id
+           IS NULL; = 0 тоже принят — на случай легаси-импорта). */
+        $categoryParam = (string)($_GET['category'] ?? '0');
+        $categoryNone = ($categoryParam === 'none');
+        $categoryId = $categoryNone ? 0 : (int)$categoryParam;
         if ($categoryId > 0) {
             $whereFull .= ' AND category_id = ?';
             $paramsFull[] = $categoryId;
+        } elseif ($categoryNone) {
+            $whereFull .= ' AND (category_id IS NULL OR category_id = 0)';
         }
         if (isset($_GET['price_min'], $_GET['price_max'])) {
             $whereFull .= ' AND price_kopecks BETWEEN ? AND ?';
@@ -148,8 +155,14 @@ class AdminProductsController
         self::enrich($pdo, $rows);
 
         /* Фасеты по набору q+filter+category (без price/weight — чтобы
-           ползунки не пересчитывали сами себя) */
-        $whereFacet = $where . ($categoryId > 0 ? ' AND category_id = ' . $categoryId : '');
+           ползунки не пересчитывали сами себя). Task 160: при category=none
+           фасеты считаются по товарам без категории. */
+        $whereFacet = $where;
+        if ($categoryId > 0) {
+            $whereFacet .= ' AND category_id = ' . $categoryId;
+        } elseif ($categoryNone) {
+            $whereFacet .= ' AND (category_id IS NULL OR category_id = 0)';
+        }
         $priceRow = $pdo->prepare(
             'SELECT MIN(price_kopecks) AS lo, MAX(price_kopecks) AS hi FROM products' . $whereFacet
         );

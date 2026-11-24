@@ -20,7 +20,12 @@
  *
  * Task 158: быстрое отключение подарка одним кликом — кнопка «скрыть»
  * гасит show_in_catalog и is_published (витрина требует оба =1),
- * «в каталог» возвращает оба; у скрытого товара метка «скрыт». */
+ * «в каталог» возвращает оба; у скрытого товара метка «скрыт».
+ *
+ * Task 160: плитки категорий — весь справочник (включая пустые, например
+ * «Тубы»: раньше категория без товаров исчезала из фильтра и её нельзя
+ * было ни выбрать, ни наполнить); новая плитка «Без категории» — товары
+ * с пустым category_id, на сервер уходит category=none. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -120,7 +125,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
 
   /* ── Фильтры каталога (Task 90) ── */
   const [categories, setCategories] = useState<AdminCategory[] | null>(null);
-  const [category, setCategory] = useState<string>("all"); // slug | "all"
+  const [category, setCategory] = useState<string>("all"); // slug | "all" | "none" (Task 160)
   const [sort, setSort] = useState<SortKey>("default");
   // Ползунки: пока пользователь их не трогал — следуют за границами данных
   // («прикоснулся» = touched, сброс = touched=false)
@@ -217,14 +222,11 @@ export function ProductsTable({ initialProducts, reload }: Props) {
   const weightLo = weightSteps[effWeight[0]] ?? 0;
   const weightHi = weightSteps[effWeight[1]] ?? 0;
 
-  // Категории, реально представленные в наборе (фасет с сервера —
-  // текущая страница всего набора не покрывает)
-  const categoryOptions = useMemo(() => {
-    if (!categories) return [];
-    const present = new Set(facets?.categoriesPresent ?? []);
-    if (present.size === 0) return categories; // фасетов ещё нет — показываем все
-    return categories.filter((c) => present.has(c.id));
-  }, [categories, facets]);
+  /* Task 160: плитки — ВСЕ категории справочника (как в каталоге, Task 159).
+     Раньше фильтр показывал только категории, реально представленные в
+     наборе (фасет categoriesPresent), — пустая категория («Тубы» без
+     товаров) исчезала из панели, и фильтр по ней был невозможен. */
+  const categoryOptions = useMemo(() => categories ?? [], [categories]);
 
   // Иконки плиток: первая картинка товара категории (фасет с сервера),
   // без товаров — фолбэк из мока, ровно как в каталоге
@@ -252,6 +254,7 @@ export function ProductsTable({ initialProducts, reload }: Props) {
         if (search.trim() !== "") qp.set("q", search.trim());
         const cat = (categories ?? []).find((c) => c.slug === category);
         if (cat) qp.set("category", String(cat.id));
+        else if (category === "none") qp.set("category", "none"); // Task 160: без категории
         if (sort !== "default") {
           const sortMap: Record<string, string> = {
             "name-asc": "name_asc",
@@ -604,6 +607,25 @@ export function ProductsTable({ initialProducts, reload }: Props) {
                     <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" />
                   </svg>
                   Все
+                </button>
+                {/* Task 160: товары с пустым category_id — одним кликом */}
+                <button
+                  data-testid="cat-none-tile"
+                  onClick={() => {
+                    setCategory("none");
+                    setPage(1);
+                  }}
+                  aria-pressed={category === "none"}
+                  className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border p-2.5 text-center text-[12px] font-medium leading-tight transition-colors ${
+                    category === "none"
+                      ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                      : "border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-heading)] hover:border-[var(--color-primary)]"
+                  }`}
+                >
+                  <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeDasharray="3 2.5" aria-hidden>
+                    <rect x="4" y="4" width="16" height="16" rx="4" />
+                  </svg>
+                  Без категории
                 </button>
                 {categoryOptions.map((c) => (
                   <button
