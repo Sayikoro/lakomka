@@ -245,12 +245,16 @@ export function CatalogClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weightSteps.length]);
 
-  // Категории, реально представленные в каталоге (порядок — как на главной)
-  const categoryOptions = useMemo(() => {
-    const present = new Set<number>();
-    liveProducts.forEach((p) => p.category_id && present.add(p.category_id));
-    return categories.filter((c) => present.has(c.id));
-  }, [liveProducts, categories]);
+  /* Task 159: выбранная категория резолвится из ПОЛНОГО списка категорий.
+     Раньше — из списка категорий с товарами, поэтому категория без
+     назначенных товаров («Тубы») молча не фильтровала: find давал
+     undefined → /catalog/tuby показывал весь каталог. Теперь выбранная
+     категория фильтрует всегда, а пустая честно показывает пустое
+     состояние (catalog_category_empty) вместо всего каталога. */
+  const selectedCategory = useMemo(
+    () => categories.find((c) => c.slug === category) ?? null,
+    [categories, category],
+  );
 
   /* ── Task 139: «Недавно смотрели» ──
      История хранится в localStorage (пишется на карточке товара),
@@ -313,7 +317,7 @@ export function CatalogClient({
     const wHi = weightSteps[weightIdx[1]];
     const weightActive = boundsReady && weightSteps.length > 0 && (weightIdx[0] > 0 || weightIdx[1] < weightSteps.length - 1);
     const priceActive = boundsReady && (priceRange[0] > priceBounds.min || priceRange[1] < priceBounds.max);
-    const cat = categoryOptions.find((c) => c.slug === category);
+    const cat = selectedCategory; // Task 159: из полного списка категорий
 
     return liveProducts.filter((p) => {
       if (cat && p.category_id !== cat.id) return false;
@@ -325,7 +329,7 @@ export function CatalogClient({
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [liveProducts, category, categoryOptions, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
+  }, [liveProducts, selectedCategory, weightIdx, weightSteps, priceRange, priceBounds, search, boundsReady]);
 
   const hasFilters =
     category !== "all" ||
@@ -439,7 +443,11 @@ export function CatalogClient({
           />
         </div>
 
-        {categoryOptions.length > 0 && (
+        {/* Task 159: плитки ВСЕХ категорий из справочника, а не только тех,
+            где уже есть товары — иначе у новой пустой категории («Тубы»)
+            вообще не было фильтра. Клик по пустой — честный пустой результат
+            + сброс, товары появятся, как только их назначат в админке. */}
+        {categories.length > 0 && (
           <div>
             <div className="mb-2 text-sm font-medium text-[var(--color-heading)]">{t("catalog_category_label")}</div>
             {/* Бенто-плитки: 2 кол. на телефоне, 4 кол. на планшете (фильтры сверху),
@@ -462,7 +470,7 @@ export function CatalogClient({
                 </svg>
                 {t("catalog_all")}
               </button>
-              {categoryOptions.map((c) => (
+              {categories.map((c) => (
                 <button
                   key={c.slug}
                   onClick={() => changeCategory(c.slug)}
@@ -617,8 +625,15 @@ export function CatalogClient({
             ))}
           </div>
         ) : sorted.length === 0 ? (
-          <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] p-12 text-center text-[var(--color-muted)]">
-            {t("catalog_empty_result")}
+          <div
+            data-testid="catalog-empty"
+            className="rounded-[var(--radius-card)] border border-dashed border-[var(--color-border)] p-12 text-center text-[var(--color-muted)]"
+          >
+            {/* Task 159: в выбранной категории товаров нет — называем её,
+                а не «ничего не нашлось по фильтрам» (лендинг /catalog/<slug>) */}
+            {selectedCategory
+              ? t("catalog_category_empty", { name: selectedCategory.name })
+              : t("catalog_empty_result")}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">

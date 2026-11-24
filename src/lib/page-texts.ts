@@ -106,6 +106,7 @@ export const PAGE_TEXTS: PageTextsDef[] = [
       { key: "catalog_pages", label: "Счётчик страниц ({page} и {pages} — числа)", def: "Страница {page} из {pages}" },
       { key: "catalog_sort_label", label: "Надпись «Сортировка:»", def: "Сортировка:" },
       { key: "catalog_empty_result", label: "Пустой результат фильтров", def: "Ничего не нашлось. Попробуйте изменить фильтры." },
+      { key: "catalog_category_empty", label: "Пустая категория — текст ({name} — название категории)", def: "В категории «{name}» пока нет подарков. Посмотрите другие разделы каталога." },
       { key: "catalog_recent_title", label: "Блок «Недавно смотрели» — заголовок", def: "Недавно смотрели" },
       { key: "catalog_quick_view", label: "Кнопка быстрого просмотра товара", def: "Быстрый просмотр" },
     ],
